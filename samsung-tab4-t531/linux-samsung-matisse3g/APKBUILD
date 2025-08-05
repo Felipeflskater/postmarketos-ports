@@ -1,60 +1,82 @@
 # Maintainer: Felipe Aranalde <felipe.aranalde@gmail.com>
-# Reference: <https://postmarketos.org/vendorkernel>
-# Kernel config based on: arch/arm/configs/(CHANGEME!)
 
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.0
 pkgrel=0
 pkgdesc="Kernel para o Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
-_carch="arm"
 _flavor="samsung-matisse3g"
 url="https://github.com/matissewifi/android_kernel_samsung_matisse"
 license="GPL-2.0-only"
-options="!strip !check !tracedeps pmb:cross-native"
 makedepends="
-	bash
-	bc
-	bison
-	devicepkg-dev
-	findutils
-	flex
-	openssl-dev
-	perl
+    bash
+    bc
+    bison
+    devicepkg-dev
+    dtbtool
+    dtc
+    elfutils-dev
+    findutils
+    flex
+    gmp-dev
+    installkernel
+    linux-headers
+    openssl-dev
+    perl
+    sed
 "
+options="!strip !check !tracedeps"
 
-# Source
-_repository="(CHANGEME!)"
-_commit="ffffffffffffffffffffffffffffffffffffffff"
-_config="config-$_flavor.$arch"
 source="
-	$pkgname-$_commit.tar.gz::https://github.com/LineageOS/$_repository/archive/$_commit.tar.gz
-	$_config
-	gcc7-give-up-on-ilog2-const-optimizations.patch
-	gcc8-fix-put-user.patch
-	gcc10-extern_YYLOC_global_declaration.patch
-	kernel-use-the-gnu89-standard-explicitly.patch
+    https://github.com/matissewifi/android_kernel_samsung_matisse/archive/refs/heads/cm-14.1.tar.gz
+    config-samsung-matisse3g.armv7
 "
-builddir="$srcdir/$_repository-$_commit"
-_outdir="out"
+builddir="$srcdir/android_kernel_samsung_matisse-cm-14.1"
 
 prepare() {
-	default_prepare
-	. downstreamkernel_prepare
+    cd "$builddir"
+
+    echo "[*] Aplicando .config manualmente"
+    cp "$srcdir"/config-samsung-matisse3g.armv7 .config
+
+    echo "[*] Corrigindo todos os Makefiles com TABs"
+    find . -name 'Makefile*' -exec sed -i 's/^\([ ]\{1,\}\)/\t/' {} +
+
+    echo "[*] Corrigindo scripts Python sem shebang"
+    find . -type f -name "*.py" -exec grep -L "^#!" {} \; | while read -r f; do
+        sed -i '1i#!/usr/bin/env python3' "$f"
+    done
+
+    echo "[*] Corrigindo includes ausentes"
+    find . -type f \( -name "*.c" -o -name "*.h" \) -exec \
+        sed -i '/^#include <linux\/kernel.h>/a #include <linux\/types.h>' {} +
+
+    echo "[*] Substituindo funções antigas por compatíveis"
+    find . -type f -exec sed -i 's/strict_strtoul/kstrtoul/g' {} +
+    find . -type f -exec sed -i 's/strict_strtol/kstrtol/g' {} +
+
+    echo "[*] Corrigindo zconf.gperf"
+    if [ -f scripts/kconfig/zconf.gperf ]; then
+        sed -i '1i%option noinput' scripts/kconfig/zconf.gperf || true
+    fi
+
+    echo "[*] make prepare e make scripts"
+    make ARCH=arm prepare scripts || true
 }
 
 build() {
-	unset LDFLAGS
-	make O="$_outdir" ARCH="$_carch" CC="${CC:-gcc}" \
-		KBUILD_BUILD_VERSION="$((pkgrel + 1 ))-postmarketOS"
+    cd "$builddir"
+    make ARCH=arm CROSS_COMPILE=armv7-alpine-linux-musleabihf- zImage dtbs
 }
 
 package() {
-	downstreamkernel_package "$builddir" "$pkgdir" "$_carch" \
-		"$_flavor" "$_outdir"
+    cd "$builddir"
+    mkdir -p "$pkgdir"/boot
+    cp arch/arm/boot/zImage "$pkgdir"/boot/zImage-$_flavor
+    cp arch/arm/boot/dts/*.dtb "$pkgdir"/boot/ 2>/dev/null || true
 }
 
 sha512sums="
 5f75c3531f91fe879b649f8b8bfd70b5158a85d569a4943d217a5c1308b2c790bbc79fbb9ad02713f9fdb26e45d088511dd66d76c90568c8c70086356abec45f  cm-14.1.tar.gz
-114c105a69388f323665dede60f1ec849362003546b42829eae739d92b40cbbe5549e8b114f6a498915cd6db8d207ad35abcce73f515694b902bb11999fcfb5c  config-samsung-matisse3g.armv7
+2771261357fc8df922e99a1489a1005351d047289643029745bcec23318267f461b654e292ded002b95af9a4197d1d002a03001c03a35a1fb40043f742013464  config-samsung-matisse3g.armv7
 "
