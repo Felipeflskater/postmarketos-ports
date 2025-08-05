@@ -1,0 +1,67 @@
+# Maintainer: Felipe Aranalde <felipe.aranalde@gmail.com>
+pkgname=linux-samsung-matisse3g
+pkgver=3.4.0
+pkgrel=0
+pkgdesc="Kernel para o Samsung Galaxy Tab 4 10.1 (SM-T531)"
+arch="armv7"
+url="https://github.com/matissewifi/android_kernel_samsung_matisse"
+license="GPL-2.0-only"
+makedepends="perl sed openssl-dev bc findutils flex bash bison dtc gmp-dev linux-headers elfutils-dev dtbtool installkernel devicepkg-dev"
+options="!strip !check !tracedeps"
+source="
+    https://github.com/matissewifi/android_kernel_samsung_matisse/archive/refs/heads/cm-14.1.tar.gz
+    config-samsung-matisse3g.armv7
+"
+builddir="$srcdir/android_kernel_samsung_matisse-cm-14.1"
+
+prepare() {
+    cd "$builddir"
+
+    echo "[*] Aplicando .config manualmente"
+    cp "$srcdir"/config-samsung-matisse3g.armv7 .config
+
+    echo "[*] Corrigindo todos os Makefiles com TABs"
+    find . -name 'Makefile*' -exec sed -i 's/^\([ ]\{1,\}\)/\t/' {} +
+
+    echo "[*] Corrigindo scripts Python sem shebang"
+    find . -type f -name "*.py" -exec grep -L "^#!" {} \; | while read -r f; do
+        sed -i '1i#!/usr/bin/env python3' "$f"
+    done
+
+    echo "[*] Corrigindo includes ausentes"
+    find . -type f \( -name "*.c" -o -name "*.h" \) -exec \
+        sed -i '/^#include <linux\/kernel.h>/a #include <linux\/types.h>' {} +
+
+    echo "[*] Substituindo funções antigas por compatíveis"
+    find . -type f -exec sed -i 's/strict_strtoul/kstrtoul/g' {} +
+    find . -type f -exec sed -i 's/strict_strtol/kstrtol/g' {} +
+
+    echo "[*] Corrigindo erro de zconf.gperf ausente"
+    make -C scripts/kconfig zconf.hash
+}
+
+build() {
+    cd "$builddir"
+
+    export ARCH=arm
+    export CROSS_COMPILE=armv7-alpine-linux-musleabihf-
+    export HOSTCFLAGS="-std=gnu89"
+
+    echo "[*] Gerando arquivos de configuração com silentoldconfig"
+    make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE silentoldconfig
+
+    echo "[*] Compilando zImage e dtbs"
+    make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE -j$(nproc) zImage dtbs
+}
+
+package() {
+    cd "$builddir"
+
+    install -Dm644 arch/arm/boot/zImage "$pkgdir"/boot/zImage
+    find arch/arm/boot/dts -name '*.dtb' -exec install -Dm644 {} "$pkgdir"/boot/dtb/{} \;
+}
+
+sha512sums="
+5f75c3531f91fe879b649f8b8bfd70b5158a85d569a4943d217a5c1308b2c790bbc79fbb9ad02713f9fdb26e45d088511dd66d76c90568c8c70086356abec45f  cm-14.1.tar.gz
+114c105a69388f323665dede60f1ec849362003546b42829eae739d92b40cbbe5549e8b114f6a498915cd6db8d207ad35abcce73f515694b902bb11999fcfb5c  config-samsung-matisse3g.armv7
+"

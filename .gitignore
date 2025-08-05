@@ -1,0 +1,47 @@
+# Arquivos de build do postmarketOS / kernel
+*.apk
+*.dtb
+*.dtbo
+*.img
+*.gz
+*.xz
+*.zip
+*.tar
+*.tar.gz
+*.tar.xz
+
+# Logs e saídas
+*.log
+
+# Bytecode Python
+*.pyc
+__pycache__/
+
+# Diretórios gerados
+build/
+output/
+tmp/
+cache/
+dist/
+
+# Arquivos editor/IDE
+*.swp
+*.swo
+*.bak
+*~
+*.orig
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Arquivos do pmbootstrap (fora do controle do git)
+chroot_*
+*.apk.new
+.config.old
+
+# Ignorar se acidentalmente copiados
+initramfs.cpio
+vmlinuz
+zImage
+uImage
