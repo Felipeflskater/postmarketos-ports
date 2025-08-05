@@ -39,30 +39,32 @@ prepare() {
     echo "[*] Aplicando .config manualmente"
     cp "$srcdir"/config-samsung-matisse3g.armv7 .config
 
-    echo "[*] Corrigindo todos os Makefiles com TABs"
+    echo "[*] Corrigindo Makefiles com TABs"
     find . -name 'Makefile*' -exec sed -i 's/^\([ ]\{1,\}\)/\t/' {} +
 
-    echo "[*] Corrigindo scripts Python sem shebang"
+    echo "[*] Corrigindo scripts Python"
     find . -type f -name "*.py" -exec grep -L "^#!" {} \; | while read -r f; do
         sed -i '1i#!/usr/bin/env python3' "$f"
     done
 
     echo "[*] Corrigindo includes ausentes"
     find . -type f \( -name "*.c" -o -name "*.h" \) -exec \
-        sed -i '/^#include <linux\/kernel.h>/a #include <linux\/types.h>' {} +
+        sed -i '/^#include <linux\/kernel.h>/a #include <linux/types.h>' {} +
 
-    echo "[*] Substituindo funções antigas por compatíveis"
+    echo "[*] Substituindo funções antigas"
     find . -type f -exec sed -i 's/strict_strtoul/kstrtoul/g' {} +
     find . -type f -exec sed -i 's/strict_strtol/kstrtol/g' {} +
 
     echo "[*] Corrigindo zconf.gperf"
-    if [ -f scripts/kconfig/zconf.gperf ]; then
-        sed -i '1i%option noinput' scripts/kconfig/zconf.gperf || true
-    fi
+    [ -f scripts/kconfig/zconf.gperf ] && sed -i '1i%option noinput' scripts/kconfig/zconf.gperf || true
 
-    echo "[*] make prepare e make scripts"
-    make ARCH=arm prepare scripts || true
+    echo "[*] Gerando arquivos de configuração falsos para evitar silentoldconfig"
+    mkdir -p include/config include/generated
+    touch include/config/auto.conf
+    touch include/generated/autoconf.h
+    echo "3.4.0" > include/config/kernel.release
 }
+
 
 build() {
     cd "$builddir"
