@@ -1,11 +1,13 @@
 # Reference: <https://postmarketos.org/deviceinfo>
-# Please use double quotes only. You can source this file in shell scripts.
+# Please use double quotes only. You can source this file in shell
+# scripts.
 
 deviceinfo_format_version="0"
-deviceinfo_name="Samsung Galaxy Tab 4 10.1"
-deviceinfo_manufacturer="Samsung"
+deviceinfo_name="samsung Galaxy tab 4 10.1"
+deviceinfo_manufacturer="samsung"
 deviceinfo_codename="samsung-matisse3g"
 deviceinfo_year="2014"
+deviceinfo_dtb=""
 deviceinfo_arch="armv7"
 
 # Device related
@@ -26,5 +28,7 @@ deviceinfo_flash_offset_ramdisk="0x02000000"
 deviceinfo_flash_offset_second="0x00f00000"
 deviceinfo_flash_offset_tags="0x01e00000"
 deviceinfo_flash_pagesize="2048"
+deviceinfo_bootimg_qcdt="false"
+deviceinfo_dtb_second="false"
 deviceinfo_flash_heimdall_partition_kernel="BOOT"
 deviceinfo_flash_heimdall_partition_rootfs="SYSTEM"
