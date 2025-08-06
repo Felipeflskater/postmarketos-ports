@@ -39,6 +39,12 @@ prepare() {
     echo "[*] Aplicando .config manualmente"
     cp "$srcdir"/config-samsung-matisse3g.armv7 .config
 
+    echo "[*] Forçando aceitação do .config com olddefconfig (não-interativo)"
+    yes "" | make ARCH=arm olddefconfig
+
+    echo "[*] Garantindo que CONFIG_ARCH_RANDOM esteja definido"
+    grep -q "CONFIG_ARCH_RANDOM" .config || echo "# CONFIG_ARCH_RANDOM is not set" >> .config
+
     echo "[*] Corrigindo Makefiles com TABs"
     find . -name 'Makefile*' -exec sed -i 's/^\([ ]\{1,\}\)/\t/' {} +
 
@@ -58,13 +64,13 @@ prepare() {
     echo "[*] Corrigindo zconf.gperf"
     [ -f scripts/kconfig/zconf.gperf ] && sed -i '1i%option noinput' scripts/kconfig/zconf.gperf || true
 
-    echo "[*] Gerando arquivos de configuração falsos para evitar silentoldconfig"
+    echo "[*] Gerando arquivos de configuração para evitar silentoldconfig"
     mkdir -p include/config include/generated
+    echo '"3.4.0"' > include/config/kernel.release
     touch include/config/auto.conf
     touch include/generated/autoconf.h
-    echo "3.4.0" > include/config/kernel.release
+    touch include/generated/utsrelease.h
 }
-
 
 build() {
     cd "$builddir"
@@ -80,5 +86,5 @@ package() {
 
 sha512sums="
 5f75c3531f91fe879b649f8b8bfd70b5158a85d569a4943d217a5c1308b2c790bbc79fbb9ad02713f9fdb26e45d088511dd66d76c90568c8c70086356abec45f  cm-14.1.tar.gz
-2771261357fc8df922e99a1489a1005351d047289643029745bcec23318267f461b654e292ded002b95af9a4197d1d002a03001c03a35a1fb40043f742013464  config-samsung-matisse3g.armv7
+ec2f99bfc0a1a23a58991b248212b74cc860dae93339fd8df52bd155f30158d6a17b7ff4a6cac47ce6b6b2aae2503eb87b15c9f447188ab720c84eddeb78184d  config-samsung-matisse3g.armv7
 "
