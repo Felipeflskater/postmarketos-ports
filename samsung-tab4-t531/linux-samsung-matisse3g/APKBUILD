@@ -40,7 +40,10 @@ prepare() {
     echo "[*] Corrigindo zconf.gperf (se existir)"
     [ -f scripts/kconfig/zconf.gperf ] && sed -i '1i%option noinput' scripts/kconfig/zconf.gperf || true
 
-    echo "[*] Gerando auto.conf via scripts/kconfig/conf --olddefconfig"
+    echo "[*] Compilando manualmente o scripts/kconfig/conf"
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- scripts/kconfig/conf
+
+    echo "[*] Gerando auto.conf com conf --olddefconfig"
     yes "" | scripts/kconfig/conf --olddefconfig Kconfig
 }
 
