@@ -1,63 +1,56 @@
-# Maintainer: Felipe Aranalde <felipe.aranalde@gmail.com>
-
+# Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.0
 pkgrel=0
-pkgdesc="Linux kernel for Samsung Galaxy Tab 4 10.1 3G (matisse3g)"
+pkgdesc="Linux kernel for Samsung Galaxy Tab 4 10.1 (matisse3g)"
 arch="armv7"
-license="GPL-2.0-only"
 url="https://github.com/matissewifi/android_kernel_samsung_matisse"
-makedepends="perl bash bc dtc flex bison openssl-dev findutils gmp-dev elfutils-dev"
-options="!strip !check !tracedeps"
+license="GPL-2.0-only"
+options="!strip !check"
+makedepends="bc bison flex perl python3 gmp-dev mpfr-dev mpc1-dev gettext-dev"
 subpackages=""
-source="https://github.com/matissewifi/android_kernel_samsung_matisse/archive/refs/heads/cm-14.1.tar.gz
-        config-samsung-matisse3g.armv7"
-
+source="
+    https://github.com/matissewifi/android_kernel_samsung_matisse/archive/refs/heads/cm-14.1.tar.gz
+    config-samsung-matisse3g.armv7
+"
 builddir="$srcdir/android_kernel_samsung_matisse-cm-14.1"
 
 prepare() {
     cd "$builddir"
-
-    echo "[*] Aplicando .config manualmente"
+    echo "[*] Aplicando .config completo e já validado"
     cp "$srcdir"/config-samsung-matisse3g.armv7 .config
 
     echo "[*] Corrigindo Makefiles com TABs"
-    find . -name 'Makefile*' -exec sed -i 's/^\([ ]\{1,\}\)/\t/' {} +
+    find "$builddir" -type f -name "Makefile*" -exec sed -i 's/^\([ ]\+\)/\t/' {} +
 
     echo "[*] Corrigindo scripts Python sem shebang"
-    find . -type f -name "*.py" -exec grep -L "^#!" {} \; | while read -r f; do
-        sed -i '1i#!/usr/bin/env python3' "$f"
-    done
+    find "$builddir" -type f -name "*.py" ! -path "*/\.*" -exec \
+        grep -L '^#!.*/python' {} \; -exec sed -i '1i#!/usr/bin/env python3' {} +
 
-    echo "[*] Corrigindo includes ausentes"
-    find . -type f \( -name "*.c" -o -name "*.h" \) -exec \
-        sed -i '/^#include <linux\/kernel.h>/a #include <linux/types.h>' {} +
-
-    echo "[*] Substituindo funções antigas"
-    find . -type f -exec sed -i 's/strict_strtoul/kstrtoul/g' {} +
-    find . -type f -exec sed -i 's/strict_strtol/kstrtol/g' {} +
+    echo "[*] Corrigindo scripts Python 2 para Python 3 (lib2to3)"
+    find "$builddir/scripts" -type f -name "*.py" -exec python3 -m lib2to3 -w {} +
 
     echo "[*] Corrigindo zconf.gperf (se existir)"
-    [ -f scripts/kconfig/zconf.gperf ] && sed -i '1i%option noinput' scripts/kconfig/zconf.gperf || true
+    [ -f scripts/kconfig/zconf.gperf ] && \
+        sed -i 's/__inline\ static/inline/' scripts/kconfig/zconf.gperf || true
 
-    echo "[*] Compilando manualmente o scripts/kconfig/conf"
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- scripts/kconfig/conf
-
-    echo "[*] Gerando auto.conf com conf --olddefconfig"
-    yes "" | scripts/kconfig/conf --olddefconfig Kconfig
+    echo "[*] Preparando ambiente (make prepare e make scripts)"
+    make ARCH=arm prepare
+    make ARCH=arm scripts
 }
 
 
 build() {
     cd "$builddir"
-    make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm zImage dtbs
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j$(nproc) zImage dtbs
 }
 
 package() {
-    install -Dm644 "$builddir"/arch/arm/boot/zImage "$pkgdir"/boot/zImage
-    find "$builddir"/arch/arm/boot/dts -name "*.dtb" -exec \
-        install -Dm644 {} "$pkgdir"/boot/dtb/{} \;
+    mkdir -p "$pkgdir/boot"
+    cp arch/arm/boot/zImage "$pkgdir/boot/zImage"
+    cp arch/arm/boot/dts/*.dtb "$pkgdir/boot/" 2>/dev/null || true
 }
+
 sha512sums="
 5f75c3531f91fe879b649f8b8bfd70b5158a85d569a4943d217a5c1308b2c790bbc79fbb9ad02713f9fdb26e45d088511dd66d76c90568c8c70086356abec45f  cm-14.1.tar.gz
 ec2f99bfc0a1a23a58991b248212b74cc860dae93339fd8df52bd155f30158d6a17b7ff4a6cac47ce6b6b2aae2503eb87b15c9f447188ab720c84eddeb78184d  config-samsung-matisse3g.armv7
