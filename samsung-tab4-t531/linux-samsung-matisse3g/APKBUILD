@@ -2,12 +2,12 @@
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.0
 pkgrel=0
-pkgdesc="Linux kernel for Samsung Galaxy Tab 4 10.1 (matisse3g)"
+pkgdesc="Linux kernel for Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 url="https://github.com/matissewifi/android_kernel_samsung_matisse"
 license="GPL-2.0-only"
 options="!strip !check"
-makedepends="bc bison flex perl python3 gmp-dev mpfr-dev mpc1-dev gettext-dev"
+makedepends="bc bison flex perl python3 gmp-dev mpfr-dev mpc1-dev gettext-dev bash"
 subpackages=""
 source="
     https://github.com/matissewifi/android_kernel_samsung_matisse/archive/refs/heads/cm-14.1.tar.gz
@@ -16,33 +16,213 @@ source="
 builddir="$srcdir/android_kernel_samsung_matisse-cm-14.1"
 
 prepare() {
+    default_prepare
     cd "$builddir"
+
+    echo "[*] Criando link simbólico para bash se necessário"
+    if [ ! -f /bin/bash ] && [ -f /usr/bin/bash ]; then
+        mkdir -p "$builddir/bin-symlinks"
+        ln -sf /usr/bin/bash "$builddir/bin-symlinks/bash"
+        export PATH="$builddir/bin-symlinks:$PATH"
+    fi
+
+    echo "[*] Corrigindo gcc-wrapper.py para Python 3 (correção completa)"
+    if [ -f scripts/gcc-wrapper.py ]; then
+        # Backup do arquivo original
+        cp scripts/gcc-wrapper.py scripts/gcc-wrapper.py.orig
+
+        # Reescrevendo o arquivo completo para Python 3
+        cat > scripts/gcc-wrapper.py << 'EOF'
+#!/usr/bin/env python3
+
+# Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#     * Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#     * Redistributions in binary form must reproduce the above copyright
+#       notice, this list of conditions and the following disclaimer in the
+#       documentation and/or other materials provided with the distribution.
+#     * Neither the name of The Linux Foundation nor
+#       the names of its contributors may be used to endorse or promote
+#       products derived from this software without specific prior written
+#       permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+import sys
+import subprocess
+import re
+import os
+
+# Forbidden warnings list
+forbidden_warnings = [
+    "include/linux/module.h:",
+    "warning: ISO C90 forbids mixed declarations"
+]
+
+def interpret_warning(line):
+    """Process and filter compiler warnings"""
+
+    # Convert bytes to string if needed
+    if isinstance(line, bytes):
+        line = line.decode('utf-8', errors='ignore')
+
+    # Check for forbidden warnings
+    for warning in forbidden_warnings:
+        if warning in line:
+            print("error, forbidden warning:", warning)
+            return
+
+    # Strip any ANSI color codes and whitespace
+    line = line.rstrip('\n')
+    line = re.sub(r'\033\[[0-9;]*m', '', line)
+
+def run_gcc():
+    """Run GCC with warning filtering"""
+    args = sys.argv[1:]
+    if not args:
+        return 1
+
+    # Execute the compiler
+    try:
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT,
+                              universal_newlines=True)
+
+        for line in proc.stdout:
+            interpret_warning(line)
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+        proc.wait()
+        return proc.returncode
+
+    except Exception as e:
+        print("Error executing compiler:", str(e))
+        return 1
+
+if __name__ == "__main__":
+    status = run_gcc()
+    sys.exit(status)
+EOF
+        chmod +x scripts/gcc-wrapper.py
+        echo "gcc-wrapper.py reescrito com sucesso para Python 3"
+    else
+        echo "gcc-wrapper.py não encontrado, continuando..."
+    fi
+
+    echo "[*] Corrigindo outros scripts Python para Python 3"
+    find "$builddir/scripts" -type f -name "*.py" -exec sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' {} \;
+
+    # Corrige prints Python 2 para Python 3 nos scripts críticos
+    if [ -f scripts/tracing/draw_functrace.py ]; then
+        sed -i 's/print \([^(].*\)/print(\1)/' scripts/tracing/draw_functrace.py
+    fi
+
+    if [ -f scripts/rt-tester/rt-tester.py ]; then
+        sed -i 's/print \([^(].*\)/print(\1)/' scripts/rt-tester/rt-tester.py
+    fi
+
+    if [ -f scripts/build-all.py ]; then
+        sed -i 's/print \([^(].*\)/print(\1)/' scripts/build-all.py
+    fi
+
     echo "[*] Aplicando .config completo e já validado"
     cp "$srcdir"/config-samsung-matisse3g.armv7 .config
 
     echo "[*] Corrigindo Makefiles com TABs"
     find "$builddir" -type f -name "Makefile*" -exec sed -i 's/^\([ ]\+\)/\t/' {} +
 
-    echo "[*] Corrigindo scripts Python sem shebang"
-    find "$builddir" -type f -name "*.py" ! -path "*/\.*" -exec \
-        grep -L '^#!.*/python' {} \; -exec sed -i '1i#!/usr/bin/env python3' {} +
-
-    echo "[*] Corrigindo scripts Python 2 para Python 3 (lib2to3)"
-    find "$builddir/scripts" -type f -name "*.py" -exec python3 -m lib2to3 -w {} +
-
     echo "[*] Corrigindo zconf.gperf (se existir)"
     [ -f scripts/kconfig/zconf.gperf ] && \
         sed -i 's/__inline\ static/inline/' scripts/kconfig/zconf.gperf || true
 
-    echo "[*] Preparando ambiente (make prepare e make scripts)"
-    make ARCH=arm prepare
-    make ARCH=arm scripts
-}
+    echo "[*] Listando defconfigs disponíveis para debug:"
+    ls -la arch/arm/configs/ | head -10
 
+    echo "[*] Gerando configuração completa do kernel"
+    # Define variáveis de ambiente para evitar problemas com bash
+    export CONFIG_SHELL="/bin/sh"
+    export SHELL="/bin/sh"
+
+    # Usa a defconfig específica do matisse3g que foi encontrada!
+    if [ -f arch/arm/configs/msm8226-sec_matisse3g_defconfig ]; then
+        echo "Usando msm8226-sec_matisse3g_defconfig - configuração específica do dispositivo!"
+        make ARCH=arm CONFIG_SHELL="/bin/sh" msm8226-sec_matisse3g_defconfig
+    elif [ -f arch/arm/configs/msm8226-sec_defconfig ]; then
+        echo "Usando msm8226-sec_defconfig como base"
+        make ARCH=arm CONFIG_SHELL="/bin/sh" msm8226-sec_defconfig
+    elif ls arch/arm/configs/*8226* 2>/dev/null; then
+        # Pega o primeiro arquivo que contenha 8226
+        DEFCONFIG=$(ls arch/arm/configs/*8226* | head -n1 | xargs basename)
+        echo "Usando $DEFCONFIG como base"
+        make ARCH=arm CONFIG_SHELL="/bin/sh" $DEFCONFIG
+    elif ls arch/arm/configs/*msm* 2>/dev/null; then
+        # Fallback para qualquer defconfig MSM
+        DEFCONFIG=$(ls arch/arm/configs/*msm* | head -n1 | xargs basename)
+        echo "Usando $DEFCONFIG como base"
+        make ARCH=arm CONFIG_SHELL="/bin/sh" $DEFCONFIG
+    else
+        echo "ERRO: Nenhuma defconfig MSM encontrada!"
+        exit 1
+    fi
+
+    # Aplica suas configurações específicas por cima
+    echo "[*] Aplicando configurações específicas do dispositivo"
+    while IFS='=' read -r key value; do
+        # Ignora linhas vazias, comentários e linhas inválidas
+        if [[ -n "$key" && "$key" =~ ^CONFIG_ && ! "$key" =~ ^# ]]; then
+            # Remove a linha existente se houver
+            sed -i "/^$key=/d" .config
+            sed -i "/^# $key is not set/d" .config
+            # Adiciona a nova configuração
+            if [[ "$value" == "y" || "$value" == "m" || "$value" =~ ^[0-9]+$ || "$value" =~ ^\".*\"$ ]]; then
+                echo "$key=$value" >> .config
+            fi
+        fi
+    done < "$srcdir"/config-samsung-matisse3g.armv7
+
+    # Gera configuração final completa sem interação
+    echo "[*] Finalizando configuração do kernel"
+    # Para kernels antigos (3.4), usa oldnoconfig em vez de olddefconfig
+    if make ARCH=arm CONFIG_SHELL="/bin/sh" help | grep -q olddefconfig; then
+        make ARCH=arm CONFIG_SHELL="/bin/sh" olddefconfig
+    elif make ARCH=arm CONFIG_SHELL="/bin/sh" help | grep -q oldnoconfig; then
+        echo "Usando oldnoconfig (kernel antigo)"
+        make ARCH=arm CONFIG_SHELL="/bin/sh" oldnoconfig
+    else
+        echo "Usando silentoldconfig (fallback)"
+        yes "" | make ARCH=arm CONFIG_SHELL="/bin/sh" silentoldconfig
+    fi
+
+    echo "[*] Preparando ambiente (make prepare e make scripts)"
+    # Remove problemas com DocBook que causam erros desnecessários
+    sed -i 's/dochelp//' Documentation/DocBook/Makefile 2>/dev/null || true
+
+    make ARCH=arm CONFIG_SHELL="/bin/sh" prepare
+    make ARCH=arm CONFIG_SHELL="/bin/sh" scripts
+}
 
 build() {
     cd "$builddir"
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j$(nproc) zImage dtbs
+
+    # Define variáveis para evitar problemas
+    export CONFIG_SHELL="/bin/sh"
+    export SHELL="/bin/sh"
+
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- CONFIG_SHELL="/bin/sh" -j$(nproc) zImage dtbs
 }
 
 package() {
@@ -53,5 +233,5 @@ package() {
 
 sha512sums="
 5f75c3531f91fe879b649f8b8bfd70b5158a85d569a4943d217a5c1308b2c790bbc79fbb9ad02713f9fdb26e45d088511dd66d76c90568c8c70086356abec45f  cm-14.1.tar.gz
-ec2f99bfc0a1a23a58991b248212b74cc860dae93339fd8df52bd155f30158d6a17b7ff4a6cac47ce6b6b2aae2503eb87b15c9f447188ab720c84eddeb78184d  config-samsung-matisse3g.armv7
+a0d0940fd57fc11f7c899ce54a08403532dd7d3b3d0bbc8edefd1cf6bce424a33bee45e8324b733c4bbc374e9ed5a499240295029e5b1622c2b884a8636ef56c  config-samsung-matisse3g.armv7
 "

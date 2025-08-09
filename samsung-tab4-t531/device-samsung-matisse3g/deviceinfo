@@ -3,8 +3,8 @@
 # scripts.
 
 deviceinfo_format_version="0"
-deviceinfo_name="samsung Galaxy tab 4 10.1"
-deviceinfo_manufacturer="samsung"
+deviceinfo_name="Samsung Galaxy Tab 4 10.1"
+deviceinfo_manufacturer="Samsung"
 deviceinfo_codename="samsung-matisse3g"
 deviceinfo_year="2014"
 deviceinfo_dtb=""
@@ -16,10 +16,11 @@ deviceinfo_keyboard="false"
 deviceinfo_external_storage="true"
 deviceinfo_screen_width="1280"
 deviceinfo_screen_height="800"
+deviceinfo_gpu_accelerated="true"
 
 # Bootloader related
 deviceinfo_flash_method="heimdall-bootimg"
-deviceinfo_kernel_cmdline="androidboot.console=null androidboot.hardware=qcom androidboot.selinux=permissive androidboot.bootdevice=msm_sdcc.1"
+deviceinfo_kernel_cmdline="console=null androidboot.hardware=qcom androidboot.selinux=permissive androidboot.bootdevice=msm_sdcc.1 user_debug=23 msm_rtb.filter=0x37 ehci-hcd.park=3"
 deviceinfo_generate_bootimg="true"
 deviceinfo_bootimg_qcdt="false"
 deviceinfo_flash_offset_base="0x00000000"
@@ -31,3 +32,21 @@ deviceinfo_flash_pagesize="2048"
 deviceinfo_dtb_second="false"
 deviceinfo_flash_heimdall_partition_kernel="BOOT"
 deviceinfo_flash_heimdall_partition_rootfs="SYSTEM"
+
+# Kernel
+deviceinfo_append_dtb="false"
+
+# Splash screen
+deviceinfo_splash_min_level="1"
+
+# USB networking
+deviceinfo_usb_idVendor="0x04e8"  # Samsung
+deviceinfo_usb_idProduct="0x685d"
+
+# Audio
+deviceinfo_dev_audio_speaker=""
+deviceinfo_dev_audio_earpiece=""
+
+# Storage
+deviceinfo_rootfs_image_sector_size="512"
+deviceinfo_boot_filesystem="ext2"
