@@ -1,6 +1,6 @@
 # Reference: <https://postmarketos.org/devicepkg>
 pkgname=device-samsung-matisse3g
-pkgdesc="samsung Galaxy tab 4 10.1"
+pkgdesc="Samsung Galaxy Tab 4 10.1 3G (SM-T531)"
 pkgver=1
 pkgrel=0
 url="https://postmarketos.org"
@@ -11,6 +11,7 @@ depends="
 	linux-samsung-matisse3g
 	mkbootimg
 	postmarketos-base
+	mesa-dri-freedreno
 "
 makedepends="devicepkg-dev"
 source="
@@ -26,4 +27,7 @@ package() {
 	devicepkg_package $startdir $pkgname
 }
 
-sha512sums="(run 'pmbootstrap checksum device-samsung-matisse3g' to fill)"
+sha512sums="
+7e8ec484229d98bc9f68258cbd9dde6bb742aa00f3b35edd5663a8ee6c1d35f717bac283b65f78d606f043076484e8e454f912656f30fb282cf74de280c41df5  deviceinfo
+9b18eed25b422ca3bb4a1831690464fb94015b2980c3177668e0ae0e09549d77f58a1ea6e42a4aaa4141719a747bca0be7a886398cbcbbda0a17af88f9f5bad6  modules-initfs
+"

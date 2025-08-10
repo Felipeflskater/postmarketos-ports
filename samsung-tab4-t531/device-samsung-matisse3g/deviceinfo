@@ -3,7 +3,7 @@
 # scripts.
 
 deviceinfo_format_version="0"
-deviceinfo_name="Samsung Galaxy Tab 4 10.1"
+deviceinfo_name="Samsung Galaxy Tab 4 10.1 3G"
 deviceinfo_manufacturer="Samsung"
 deviceinfo_codename="samsung-matisse3g"
 deviceinfo_year="2014"
@@ -20,7 +20,7 @@ deviceinfo_gpu_accelerated="true"
 
 # Bootloader related
 deviceinfo_flash_method="heimdall-bootimg"
-deviceinfo_kernel_cmdline="console=null androidboot.hardware=qcom androidboot.selinux=permissive androidboot.bootdevice=msm_sdcc.1 user_debug=23 msm_rtb.filter=0x37 ehci-hcd.park=3"
+deviceinfo_kernel_cmdline="console=ttyHSL0,115200,n8 androidboot.hardware=qcom androidboot.selinux=permissive androidboot.bootdevice=msm_sdcc.1 user_debug=31 msm_rtb.filter=0x37 ehci-hcd.park=3"
 deviceinfo_generate_bootimg="true"
 deviceinfo_bootimg_qcdt="false"
 deviceinfo_flash_offset_base="0x00000000"
