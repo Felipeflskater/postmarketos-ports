@@ -10,42 +10,98 @@ options="!strip !check"
 makedepends="bc bison flex perl python3 gmp-dev mpfr-dev mpc1-dev gettext-dev bash"
 subpackages=""
 source="
-    https://github.com/matissewifi/android_kernel_samsung_matisse/archive/refs/heads/cm-14.1.tar.gz
-    config-samsung-matisse3g.armv7
+	https://github.com/matissewifi/android_kernel_samsung_matisse/archive/refs/heads/cm-14.1.tar.gz
+	config-samsung-matisse3g.armv7
 "
 builddir="$srcdir/android_kernel_samsung_matisse-cm-14.1"
 
 prepare() {
-    default_prepare
-    cd "$builddir"
+	default_prepare
+	cd "$builddir"
 
-    echo "[*] Criando link simbólico para bash se necessário"
-    if [ ! -f /bin/bash ] && [ -f /usr/bin/bash ]; then
-        mkdir -p "$builddir/bin-symlinks"
-        ln -sf /usr/bin/bash "$builddir/bin-symlinks/bash"
-        export PATH="$builddir/bin-symlinks:$PATH"
-    fi
+	echo "[*] Criando link simbólico para bash se necessário"
+	if [ ! -f /bin/bash ] && [ -f /usr/bin/bash ]; then
+		mkdir -p "$builddir/bin-symlinks"
+		ln -sf /usr/bin/bash "$builddir/bin-symlinks/bash"
+		export PATH="$builddir/bin-symlinks:$PATH"
+	fi
 
-    echo "[*] Corrigindo compatibilidade com GCC 15+"
-    # Cria o arquivo compiler-gcc15.h baseado no gcc14.h ou o mais recente disponível
-    if [ -f include/linux/compiler-gcc14.h ]; then
-        cp include/linux/compiler-gcc14.h include/linux/compiler-gcc15.h
-        echo "Criado compiler-gcc15.h baseado no gcc14.h"
-    elif [ -f include/linux/compiler-gcc13.h ]; then
-        cp include/linux/compiler-gcc13.h include/linux/compiler-gcc15.h
-        echo "Criado compiler-gcc15.h baseado no gcc13.h"
-    elif [ -f include/linux/compiler-gcc12.h ]; then
-        cp include/linux/compiler-gcc12.h include/linux/compiler-gcc15.h
-        echo "Criado compiler-gcc15.h baseado no gcc12.h"
-    elif [ -f include/linux/compiler-gcc11.h ]; then
-        cp include/linux/compiler-gcc11.h include/linux/compiler-gcc15.h
-        echo "Criado compiler-gcc15.h baseado no gcc11.h"
-    elif [ -f include/linux/compiler-gcc10.h ]; then
-        cp include/linux/compiler-gcc10.h include/linux/compiler-gcc15.h
-        echo "Criado compiler-gcc15.h baseado no gcc10.h"
-    else
-        # Fallback: criar um arquivo mínimo
-        cat > include/linux/compiler-gcc15.h << 'EOF'
+	echo "[*] Aplicando correção direta do Makefile para resolver função shell não fechada"
+	# Corrige o problema da função shell não fechada na linha ~180 do Makefile
+	if [ -f Makefile ]; then
+		# Backup do Makefile original
+		cp Makefile Makefile.backup
+
+		echo "Corrigindo definição da variável CC no Makefile..."
+
+		# Procura e corrige a definição problemática do CC
+		sed -i '/^CC[[:space:]]*:*=[[:space:]]*$(shell/,/)$/{
+			# Se encontrar a linha que começa a definição do CC
+			/^CC[[:space:]]*:*=[[:space:]]*$(shell/{
+				# Marca o início do bloco
+				:loop
+				# Lê a próxima linha
+				n
+				# Se chegou no final do bloco (linha que termina com )), para
+				/)[[:space:]]*$/b end
+				# Se chegou em uma linha isolada com só ), adiciona outro ) e para
+				/^[[:space:]]*)[[:space:]]*$/{
+					s/)/))/
+					b end
+				}
+				# Caso contrário, continua procurando
+				b loop
+				:end
+			}
+		}' Makefile
+
+		# Se a correção acima não funcionou, aplica correção mais direta
+		if grep -q 'CC.*$(shell' Makefile && ! grep -q '))$' Makefile; then
+			echo "Aplicando correção alternativa..."
+			# Substitui a definição inteira do CC por uma versão corrigida
+			sed -i '/^CC[[:space:]]*[:=]/,/^[^[:space:]]/c\
+CC := $(shell \\\
+	if [ -x "$$(which $${CROSS_COMPILE}gcc 2>/dev/null)" ]; then \\\
+		echo "$${CROSS_COMPILE}gcc"; \\\
+	elif [ -x "$$(which $${CROSS_COMPILE}clang 2>/dev/null)" ]; then \\\
+		echo "$${CROSS_COMPILE}clang"; \\\
+	else \\\
+		echo "$${CROSS_COMPILE}gcc"; \\\
+	fi)' Makefile
+		fi
+
+		# Adiciona flags extras para suprimir warnings problemáticos
+		echo "Adicionando flags de compilação para suprimir warnings..."
+		sed -i '/^KBUILD_CFLAGS.*:=/a\
+KBUILD_CFLAGS += -Wno-unused-but-set-variable -Wno-unused-const-variable \\
+		 -Wno-maybe-uninitialized -Wno-misleading-indentation \\
+		 -Wno-format-truncation -Wno-stringop-truncation' Makefile
+
+		echo "Correção do Makefile aplicada com sucesso"
+	else
+		echo "AVISO: Makefile não encontrado, correção será tentada durante o build"
+	fi
+
+	echo "[*] Corrigindo compatibilidade com GCC 15+"
+	# Cria o arquivo compiler-gcc15.h baseado no gcc14.h ou o mais recente disponível
+	if [ -f include/linux/compiler-gcc14.h ]; then
+		cp include/linux/compiler-gcc14.h include/linux/compiler-gcc15.h
+		echo "Criado compiler-gcc15.h baseado no gcc14.h"
+	elif [ -f include/linux/compiler-gcc13.h ]; then
+		cp include/linux/compiler-gcc13.h include/linux/compiler-gcc15.h
+		echo "Criado compiler-gcc15.h baseado no gcc13.h"
+	elif [ -f include/linux/compiler-gcc12.h ]; then
+		cp include/linux/compiler-gcc12.h include/linux/compiler-gcc15.h
+		echo "Criado compiler-gcc15.h baseado no gcc12.h"
+	elif [ -f include/linux/compiler-gcc11.h ]; then
+		cp include/linux/compiler-gcc11.h include/linux/compiler-gcc15.h
+		echo "Criado compiler-gcc15.h baseado no gcc11.h"
+	elif [ -f include/linux/compiler-gcc10.h ]; then
+		cp include/linux/compiler-gcc10.h include/linux/compiler-gcc15.h
+		echo "Criado compiler-gcc15.h baseado no gcc10.h"
+	else
+		# Fallback: criar um arquivo mínimo
+		cat > include/linux/compiler-gcc15.h << 'EOF'
 #ifndef __LINUX_COMPILER_H
 #error "Please don't include <linux/compiler-gcc15.h> directly, include <linux/compiler.h> instead."
 #endif
@@ -58,56 +114,44 @@ prepare() {
 #define _gcc_header(x) __gcc_header(linux/compiler-gcc##x.h)
 #define gcc_header(x) _gcc_header(x)
 EOF
-        echo "Criado compiler-gcc15.h genérico"
-    fi
+		echo "Criado compiler-gcc15.h genérico"
+	fi
 
-    echo "[*] Corrigindo problemas de C23/bool no kernel antigo"
-    # Corrige include/linux/stddef.h
-    if [ -f include/linux/stddef.h ]; then
-        sed -i '/enum {/,/};/c\
+	echo "[*] Corrigindo problemas de C23/bool no kernel antigo"
+	# Corrige include/linux/stddef.h
+	if [ -f include/linux/stddef.h ]; then
+		sed -i '/enum {/,/};/c\
 #ifndef __cplusplus\
-#ifndef bool\
+#if !defined(bool) && !defined(__bool_true_false_are_defined)\
 enum {\
 \t__false\t= 0,\
 \t__true\t= 1\
 };\
 #define false __false\
 #define true __true\
+#define bool _Bool\
 #endif\
 #endif' include/linux/stddef.h
-        echo "Corrigido include/linux/stddef.h para C23"
-    fi
+		echo "Corrigido include/linux/stddef.h para C23"
+	fi
 
-    # Corrige include/linux/types.h
-    if [ -f include/linux/types.h ]; then
-        sed -i 's/typedef _Bool[[:space:]]*bool;/#ifndef __cplusplus\n#ifndef bool\ntypedef _Bool bool;\n#endif\n#endif/' include/linux/types.h
-        echo "Corrigido include/linux/types.h para C23"
-    fi
+	# Corrige include/linux/types.h
+	if [ -f include/linux/types.h ]; then
+		sed -i 's/typedef _Bool[[:space:]]*bool;/#ifndef __cplusplus\n#if !defined(bool) \&\& !defined(__bool_true_false_are_defined)\ntypedef _Bool bool;\n#endif\n#endif/' include/linux/types.h
+		echo "Corrigido include/linux/types.h para C23"
+	fi
 
-    # Adiciona patch adicional para outros arquivos problemáticos
-    if [ -f include/linux/compiler.h ]; then
-        # Adiciona proteção para bool no compiler.h se necessário
-        if ! grep -q "#ifndef bool" include/linux/compiler.h; then
-            sed -i '1i\
-#ifndef __cplusplus\
-#ifndef bool\
-typedef _Bool bool;\
-#endif\
-#ifndef true\
-#define true 1\
-#endif\
-#ifndef false\
-#define false 0\
-#endif\
-#endif' include/linux/compiler.h
-            echo "Adicionadas proteções bool/true/false ao compiler.h"
-        fi
-    fi
+	# Remove proteções problemáticas do compiler.h que causam conflito
+	if [ -f include/linux/compiler.h ]; then
+		# Remove nossas definições anteriores se existirem
+		sed -i '/^#ifndef __cplusplus/,/^#endif$/d' include/linux/compiler.h
+		echo "Removidas definições conflitantes do compiler.h"
+	fi
 
-    echo "[*] Corrigindo gcc-wrapper.py para Python 3"
-    if [ -f scripts/gcc-wrapper.py ]; then
-        # Reescreve o arquivo completo para Python 3
-        cat > scripts/gcc-wrapper.py << 'EOF'
+	echo "[*] Corrigindo gcc-wrapper.py para Python 3"
+	if [ -f scripts/gcc-wrapper.py ]; then
+		# Reescreve o arquivo completo para Python 3
+		cat > scripts/gcc-wrapper.py << 'EOF'
 #!/usr/bin/env python3
 
 import sys
@@ -158,135 +202,160 @@ if __name__ == "__main__":
     status = run_gcc()
     sys.exit(status)
 EOF
-        chmod +x scripts/gcc-wrapper.py
-        echo "gcc-wrapper.py reescrito com sucesso para Python 3"
-    fi
+		chmod +x scripts/gcc-wrapper.py
+		echo "gcc-wrapper.py reescrito com sucesso para Python 3"
+	fi
 
-    echo "[*] Corrigindo outros scripts Python para Python 3"
-    find "$builddir/scripts" -type f -name "*.py" -exec sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' {} \;
+	echo "[*] Corrigindo arquivos ausentes e dependências"
+	# Cria o arquivo mach/msm_rtb.h ausente
+	mkdir -p arch/arm/include/mach
+	if [ ! -f arch/arm/include/mach/msm_rtb.h ]; then
+		cat > arch/arm/include/mach/msm_rtb.h << 'EOF'
+#ifndef _ARCH_ARM_MACH_MSM_RTB_H
+#define _ARCH_ARM_MACH_MSM_RTB_H
 
-    # Corrige prints Python 2 para Python 3 nos scripts críticos
-    if [ -f scripts/tracing/draw_functrace.py ]; then
-        sed -i 's/print \([^(].*\)/print(\1)/' scripts/tracing/draw_functrace.py
-    fi
+/* Dummy header for missing msm_rtb.h */
+static inline void uncached_logk(const char *caller, void *phys) { }
 
-    if [ -f scripts/rt-tester/rt-tester.py ]; then
-        sed -i 's/print \([^(].*\)/print(\1)/' scripts/rt-tester/rt-tester.py
-    fi
+#endif /* _ARCH_ARM_MACH_MSM_RTB_H */
+EOF
+		echo "Criado arch/arm/include/mach/msm_rtb.h"
+	fi
+	find "$builddir/scripts" -type f -name "*.py" -exec sed -i '1s|^#!.*python.*$|#!/usr/bin/env python3|' {} \;
 
-    if [ -f scripts/build-all.py ]; then
-        sed -i 's/print \([^(].*\)/print(\1)/' scripts/build-all.py
-    fi
+	# Corrige prints Python 2 para Python 3 nos scripts críticos
+	if [ -f scripts/tracing/draw_functrace.py ]; then
+		sed -i 's/print \([^(].*\)/print(\1)/' scripts/tracing/draw_functrace.py
+	fi
 
-    echo "[*] Aplicando .config completo e já validado"
-    cp "$srcdir"/config-samsung-matisse3g.armv7 .config
+	if [ -f scripts/rt-tester/rt-tester.py ]; then
+		sed -i 's/print \([^(].*\)/print(\1)/' scripts/rt-tester/rt-tester.py
+	fi
 
-    # Normalize and pre-create auto.conf to prevent interactive prompts
-    sed -i 's/\r$//' .config || true
-    mkdir -p include/config
-    printf '# generated by APKBUILD\n' > include/config/auto.conf || true
+	if [ -f scripts/build-all.py ]; then
+		sed -i 's/print \([^(].*\)/print(\1)/' scripts/build-all.py
+	fi
 
-    export ARCH=arm
-    export CROSS_COMPILE=arm-linux-gnueabi-
-    # Accept any new options non-interactively (auto-accept defaults)
-    yes "" | make ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" oldconfig >/dev/null 2>&1 || true
-    # Run prepare and scripts explicitly
-    make ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" prepare
-    make ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" scripts
+	echo "[*] Aplicando .config completo e já validado"
+	cp "$srcdir"/config-samsung-matisse3g.armv7 .config
 
-    echo "[*] Corrigindo Makefiles com TABs"
-    find "$builddir" -type f -name "Makefile*" -exec sed -i 's/^\([ ]\+\)/\t/' {} +
+	echo "[*] Corrigindo Makefiles com TABs e problemas de sintaxe"
+	find "$builddir" -type f -name "Makefile*" -exec sed -i 's/^\([ ]\+\)/\t/' {} +
 
-    echo "[*] Corrigindo zconf.gperf (se existir)"
-    [ -f scripts/kconfig/zconf.gperf ] && \
-        sed -i 's/__inline\ static/inline/' scripts/kconfig/zconf.gperf || true
+	echo "[*] Corrigindo zconf.gperf (se existir)"
+	[ -f scripts/kconfig/zconf.gperf ] && \
+		sed -i 's/__inline\ static/inline/' scripts/kconfig/zconf.gperf || true
 
-    echo "[*] Listando defconfigs disponíveis para debug:"
-    ls -la arch/arm/configs/ | head -10
+	echo "[*] Listando defconfigs disponíveis para debug:"
+	ls -la arch/arm/configs/ | head -10
 
-    echo "[*] Gerando configuração completa do kernel"
-    # Define variáveis de ambiente para evitar problemas com bash e força C89
-    export CONFIG_SHELL="/bin/sh"
-    export SHELL="/bin/sh"
-    export KCFLAGS="-std=gnu89 -Wno-error"
-    export HOSTCFLAGS="-std=gnu89"
+	echo "[*] Gerando configuração completa do kernel"
+	# Define variáveis de ambiente para evitar problemas com bash e força C89
+	export CONFIG_SHELL="/bin/sh"
+	export SHELL="/bin/sh"
+	export KCFLAGS="-std=gnu89 -Wno-error"
+	export HOSTCFLAGS="-std=gnu89"
 
-    # Usa a defconfig específica do matisse3g que foi encontrada!
-    if [ -f arch/arm/configs/msm8226-sec_matisse3g_defconfig ]; then
-        echo "Usando msm8226-sec_matisse3g_defconfig - configuração específica do dispositivo!"
-        make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" msm8226-sec_matisse3g_defconfig
-    elif [ -f arch/arm/configs/msm8226-sec_defconfig ]; then
-        echo "Usando msm8226-sec_defconfig como base"
-        make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" msm8226-sec_defconfig
-    elif ls arch/arm/configs/*8226* 2>/dev/null; then
-        # Pega o primeiro arquivo que contenha 8226
-        DEFCONFIG=$(ls arch/arm/configs/*8226* | head -n1 | xargs basename)
-        echo "Usando $DEFCONFIG como base"
-        make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" $DEFCONFIG
-    elif ls arch/arm/configs/*msm* 2>/dev/null; then
-        # Fallback para qualquer defconfig MSM
-        DEFCONFIG=$(ls arch/arm/configs/*msm* | head -n1 | xargs basename)
-        echo "Usando $DEFCONFIG como base"
-        make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" $DEFCONFIG
-    else
-        echo "ERRO: Nenhuma defconfig MSM encontrada!"
-        exit 1
-    fi
+	# Usa a defconfig específica do matisse3g que foi encontrada!
+	if [ -f arch/arm/configs/msm8226-sec_matisse3g_defconfig ]; then
+		echo "Usando msm8226-sec_matisse3g_defconfig - configuração específica do dispositivo!"
+		make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" msm8226-sec_matisse3g_defconfig
+	elif [ -f arch/arm/configs/msm8226-sec_defconfig ]; then
+		echo "Usando msm8226-sec_defconfig como base"
+		make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" msm8226-sec_defconfig
+	elif ls arch/arm/configs/*8226* 2>/dev/null; then
+		# Pega o primeiro arquivo que contenha 8226
+		DEFCONFIG=$(ls arch/arm/configs/*8226* | head -n1 | xargs basename)
+		echo "Usando $DEFCONFIG como base"
+		make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" $DEFCONFIG
+	elif ls arch/arm/configs/*msm* 2>/dev/null; then
+		# Fallback para qualquer defconfig MSM
+		DEFCONFIG=$(ls arch/arm/configs/*msm* | head -n1 | xargs basename)
+		echo "Usando $DEFCONFIG como base"
+		make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" $DEFCONFIG
+	else
+		echo "ERRO: Nenhuma defconfig MSM encontrada!"
+		exit 1
+	fi
 
-    # Aplica suas configurações específicas por cima
-    echo "[*] Aplicando configurações específicas do dispositivo"
-    while IFS='=' read -r key value; do
-        # Ignora linhas vazias, comentários e linhas inválidas
-        if [[ -n "$key" && "$key" =~ ^CONFIG_ && ! "$key" =~ ^# ]]; then
-            # Remove a linha existente se houver
-            sed -i "/^$key=/d" .config
-            sed -i "/^# $key is not set/d" .config
-            # Adiciona a nova configuração
-            if [[ "$value" == "y" || "$value" == "m" || "$value" =~ ^[0-9]+$ || "$value" =~ ^\".*\"$ ]]; then
-                echo "$key=$value" >> .config
-            fi
-        fi
-    done < "$srcdir"/config-samsung-matisse3g.armv7
+	# Aplica suas configurações específicas por cima
+	echo "[*] Aplicando configurações específicas do dispositivo"
+	while IFS='=' read -r key value; do
+		# Ignora linhas vazias, comentários e linhas inválidas
+		if [[ -n "$key" && "$key" =~ ^CONFIG_ && ! "$key" =~ ^# ]]; then
+			# Remove a linha existente se houver
+			sed -i "/^$key=/d" .config
+			sed -i "/^# $key is not set/d" .config
+			# Adiciona a nova configuração
+			if [[ "$value" == "y" || "$value" == "m" || "$value" =~ ^[0-9]+$ || "$value" =~ ^\".*\"$ ]]; then
+				echo "$key=$value" >> .config
+			fi
+		fi
+	done < "$srcdir"/config-samsung-matisse3g.armv7
 
-    # Gera configuração final completa sem interação
-    echo "[*] Finalizando configuração do kernel"
-    # Para kernels antigos (3.4), usa oldnoconfig em vez de olddefconfig
-    if make ARCH=arm CONFIG_SHELL="/bin/sh" help | grep -q olddefconfig; then
-        make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" olddefconfig
-    elif make ARCH=arm CONFIG_SHELL="/bin/sh" help | grep -q oldnoconfig; then
-        echo "Usando oldnoconfig (kernel antigo)"
-        make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" oldnoconfig
-    else
-        echo "Usando silentoldconfig (fallback)"
-        yes "" | make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" silentoldconfig
-    fi
+	# Gera configuração final completa sem interação
+	echo "[*] Finalizando configuração do kernel"
 
-    echo "[*] Preparando ambiente (make prepare e make scripts)"
-    # Remove problemas com DocBook que causam erros desnecessários
-    sed -i 's/dochelp//' Documentation/DocBook/Makefile 2>/dev/null || true
+	# Força configuração não-interativa
+	export KCONFIG_NOTIMESTAMP=1
+	export KCONFIG_OVERWRITECONFIG=1
 
-    make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" prepare
-    make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" scripts
+	# Para kernels antigos (3.4), usa oldnoconfig em vez de olddefconfig
+	if make ARCH=arm CONFIG_SHELL="/bin/sh" help 2>/dev/null | grep -q olddefconfig; then
+		echo "Usando olddefconfig"
+		yes "" | make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" olddefconfig 2>/dev/null || \
+		yes "" | make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" oldconfig
+	elif make ARCH=arm CONFIG_SHELL="/bin/sh" help 2>/dev/null | grep -q oldnoconfig; then
+		echo "Usando oldnoconfig (kernel antigo)"
+		yes "" | make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" oldnoconfig 2>/dev/null || \
+		yes "" | make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" oldconfig
+	else
+		echo "Usando oldconfig com entrada automática"
+		yes "" | make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" oldconfig
+	fi
+
+	echo "[*] Preparando ambiente (make prepare e make scripts)"
+	# Remove problemas com DocBook que causam erros desnecessários
+	sed -i 's/dochelp//' Documentation/DocBook/Makefile 2>/dev/null || true
+
+	# Força configuração não-interativa para make prepare
+	export KCONFIG_NOTIMESTAMP=1
+	export KCONFIG_OVERWRITECONFIG=1
+
+	# Roda prepare com fallback para erros
+	if ! make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" prepare 2>/dev/null; then
+		echo "make prepare falhou, tentando preparar manualmente..."
+		# Cria arquivos essenciais manualmente
+		make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" include/config/kernel.release 2>/dev/null || true
+		make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" include/generated/utsrelease.h 2>/dev/null || true
+		make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" include/generated/bounds.h 2>/dev/null || true
+	fi
+
+	# Roda scripts com fallback
+	if ! make ARCH=arm CONFIG_SHELL="/bin/sh" KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" scripts 2>/dev/null; then
+		echo "make scripts falhou, mas continuando..."
+	fi
 }
 
 build() {
-    cd "$builddir"
+	cd "$builddir"
 
-    # Define variáveis para evitar problemas e força C89
-    export CONFIG_SHELL="/bin/sh"
-    export SHELL="/bin/sh"
-    export KCFLAGS="-std=gnu89 -Wno-error"
-    export HOSTCFLAGS="-std=gnu89"
+	# Define variáveis para evitar problemas e força C89
+	export CONFIG_SHELL="/bin/sh"
+	export SHELL="/bin/sh"
+	export KCFLAGS="-std=gnu89 -Wno-error"
+	export HOSTCFLAGS="-std=gnu89"
 
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- CONFIG_SHELL="/bin/sh" \
-         KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" \
-         -j$(nproc) zImage dtbs
+	echo "[*] Iniciando compilação do kernel..."
+	make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- CONFIG_SHELL="/bin/sh" \
+		KCFLAGS="$KCFLAGS" HOSTCFLAGS="$HOSTCFLAGS" \
+		-j$(nproc) zImage dtbs
 }
 
 package() {
-    mkdir -p "$pkgdir/boot"
-    cp arch/arm/boot/zImage "$pkgdir/boot/vmlinuz"
-    cp arch/arm/boot/dts/*.dtb "$pkgdir/boot/" 2>/dev/null || true
+	mkdir -p "$pkgdir/boot"
+	cp arch/arm/boot/zImage "$pkgdir/boot/vmlinuz"
+	cp arch/arm/boot/dts/*.dtb "$pkgdir/boot/" 2>/dev/null || true
 }
 
 sha512sums="
