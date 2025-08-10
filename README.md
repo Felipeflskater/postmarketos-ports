@@ -8,8 +8,8 @@ Cada port contém arquivos do tipo `device-*` e `linux-*`, compatíveis com a es
 
 | Dispositivo              | Codinome        | Estado     | Interface | Notas |
 |--------------------------|------------------|------------|-----------|-------|
-| Samsung Galaxy Tab 4 10.1 (SM-T531) | `matisse3g` | 🟡 Em desenvolvimento | Plasma Desktop | Kernel 3.4 personalizado |
-| Motorola Moto G2 (XT1069)          | `titan`     | 🔴 Iniciado | Nenhuma ainda | Kernel em construção |
+| Samsung Galaxy Tab 4 10.1 (SM-T531) | `matisse3g` | 🟡 Em desenvolvimento | Plasma Desktop | Kernel personalizado |
+| Motorola Moto G2 (XT1069)          | `titan`     | 🔴 Em espera | Nenhuma ainda | Kernel em construção |
 
 ## 📁 Estrutura do repositório
 
