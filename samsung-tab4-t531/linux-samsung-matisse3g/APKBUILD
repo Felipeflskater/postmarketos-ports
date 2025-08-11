@@ -87,8 +87,52 @@ EOF
 		sed -i 's/#include <mach\/msm_rtb.h>/\/\* #include <mach\/msm_rtb.h> \*\//' arch/arm/include/asm/io.h
 	fi
 
+	# fix: Corrigir erro de assembly em proc-arm926.S
+	echo "[*] Corrigindo erro de assembly em proc-arm926.S..."
+	if [ -f arch/arm/mm/proc-arm926.S ]; then
+		# Remove comentários problemáticos que causam erro de parsing
+		sed -i 's/\t#.*$//' arch/arm/mm/proc-arm926.S
+		# Converte comentários # para @ (padrão ARM assembly)
+		sed -i 's/^\([[:space:]]*\)#\([^!].*\)$/\1@ \2/' arch/arm/mm/proc-arm926.S
+	fi
+
+	# fix: Corrigir problemas de logging em io.h
+	echo "[*] Corrigindo conflitos de logging em io.h..."
+	if [ -f arch/arm/include/asm/io.h ]; then
+		# Desabilita logging problemático se existir
+		sed -i 's/__raw_write_logged/__raw_writeb_direct/g' arch/arm/include/asm/io.h 2>/dev/null || true
+		# Remove macros problemáticas de logging
+		sed -i '/^#define.*__raw_write_logged/d' arch/arm/include/asm/io.h 2>/dev/null || true
+	fi
+
+	# Fix para warnings de log2.h (atributos conflitantes)
+	echo "[*] Corrigindo warnings de atributos em log2.h..."
+	if [ -f include/linux/log2.h ]; then
+		# Remove atributo noreturn conflitante
+		sed -i 's/__attribute__((noreturn))//' include/linux/log2.h
+		# Ou desabilita o warning específico
+		sed -i '1i#pragma GCC diagnostic ignored "-Wattributes"' include/linux/log2.h
+	fi
+
+	# Fix para erros de compilação ARM específicos
+	echo "[*] Aplicando fixes ARM específicos..."
+
+	# Fix para flags incompatíveis com GCC moderno
+	echo "[*] Corrigindo flags incompatíveis do GCC..."
+
+	# Remove flags problemáticas do kernel antigo
+	sed -i 's/-Wno-error-implicit-function-declaration//g' Makefile
+	find . -name "Makefile*" -exec sed -i 's/-Wno-error-implicit-function-declaration//g' {} \;
+
+	# Adiciona flags compatíveis
+	sed -i 's/-Werror/-Wno-error/g' Makefile
+	sed -i '/^KBUILD_CFLAGS.*+=/s/$/ -Wno-attributes -Wno-unused-but-set-variable -Wno-implicit-function-declaration/' Makefile
+
+	# Remove outras flags problemáticas se existirem
+	sed -i 's/-Wno-error-implicit-function-declaration/-Wno-implicit-function-declaration/g' Makefile
+
 	# Aplica configuração
-	cp "$srcdir"/config-samsung-matisse3g.armv7 .config
+	make msm8226-sec_matisse3g_defconfig
 
 	# Gera configuração final (kernel 4.4 usa oldnoconfig)
 	echo "[*] Aplicando configuração do kernel..."
@@ -103,15 +147,48 @@ EOF
 
 build() {
 	cd "$builddir"
+
+	# Define ambiente de cross-compilation EXPLICITAMENTE
+	export PATH="/usr/armv7-alpine-linux-musleabihf/bin:$PATH"
 	export ARCH=arm
 	export CROSS_COMPILE=armv7-alpine-linux-musleabihf-
+	export CC=armv7-alpine-linux-musleabihf-gcc
+	export LD=armv7-alpine-linux-musleabihf-ld
+	export AS=armv7-alpine-linux-musleabihf-as
+	export AR=armv7-alpine-linux-musleabihf-ar
+	export OBJCOPY=armv7-alpine-linux-musleabihf-objcopy
+	export STRIP=armv7-alpine-linux-musleabihf-strip
 
-	echo "[*] Compilando kernel..."
-	make -j$(nproc) zImage dtbs modules
+	# Debug: verificar se as ferramentas estão disponíveis
+	echo "[*] PATH atual: $PATH"
+	echo "[*] Verificando ferramentas de compilação:"
+	which armv7-alpine-linux-musleabihf-ld || echo "ERRO: LD não encontrado"
+	which armv7-alpine-linux-musleabihf-gcc || echo "ERRO: GCC não encontrado"
+
+	# Flags adicionais para evitar erros (sem flags incompatíveis)
+	export CFLAGS_KERNEL="-Wno-error -Wno-attributes -Wno-unused-but-set-variable -Wno-implicit-function-declaration"
+	export AFLAGS_KERNEL="-Wa,--no-warn"
+
+	echo "[*] Compilando kernel com flags permissivas..."
+	make V=1 \
+		ARCH=arm \
+		CROSS_COMPILE=armv7-alpine-linux-musleabihf- \
+		CC=armv7-alpine-linux-musleabihf-gcc \
+		LD=armv7-alpine-linux-musleabihf-ld \
+		CFLAGS_KERNEL="$CFLAGS_KERNEL" \
+		AFLAGS_KERNEL="$AFLAGS_KERNEL" \
+		-j$(nproc) \
+		zImage dtbs modules
 }
 
 package() {
 	cd "$builddir"
+
+	# Restaura ambiente
+	export ARCH=arm
+	export CROSS_COMPILE=armv7-alpine-linux-musleabihf-
+	export PATH="/usr/armv7-alpine-linux-musleabihf/bin:$PATH"
+
 	# Instala kernel
 	install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz"
 
@@ -123,11 +200,13 @@ package() {
 	fi
 
 	# Instala módulos
-	make ARCH=arm CROSS_COMPILE=armv7-alpine-linux-musleabihf- \
-		INSTALL_MOD_PATH="$pkgdir" modules_install
+	make ARCH=arm \
+		CROSS_COMPILE=armv7-alpine-linux-musleabihf- \
+		INSTALL_MOD_PATH="$pkgdir" \
+		modules_install
 }
 
 sha512sums="
 963d7aece14005735b0fe699ad50b903808019413ccf104772243e64f1d1ab8e571ae9bd32b7aedf86c8888fb3e09ede00a047277c01bfa104b4e6ea6848b0e5  pmos-matisse3g-fixes.tar.gz
-368d9943e57a810302391903b3c7531d23c4fddd3f48733c168c2e4d2a691275d5ca89377e9178e982e014d797ac7a923dde07ecf92e7e10bfe7653e823e8174  config-samsung-matisse3g.armv7
+552400c0d5244b461f591971c9b617129ab8bce8466cf01b3f085452c6765bb142e9101037360d431ffc3280bdfe8db07debafcb745216d21867d6f909a1abbf  config-samsung-matisse3g.armv7
 "
