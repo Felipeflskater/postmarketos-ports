@@ -37,10 +37,55 @@ prepare() {
 	export ARCH=arm
 	export CROSS_COMPILE=armv7-alpine-linux-musleabihf-
 
-	# Fix para compatibilidade com GCC moderno - força uso do padrão C17
-	export HOSTCFLAGS="-std=gnu17 $HOSTCFLAGS"
-	export HOSTCXXFLAGS="-std=gnu++17 $HOSTCXXFLAGS"
-	export CFLAGS_KERNEL="-std=gnu17"
+	# Fix DIRETO para compatibilidade com C23 - remove definições conflitantes
+	echo "[*] Aplicando fix direto para compatibilidade C23..."
+
+	# Remove enum false/true de stddef.h
+	sed -i '/^enum {$/,/^};$/d' include/linux/stddef.h
+
+	# Remove typedef bool de types.h
+	sed -i '/^typedef _Bool.*bool;$/d' include/linux/types.h
+
+	# Força C11 no Makefile principal
+	sed -i '/^HOSTCFLAGS.*:=/d' Makefile
+	sed -i '/^HOSTCXXFLAGS.*:=/d' Makefile
+	sed -i '/^KBUILD_HOSTCFLAGS.*:=/d' Makefile
+	sed -i '/^KBUILD_HOSTCXXFLAGS.*:=/d' Makefile
+
+	# Adiciona definições C11 no início do Makefile
+	sed -i '1i# Force C11 for compatibility with modern GCC' Makefile
+	sed -i '2i HOSTCFLAGS := -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu11' Makefile
+	sed -i '3i HOSTCXXFLAGS := -O2 -std=gnu++11' Makefile
+	sed -i '4i KBUILD_HOSTCFLAGS := $(HOSTCFLAGS)' Makefile
+	sed -i '5i KBUILD_HOSTCXXFLAGS := $(HOSTCXXFLAGS)' Makefile
+	sed -i '6i ' Makefile
+
+	# Fix para scripts/mod/Makefile
+	if [ -f scripts/mod/Makefile ]; then
+		sed -i '1i HOSTCFLAGS += -std=gnu11' scripts/mod/Makefile
+	fi
+
+	# Fix para missing msm_rtb.h header
+	echo "[*] Aplicando fix para headers MSM faltantes..."
+	if [ ! -f arch/arm/include/asm/mach/msm_rtb.h ]; then
+		mkdir -p arch/arm/include/asm/mach
+		cat > arch/arm/include/asm/mach/msm_rtb.h << 'EOF'
+#ifndef __ASM_ARCH_MSM_RTB_H
+#define __ASM_ARCH_MSM_RTB_H
+
+/* Stub header for missing MSM RTB functionality */
+static inline void uncached_logk_pc(enum logk_event_type log_type, void *caller,
+				void *data) { }
+static inline void uncached_logk(enum logk_event_type log_type, void *data) { }
+
+#endif /* __ASM_ARCH_MSM_RTB_H */
+EOF
+	fi
+
+	# Fix alternativo - comentar a inclusão se o header não existe
+	if [ -f arch/arm/include/asm/io.h ]; then
+		sed -i 's/#include <mach\/msm_rtb.h>/\/\* #include <mach\/msm_rtb.h> \*\//' arch/arm/include/asm/io.h
+	fi
 
 	# Aplica configuração
 	cp "$srcdir"/config-samsung-matisse3g.armv7 .config
@@ -60,11 +105,6 @@ build() {
 	cd "$builddir"
 	export ARCH=arm
 	export CROSS_COMPILE=armv7-alpine-linux-musleabihf-
-
-	# Fix para compatibilidade com GCC moderno
-	export HOSTCFLAGS="-std=gnu17 $HOSTCFLAGS"
-	export HOSTCXXFLAGS="-std=gnu++17 $HOSTCXXFLAGS"
-	export CFLAGS_KERNEL="-std=gnu17"
 
 	echo "[*] Compilando kernel..."
 	make -j$(nproc) zImage dtbs modules
