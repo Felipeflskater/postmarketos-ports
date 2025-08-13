@@ -169,3 +169,5 @@ CONFIG_MSM_VIDC_V4L2=y
 # Filesystem drivers - PROPERLY disabled problematic ones
 # CONFIG_EXFAT_FS is not set
 # CONFIG_SDFAT_FS is not set
+# Disable unused symbols by default
+CONFIG_UNUSED_SYMBOLS=n

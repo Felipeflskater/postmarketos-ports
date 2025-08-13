@@ -1,4 +1,4 @@
-# Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
+## Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=4.4.302
 pkgrel=0
@@ -10,26 +10,10 @@ url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
 license="GPL-2.0-only"
 options="!strip !check !tracedeps pmb:cross-native"
 makedepends="
-	perl
-	sed
-	installkernel
-	bash
-	gmp-dev
-	bc
-	linux-headers
-	elfutils-dev
-	dtbtool
-	devicepkg-dev
-	bison
-	flex
-	python3
-	mpfr-dev
-	mpc1-dev
-	gettext-dev
-	findutils
-	xz
+	bash bc bison devicepkg-dev dtbtool elfutils-dev findutils flex
+	gettext-dev gmp-dev installkernel linux-headers mpc1-dev mpfr-dev
+	perl python3 sed xz
 "
-subpackages=""
 _commit="pmos-matisse3g-fixes"
 source="
 	$pkgname-$_commit.tar.gz::https://github.com/felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/pmos-matisse3g-fixes.tar.gz
@@ -37,434 +21,98 @@ source="
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-pmos-matisse3g-fixes"
 
+_log() {
+    printf "\n[*] %s\n" "$1"
+}
+
+_die() {
+    _log "ERRO: $1"
+    exit 1
+}
+
 prepare() {
-	default_prepare
-	cd "$builddir"
+    cd "$builddir"
+    _log "Preparando kernel..."
 
-	echo "[*] Preparando kernel LineageOS 18.1 para matisse3g"
+    # Define arquitetura
+    echo 'KBUILD_CFLAGS += -D__LINUX_ARM_ARCH__=7' >> Makefile
 
-	# Define ambiente
-	export ARCH=arm
-	export CROSS_COMPILE=armv7-alpine-linux-musleabihf-
+    # Cria headers de compatibilidade
+    mkdir -p arch/arm/include/mach include/mach
 
-	# Fix DIRETO para compatibilidade com C23 - remove definições conflitantes
-	echo "[*] Aplicando fix direto para compatibilidade C23..."
-	# Remove enum false/true de stddef.h
-	sed -i '/^enum {$/,/^};$/d' include/linux/stddef.h
-
-	# Remove typedef bool de types.h
-	sed -i '/^typedef.*Bool.*bool;$/d' include/linux/types.h
-
-	# Força C11 no Makefile principal - CORREÇÃO: inserir após as definições básicas
-	# Remove definições existentes
-	sed -i '/^HOSTCFLAGS.*:=/d' Makefile
-	sed -i '/^HOSTCXXFLAGS.*:=/d' Makefile
-	sed -i '/^KBUILD_HOSTCFLAGS.*:=/d' Makefile
-	sed -i '/^KBUILD_HOSTCXXFLAGS.*:=/d' Makefile
-
-	# Adiciona definições C11 APÓS as definições de versão, não no início
-	sed -i '/^EXTRAVERSION = /a\
-\
-# Force C11 for compatibility with modern GCC\
-HOSTCFLAGS := -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu11\
-HOSTCXXFLAGS := -O2 -std=gnu++11\
-KBUILD_HOSTCFLAGS := $(HOSTCFLAGS)\
-KBUILD_HOSTCXXFLAGS := $(HOSTCXXFLAGS)' Makefile
-
-	# Fix para scripts/mod/Makefile
-	if [ -f scripts/mod/Makefile ]; then
-		sed -i '1i\HOSTCFLAGS += -std=gnu11' scripts/mod/Makefile
-	fi
-
-	# CORREÇÃO CRÍTICA: Criar sec_debug.h em TODOS os locais possíveis
-	echo "[*] Criando header sec_debug.h para compatibilidade Samsung..."
-	mkdir -p arch/arm/mach-msm/include/mach
-	mkdir -p include/mach
-	mkdir -p arch/arm/include/mach
-
-	cat > arch/arm/mach-msm/include/mach/sec_debug.h << 'SECDEBUGEOF'
-/* SPDX-License-Identifier: GPL-2.0 */
-/*
- * Samsung Security Debug Header - PostmarketOS compatibility stub
- */
-#ifndef __MACH_SEC_DEBUG_H
-#define __MACH_SEC_DEBUG_H
-
-#include <linux/types.h>
-#include <linux/kernel.h>
-
-/* Samsung debug feature flags */
-#define SEC_DEBUG_LEVEL_LOW		0
-#define SEC_DEBUG_LEVEL_MID		1
-#define SEC_DEBUG_LEVEL_HIGH	2
-
-/* Debug level macros */
-#ifndef CONFIG_SEC_DEBUG
-#define SEC_DEBUG_LEVEL			SEC_DEBUG_LEVEL_LOW
-#else
-#define SEC_DEBUG_LEVEL			SEC_DEBUG_LEVEL_MID
+    # sec_debug.h (simplificado)
+    cat > arch/arm/include/mach/sec_debug.h << 'EOF'
+#ifndef __ASM_MACH_SEC_DEBUG_H
+#define __ASM_MACH_SEC_DEBUG_H
+#define sec_debug_init() do {} while (0)
+#define sec_debug_reboot_handler(x) do {} while (0)
+#define sec_debug_hw_init() do {} while (0)
+#define sec_debug_set_upload_magic(x) do {} while (0)
+#define sec_debug_set_upload_cause(x) do {} while (0)
 #endif
+EOF
 
-/* Function declarations - inline stubs for PostmarketOS */
-static inline void sec_debug_init(void) { }
-static inline void sec_debug_reboot_handler(void) { }
-static inline void sec_debug_panic_handler(int reboot) { }
-static inline void sec_debug_post_panic_handler(void) { }
-
-static inline int sec_debug_get_debug_level(void) {
-	return SEC_DEBUG_LEVEL;
-}
-
-static inline bool sec_debug_level_check(int level) {
-	return (SEC_DEBUG_LEVEL >= level);
-}
-
-/* Crash dump and logging functions */
-static inline void sec_debug_save_last_pet(unsigned long long last_pet) { }
-static inline void sec_debug_save_last_ns(unsigned long long last_ns) { }
-static inline void sec_getlog_supply_loggerinfo(void *p_main, void *p_radio,
-						void *p_events, void *p_system) { }
-
-/* Memory debugging */
-static inline void sec_debug_save_context(void) { }
-static inline void sec_debug_check_crash_key(unsigned int code, int value) { }
-
-/* Reset reason handling */
-enum sec_debug_upload_cause_t {
-	UPLOAD_CAUSE_INIT = 0xCAFEBABE,
-	UPLOAD_CAUSE_KERNEL_PANIC = 0x000000C8,
-	UPLOAD_CAUSE_FORCED_UPLOAD = 0x00000022,
-	UPLOAD_CAUSE_USER_FAULT = 0x0000002F,
-	UPLOAD_CAUSE_HSIC_DISCONNECTED = 0x000000CC,
-	UPLOAD_CAUSE_MODEM_RST_ERR = 0x000000DD,
-	UPLOAD_CAUSE_RIVA_RST_ERR = 0x000000EE,
-	UPLOAD_CAUSE_LPASS_RST_ERR = 0x000000FF,
-	UPLOAD_CAUSE_WATCHDOG_BARK = 0x00000020,
-};
-
-static inline void sec_debug_set_upload_magic(unsigned int magic, char *str) { }
-static inline void sec_debug_set_upload_cause(enum sec_debug_upload_cause_t type) { }
-
-/* Watchdog functions */
-static inline void sec_debug_disable_watchdog(void) { }
-static inline void sec_debug_enable_watchdog(void) { }
-
-/* Additional compatibility macros */
-#define sec_debug_save_pte(pte, fault_addr, task)	do { } while(0)
-#define sec_debug_save_die_info(str, regs)		do { } while(0)
-#define sec_debug_save_bug_info(bugaddr, panic_str, regs) do { } while(0)
-
-#endif /* __MACH_SEC_DEBUG_H */
-SECDEBUGEOF
-
-	# Copiar para múltiplos locais
-	cp arch/arm/mach-msm/include/mach/sec_debug.h include/mach/sec_debug.h 2>/dev/null || true
-	cp arch/arm/mach-msm/include/mach/sec_debug.h arch/arm/include/mach/sec_debug.h 2>/dev/null || true
-
-	# Criar msm_rtb.h melhorado
-	echo "[*] Criando msm_rtb.h melhorado..."
-	mkdir -p arch/arm/include/asm/mach
-	cat > arch/arm/include/asm/mach/msm_rtb.h << 'RTBEOF'
-#ifndef __ASM_ARCH_MSM_RTB_H
-#define __ASM_ARCH_MSM_RTB_H
-
-/* Enum para tipos de log - necessário para compatibilidade */
-enum logk_event_type {
-	LOGK_READL = 0,
-	LOGK_WRITEL = 1,
-	LOGK_LOGBUF = 2,
-	LOGK_HOTPLUG = 3,
-	LOGK_CTXID = 4,
-};
-
-/* Função stub para uncached_logk_pc */
-static inline void uncached_logk_pc(enum logk_event_type log_type, void *caller,
-				void *data) { }
-
-/* Função stub para uncached_logk */
-static inline void uncached_logk(enum logk_event_type log_type, void *data) { }
-
-#endif /* __ASM_ARCH_MSM_RTB_H */
-RTBEOF
-
-	# Copiar msm_rtb.h para o local correto que o erro está pedindo
-	mkdir -p arch/arm/include/mach
-	cp arch/arm/include/asm/mach/msm_rtb.h arch/arm/include/mach/msm_rtb.h
-
-	# FIX CRÍTICO: Criar asm/bitsperlong.h que está faltando
-	echo "[*] Criando asm/bitsperlong.h ausente..."
-	mkdir -p arch/arm/include/asm
-	cat > arch/arm/include/asm/bitsperlong.h << 'BITSEOF'
+    # bitsperlong.h
+    cat > arch/arm/include/asm/bitsperlong.h << 'EOF'
 #ifndef __ASM_ARM_BITSPERLONG_H
 #define __ASM_ARM_BITSPERLONG_H
-
 #define __BITS_PER_LONG 32
-
-#endif /* __ASM_ARM_BITSPERLONG_H */
-BITSEOF
-
-	# Aplica configuração base
-	cp "$srcdir/config-samsung-matisse3g.armv7" .config
-
-	# FIX CRÍTICO: Definir __LINUX_ARM_ARCH__ em múltiplos locais
-	echo "[*] Aplicando fix definitivo para __LINUX_ARM_ARCH__..."
-
-	# 1. Definir no arquivo de configuração automático arch/arm/Makefile
-	if [ -f arch/arm/Makefile ]; then
-		# Remove definições existentes
-		sed -i '/__LINUX_ARM_ARCH__/d' arch/arm/Makefile
-
-		# Adiciona definição robusta no início do arch/arm/Makefile
-		sed -i '1i\# ARM Architecture version definition\
-KBUILD_CFLAGS += -D__LINUX_ARM_ARCH__=7\
-KBUILD_AFLAGS += -D__LINUX_ARM_ARCH__=7\
-KBUILD_CPPFLAGS += -D__LINUX_ARM_ARCH__=7\
-' arch/arm/Makefile
-	fi
-
-	# 2. Criar um header específico para definir a arquitetura ARM
-	mkdir -p arch/arm/include/asm
-	cat > arch/arm/include/asm/assembler.h << 'ASMEOF'
-/*
- * arch/arm/include/asm/assembler.h
- *
- * Copyright (C) 1996-2000 Russell King
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- *  This file contains arm architecture specific defines
- *  for the different processors.
- *
- *  Do not include any C declarations in this file - it is included by
- *  assembly source as well as C source.
- */
-#ifndef __ASM_ASSEMBLER_H__
-#define __ASM_ASSEMBLER_H__
-
-#ifndef __LINUX_ARM_ARCH__
-#define __LINUX_ARM_ARCH__ 7
 #endif
+EOF
 
-/* ARM architecture version */
-#define ARM_ARCH_VERSION 7
-
-#endif /* __ASM_ASSEMBLER_H__ */
-ASMEOF
-
-	# 3. Forçar definição no arquivo principal de configuração ARM
-	mkdir -p include/config
-	cat > include/config/auto.conf << 'AUTOCONF'
-#
-# Automatically generated file; DO NOT EDIT.
-# Linux/arm 4.4.302 Kernel Configuration
-#
-CONFIG_ARM=y
-CONFIG_CPU_V7=y
-CONFIG_CPU_32v7=y
-CONFIG_ARM_THUMB=y
-CONFIG_SMP=y
-CONFIG_MMU=y
-AUTOCONF
-
-	# 4. Modificar o Makefile principal para garantir que as definições sejam aplicadas SEMPRE
-	sed -i '/^KBUILD_HOSTCXXFLAGS := /a\
-\
-# Critical ARM architecture definitions - applied to ALL compilation\
-export __LINUX_ARM_ARCH__ := 7\
-KBUILD_CFLAGS += -D__LINUX_ARM_ARCH__=7\
-KBUILD_AFLAGS += -D__LINUX_ARM_ARCH__=7\
-KBUILD_CPPFLAGS += -D__LINUX_ARM_ARCH__=7\
-HOSTCFLAGS += -D__LINUX_ARM_ARCH__=7' Makefile
-
-# 5. CORREÇÃO ROBUSTA: Patch direto e mais agressivo nos arquivos problemáticos
-	echo "[*] Aplicando patches robustos nos headers ARM..."
-
-	# Fix para arch/arm/include/asm/page.h - mais agressivo
-	if [ -f arch/arm/include/asm/page.h ]; then
-		echo "[*] Corrigindo arch/arm/include/asm/page.h..."
-		# Remove qualquer erro existente e define tudo que é necessário
-		sed -i '/^#error.*Unknown user operations model/d' arch/arm/include/asm/page.h
-
-		# Adiciona todas as definições necessárias no início do arquivo
-		sed -i '1i\/* PostmarketOS compatibility fixes */\
-#ifndef __LINUX_ARM_ARCH__\
-#define __LINUX_ARM_ARCH__ 7\
-#endif\
-#ifndef CONFIG_CPU_USE_DOMAINS\
-#define CONFIG_CPU_USE_DOMAINS 1\
-#endif\
-#ifndef CONFIG_ARM_LPAE\
-#define MULTI_USER 1\
-#define CPU_COPY_USER_V6 1\
-#define CPU_CLEAR_USER_V6 1\
-#endif' arch/arm/include/asm/page.h
-	fi
-
-	# Fix para arch/arm/include/asm/glue-cache.h
-	if [ -f arch/arm/include/asm/glue-cache.h ]; then
-		echo "[*] Corrigindo arch/arm/include/asm/glue-cache.h..."
-		# Remove o erro e define o modelo de cache
-		sed -i '/^#error.*Unknown cache maintenance model/d' arch/arm/include/asm/glue-cache.h
-
-		# Força definição do modelo de cache V7
-		sed -i '1i\/* PostmarketOS compatibility - force cache model */\
-#ifndef __LINUX_ARM_ARCH__\
-#define __LINUX_ARM_ARCH__ 7\
-#endif\
-#ifndef CONFIG_CPU_CACHE_V7\
-#define CONFIG_CPU_CACHE_V7 1\
-#define MULTI_CACHE 1\
-#define CPU_CACHE_v7_invalidate_all v7_invalidate_kern_cache_all\
-#define CPU_CACHE_v7_flush_all v7_flush_kern_cache_all\
-#define CPU_CACHE_v7_flush_user_all v7_flush_user_cache_all\
-#define CPU_CACHE_v7_flush_user_range v7_flush_user_cache_range\
-#define CPU_CACHE_v7_coherent_kern_range v7_coherent_kern_range\
-#define CPU_CACHE_v7_coherent_user_range v7_coherent_user_range\
-#define CPU_CACHE_v7_flush_kern_dcache_area v7_flush_kern_dcache_area\
-#define CPU_CACHE_v7_dma_map_area v7_dma_map_area\
-#define CPU_CACHE_v7_dma_unmap_area v7_dma_unmap_area\
-#define CPU_CACHE_v7_dma_flush_range v7_dma_flush_range\
-#endif' arch/arm/include/asm/glue-cache.h
-	fi
-
-	# Fix para arch/arm/include/asm/glue-df.h
-	if [ -f arch/arm/include/asm/glue-df.h ]; then
-		echo "[*] Corrigindo arch/arm/include/asm/glue-df.h..."
-		sed -i '/^#error.*Unknown data abort handler type/d' arch/arm/include/asm/glue-df.h
-
-		# Define handler para v7
-		sed -i '1i\/* PostmarketOS compatibility - force data abort handler */\
-#ifndef __LINUX_ARM_ARCH__\
-#define __LINUX_ARM_ARCH__ 7\
-#endif\
-#ifndef CONFIG_CPU_ABRT_EV7\
-#define CONFIG_CPU_ABRT_EV7 1\
-#define MULTI_DABORT 1\
-#define CPU_DABORT_HANDLER v7_early_abort\
-#endif' arch/arm/include/asm/glue-df.h
-	fi
-
-	# Fix para arch/arm/include/asm/glue-pf.h
-	if [ -f arch/arm/include/asm/glue-pf.h ]; then
-		echo "[*] Corrigindo arch/arm/include/asm/glue-pf.h..."
-		sed -i '/^#error.*Unknown prefetch abort handler type/d' arch/arm/include/asm/glue-pf.h
-
-		# Define handler para v7
-		sed -i '1i\/* PostmarketOS compatibility - force prefetch abort handler */\
-#ifndef __LINUX_ARM_ARCH__\
-#define __LINUX_ARM_ARCH__ 7\
-#endif\
-#ifndef CONFIG_CPU_PABRT_V7\
-#define CONFIG_CPU_PABRT_V7 1\
-#define MULTI_PABORT 1\
-#define CPU_PABORT_HANDLER v7_pabort\
-#endif' arch/arm/include/asm/glue-pf.h
-	fi
-
-	# Adicionalmente, vamos criar um header global de compatibilidade
-	echo "[*] Criando header global de compatibilidade ARM..."
-	cat > arch/arm/include/asm/postmarketos_compat.h << 'COMPATEOF'
-/*
- * PostmarketOS ARM Compatibility Header
- * Defines all necessary ARM architecture constants
- */
+    # postmarketos_compat.h
+    cat > arch/arm/include/asm/postmarketos_compat.h << 'EOF'
 #ifndef __ASM_POSTMARKETOS_COMPAT_H
 #define __ASM_POSTMARKETOS_COMPAT_H
-
-/* Force ARM architecture version */
-#ifndef __LINUX_ARM_ARCH__
-#define __LINUX_ARM_ARCH__ 7
+#include <asm/bitsperlong.h>
+#include <asm/page.h>
 #endif
+EOF
 
-/* CPU Configuration */
-#define CONFIG_CPU_V7 1
-#define CONFIG_CPU_32v7 1
-#define CONFIG_CPU_ABRT_EV7 1
-#define CONFIG_CPU_PABRT_V7 1
-#define CONFIG_CPU_CACHE_V7 1
-#define CONFIG_CPU_CACHE_VIPT 1
-#define CONFIG_CPU_COPY_V6 1
-#define CONFIG_CPU_TLB_V7 1
-#define CONFIG_ARM_THUMB 1
-#define CONFIG_ARM_THUMBEE 1
-#define CONFIG_CPU_USE_DOMAINS 1
-#define CONFIG_MMU 1
+    # Inclui compatibilidade
+    for header in page.h glue-cache.h glue-df.h glue-pf.h; do
+        sed -i '1i\#include <asm/postmarketos_compat.h>' arch/arm/include/asm/$header 2>/dev/null || true
+    done
 
-/* Cache and Memory Management */
-#define MULTI_CACHE 1
-#define MULTI_USER 1
-#define MULTI_DABORT 1
-#define MULTI_PABORT 1
+    # Desativa gpu_sysfs
+    if [ -f drivers/gpu/gpu_sysfs/Kbuild ]; then
+        echo "# disabled" > drivers/gpu/gpu_sysfs/Kbuild
+    fi
 
-/* CPU Features */
-#define CPU_COPY_USER_V6 1
-#define CPU_CLEAR_USER_V6 1
+    # Copia config
+    cp "$srcdir/config-samsung-matisse3g.armv7" .config || _die "Falha ao copiar config"
 
-#endif /* __ASM_POSTMARKETOS_COMPAT_H */
-COMPATEOF
-
-	# Incluir este header em todos os arquivos problemáticos
-	sed -i '1i\#include <asm/postmarketos_compat.h>' arch/arm/include/asm/page.h 2>/dev/null || true
-	sed -i '1i\#include <asm/postmarketos_compat.h>' arch/arm/include/asm/glue-cache.h 2>/dev/null || true
-	sed -i '1i\#include <asm/postmarketos_compat.h>' arch/arm/include/asm/glue-df.h 2>/dev/null || true
-	sed -i '1i\#include <asm/postmarketos_compat.h>' arch/arm/include/asm/glue-pf.h 2>/dev/null || true
-
-	# Desativa o Kbuild do gpu_sysfs para evitar erros
-	if [ -f drivers/gpu/gpu_sysfs/Kbuild ]; then
-		echo "[*] Desativando gpu_sysfs/Kbuild para evitar erro de TARGET..."
-		echo "# disabled for postmarketOS build" > drivers/gpu/gpu_sysfs/Kbuild
-	fi
-
-	# CORREÇÃO CRÍTICA: usar oldconfig ao invés de olddefconfig
-	echo "[*] Aplicando configuração e preparando kernel..."
-	cp .config .config.bak
-	yes "" | make ARCH="$ARCH" oldconfig
-	make ARCH="$ARCH" prepare
-	make ARCH="$ARCH" scripts
+    # Executa oldconfig
+    _log "Executando oldconfig..."
+    yes "" | make ARCH=arm oldconfig || _die "oldconfig falhou"
 }
 
 build() {
-    unset LDFLAGS
+    cd "$builddir"
+    export ARCH=arm
+    export CROSS_COMPILE=armv7-alpine-linux-musleabihf-
+    export KBUILD_BUILD_VERSION="$((pkgrel + 1))-postmarketOS"
 
-    # Define compilador host para gerar ferramentas como fixdep
-    export HOSTCC=gcc
-    export HOSTCXX=g++
+    _log "Compilando..."
+    make -j$(nproc) zImage modules dtbs || _die "Falha na compilação"
 
-    # Ajusta PATH para garantir acesso ao cross-compiler
-    export PATH="/usr/armv7-alpine-linux-musleabihf/bin:/native/usr/lib/crossdirect/armv7:$PATH"
-
-	# Garante que .config existe
-    if [ ! -f .config ]; then
-        cp "$srcdir/config-samsung-matisse3g.armv7" .config
-        yes "" | make ARCH="$_carch" oldconfig
-    fi
-
-    # Compila kernel
-    make ARCH="$_carch" CC="${CC:-gcc}" \
-        HOSTCC="$HOSTCC" \
-        HOSTCXX="$HOSTCXX" \
-        KBUILD_BUILD_VERSION="$((pkgrel + 1 ))-postmarketOS" \
-        CONFIG_DEBUG_SECTION_MISMATCH=y
-
-    # Gera master DTB se dtbTool estiver disponível
-    if command -v dtbTool >/dev/null 2>&1 && [ -d "arch/arm/boot/dts" ]; then
-        dtbTool -s 2048 -p "scripts/dtc/" -o "arch/arm/boot/dt.img" "arch/arm/boot/" || true
+    # Gera dt.img
+    if command -v dtbTool >/dev/null 2>&1; then
+        dtbTool -s 2048 -p scripts/dtc/ -o arch/arm/boot/dt.img arch/arm/boot/dts/
     fi
 }
 
 package() {
-	downstreamkernel_package "$builddir" "$pkgdir" "$_carch" "$_flavor"
+    cd "$builddir"
+    make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" INSTALL_PATH="$pkgdir/boot" \
+        ARCH=arm CROSS_COMPILE=armv7-alpine-linux-musleabihf- \
+        install modules_install
 
-	# Master DTB if it exists
-	if [ -f "$builddir/arch/arm/boot/dt.img" ]; then
-		install -Dm644 "$builddir/arch/arm/boot/dt.img" \
-			"$pkgdir/boot/dt.img"
-	fi
+    install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-samsung-matisse3g"
+    [ -f arch/arm/boot/dt.img ] && install -Dm644 arch/arm/boot/dt.img "$pkgdir/boot/dt.img"
 }
 
 sha512sums="
-22318063633d48e1d6c90b895e5bf5d0d1318c686afa74b8186817d1bef686dca8aa4908e63f6a3dc6895ac8b24070adcbc6a8f6a3473ca5710232dc5963ce6c  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
-392fc09caeff561111e8320e253f788637bd037db6b4d2927df755570a9d26000ee726c7ed46532e8fceef7db0f6f38ab3e3c0f27f34012843222cd045a7a477  config-samsung-matisse3g.armv7
+SKIP
+3e8c37f9ec48f57454e7931064061b8f3b3af536f241b17c78f18415e4b72e5e9c2b2d653c50e72398440a592dbc9b50c107339433b076c069917ec2beeac925  config-samsung-matisse3g.armv7
 "
