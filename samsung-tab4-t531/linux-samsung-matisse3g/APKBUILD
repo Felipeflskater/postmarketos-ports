@@ -1,10 +1,9 @@
-## Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
+# Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
-pkgver=4.4.302
+pkgver=3.4.113
 pkgrel=0
-pkgdesc="Linux kernel for Samsung Galaxy Tab 4 10.1 (SM-T531) - LineageOS 18.1"
+pkgdesc="Linux kernel for Samsung Galaxy Tab 4 10.1 (SM-T531) - LineageOS"
 arch="armv7"
-_carch="arm"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
 license="GPL-2.0-only"
@@ -14,15 +13,15 @@ makedepends="
 	gettext-dev gmp-dev installkernel linux-headers mpc1-dev mpfr-dev
 	perl python3 sed xz
 "
+
 _commit="pmos-matisse3g-fixes"
+_cross_prefix="armv7-alpine-linux-musleabihf-"
+
 source="
 	$pkgname-$_commit.tar.gz::https://github.com/felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/pmos-matisse3g-fixes.tar.gz
 	config-samsung-matisse3g.armv7
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-pmos-matisse3g-fixes"
-
-# CRITICAL: Define cross-compiler paths early
-_cross_prefix="armv7-alpine-linux-musleabihf-"
 
 _log() {
     printf "\n[*] %s\n" "$1"
@@ -35,361 +34,304 @@ _die() {
 
 prepare() {
     cd "$builddir"
-    _log "Preparando kernel..."
+    _log "Preparando kernel para Samsung Matisse3G (MSM8226)"
 
-    # ============ CROSS-COMPILER VALIDATION ============
-    _log "Validando cross-compiler..."
+    # ============ LIMPEZA DE FLAGS PROBLEMÁTICAS ============
+    _log "Limpando flags incompatíveis..."
 
-    # Verifica se o cross-compiler existe
-    if ! command -v "${_cross_prefix}gcc" >/dev/null 2>&1; then
-        _die "Cross-compiler ${_cross_prefix}gcc não encontrado!"
-    fi
+    # Limpa completamente as LDFLAGS do sistema Alpine
+    unset LDFLAGS
+    unset CPPFLAGS
+    export LDFLAGS=""
+    export CPPFLAGS=""
 
-    _log "Cross-compiler encontrado: $(${_cross_prefix}gcc --version | head -n1)"
-
-    # ============ ENVIRONMENT SETUP CRÍTICO ============
-    _log "Configurando ambiente de build..."
-
-    # FORÇA o uso do cross-compiler
+    # ============ AMBIENTE ============
     export ARCH=arm
     export SUBARCH=arm
     export CROSS_COMPILE="${_cross_prefix}"
 
-    # Host tools com C11 (para scripts/mod e ferramentas do kernel)
-    export HOSTCC="gcc -std=gnu11"
-    export HOSTCXX="g++ -std=gnu++11"
-    export HOSTCFLAGS="-std=gnu11 -Wall -O2 -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free"
-    export HOSTCXXFLAGS="-std=gnu++11 -Wall -O2"
-    export KBUILD_HOSTCFLAGS="$HOSTCFLAGS"
-    export KBUILD_HOSTCXXFLAGS="$HOSTCXXFLAGS"
+    # ============ COMPATIBILIDADE GCC 14.2.0 ============
+    _log "Configurando compatibilidade com GCC 14.2.0"
 
-    # Target compiler (ARM) - SEM C11 aqui para não conflitar
-    export CC="${_cross_prefix}gcc"
-    export AR="${_cross_prefix}ar"
-    export LD="${_cross_prefix}ld"
-    export STRIP="${_cross_prefix}strip"
-    export NM="${_cross_prefix}nm"
-    export OBJCOPY="${_cross_prefix}objcopy"
-    export OBJDUMP="${_cross_prefix}objdump"
-    export READELF="${_cross_prefix}readelf"
+    # Flags GCC para kernel 3.4.x - COM desabilitação completa de PIE
+    local gcc_flags="\
+-std=gnu89 \
+-fno-stack-protector \
+-Wno-error=incompatible-pointer-types \
+-Wno-error=array-bounds \
+-Wno-error=stringop-overflow \
+-Wno-error=int-conversion \
+-Wno-error=discarded-qualifiers \
+-Wno-error=format-security \
+-fno-PIE \
+-no-pie"
 
-    # Debugging
-    _log "Compiladores configurados:"
-    _log "  HOSTCC: $HOSTCC"
-    _log "  CC: $CC"
-    _log "  CROSS_COMPILE: $CROSS_COMPILE"
+    # Flags específicas para HOST (scripts do kernel)
+    local host_flags="\
+-fno-PIE \
+-no-pie \
+-fno-stack-protector \
+-Wno-error"
 
-    # ============ FIX C23 COMPLETO ============
-    _log "Aplicando fix C23 → C11 para GCC 15.2.0..."
+    # Configuração completa de ambiente
+    export HOSTCFLAGS="$host_flags"
+    export HOSTLDFLAGS="-no-pie"
+    export KBUILD_HOSTCFLAGS="$host_flags"
+    export KBUILD_HOSTLDFLAGS="-no-pie"
+    export KBUILD_CFLAGS_KERNEL="$gcc_flags"
 
-    # 1. Fix include/linux/stddef.h
+    # Força o uso de ld tradicional, não gold
+    export KBUILD_LDFLAGS=""
+    export KBUILD_LDFLAGS_MODULE=""
+
+    # Headers GCC para GCC 14/15
+    mkdir -p include/linux
+    local gcc_version=$(gcc -dumpversion | cut -d. -f1)
+    _log "GCC detectado: $gcc_version"
+
+    for ver in 14 15; do
+        if [ ! -f "include/linux/compiler-gcc${ver}.h" ]; then
+            _log "Criando compiler-gcc${ver}.h"
+            local found=false
+            for src in 13 12 11 10 9 8 7 6 5 4; do
+                if [ -f "include/linux/compiler-gcc${src}.h" ]; then
+                    cp "include/linux/compiler-gcc${src}.h" "include/linux/compiler-gcc${ver}.h"
+                    found=true
+                    break
+                fi
+            done
+            if [ "$found" = "false" ]; then
+                cat > "include/linux/compiler-gcc${ver}.h" <<'EOF'
+#ifndef __LINUX_COMPILER_H
+#error "Please include <linux/compiler.h> instead"
+#endif
+#define __used			__attribute__((__used__))
+#define __must_check		__attribute__((warn_unused_result))
+#define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
+#define __always_inline		inline __attribute__((always_inline))
+#define __noreturn		__attribute__((__noreturn__))
+#define __deprecated		__attribute__((deprecated))
+#define __packed		__attribute__((packed))
+#define __weak			__attribute__((weak))
+#define __align(x)		__attribute__((aligned(x)))
+EOF
+            fi
+        fi
+    done
+
+    # Fix para scripts/mod/modpost.c (GCC 14 precisa de _GNU_SOURCE)
+    if [ -f scripts/mod/modpost.c ]; then
+        sed -i '1i#define _GNU_SOURCE' scripts/mod/modpost.c
+        _log "Fix _GNU_SOURCE aplicado em scripts/mod/modpost.c"
+    fi
+
+    # Fix adicional para true/false redefinition warnings
+    _log "Aplicando fix para redefinição de true/false"
     if [ -f include/linux/stddef.h ]; then
-        _log "Corrigindo include/linux/stddef.h"
-        sed -i '/^enum[[:space:]]*{[[:space:]]*$/,/^}[[:space:]]*;[[:space:]]*$/d' include/linux/stddef.h
-        sed -i '/false[[:space:]]*=[[:space:]]*0/d' include/linux/stddef.h
-        sed -i '/true[[:space:]]*=[[:space:]]*1/d' include/linux/stddef.h
-    fi
-
-    # 2. Fix include/linux/types.h
-    if [ -f include/linux/types.h ]; then
-        _log "Corrigindo include/linux/types.h"
-        sed -i '/typedef.*Bool.*bool;/d' include/linux/types.h
-        sed -i '/typedef.*_Bool.*bool;/d' include/linux/types.h
-        sed -i '/typedef[[:space:]]*\*Bool[[:space:]]*bool;/d' include/linux/types.h
-    fi
-
-    # 3. MAKEFILE FIXES - Configuração mínima e compatível
-    _log "Configurando Makefile para cross-compilation..."
-
-    # NÃO modifica o Makefile principal - deixa o kernel usar as variáveis de ambiente
-    # Apenas exporta as variáveis que o kernel vai usar automaticamente
-
-    # Verifica se as variáveis estão sendo exportadas corretamente
-    _log "Variáveis de ambiente configuradas:"
-    _log "  ARCH=$ARCH"
-    _log "  CROSS_COMPILE=$CROSS_COMPILE"
-    _log "  HOSTCC=$HOSTCC"
-    _log "  HOSTCFLAGS=$HOSTCFLAGS"
-
-    # 4. Fix para scripts/mod/Makefile - Abordagem mínima
-    if [ -f scripts/mod/Makefile ]; then
-        _log "Aplicando fix mínimo em scripts/mod/Makefile"
-        # NÃO modifica CFLAGS diretamente, apenas garante que HOSTCC está correto
-        # O kernel vai usar automaticamente o HOSTCC e HOSTCFLAGS do ambiente
-        sed -i '1i# PostmarketOS: Ensure proper host compiler\n' scripts/mod/Makefile
-    fi
-
-    # 5. Fix para outros Makefiles críticos de host tools - mínimo
-    for makefile in scripts/Makefile.host scripts/Makefile.build; do
-        if [ -f "$makefile" ]; then
-            _log "Verificando $makefile (sem modificações diretas)"
-            # NÃO modifica os Makefiles - deixa o kernel usar as variáveis de ambiente
-        fi
-    done
-
-    # ============ FIXES DE CÓDIGO-FONTE ESPECÍFICOS ============
-    _log "Aplicando fixes de código-fonte..."
-
-    # 1. Fix array bounds warning em dma-mapping.c
-    if [ -f arch/arm/mm/dma-mapping.c ]; then
-        _log "Corrigindo arch/arm/mm/dma-mapping.c"
-        # Define MAX_CMA_AREAS se não estiver definido
-        sed -i '1i#ifndef MAX_CMA_AREAS\n#define MAX_CMA_AREAS 7\n#endif\n' arch/arm/mm/dma-mapping.c
-
-        # Adiciona verificação de bounds nas funções problemáticas
-        sed -i '/dma_mmu_remap\[dma_mmu_remap_num\]\.base = base;/i\    if (dma_mmu_remap_num >= MAX_CMA_AREAS) return;' arch/arm/mm/dma-mapping.c
-        sed -i '/for (i = 0; i < dma_mmu_remap_num; i++) {/a\        if (i >= MAX_CMA_AREAS) break;' arch/arm/mm/dma-mapping.c
-    fi
-
-    # 2. Fix include/linux/log2.h conflito de atributos
-    if [ -f include/linux/log2.h ]; then
-        _log "Corrigindo include/linux/log2.h"
-        # Remove o atributo conflitante noreturn
-        sed -i 's/__attribute__((__noreturn__))//' include/linux/log2.h
-        sed -i 's/__noreturn__//' include/linux/log2.h
-    fi
-
-    # 3. Fix potencial em arch/arm/mach-msm - desabilita tratamento de warnings como erros
-    if [ -d arch/arm/mach-msm ]; then
-        _log "Corrigindo arch/arm/mach-msm"
-        # Procura por Makefiles em mach-msm e remove -Werror
-        find arch/arm/mach-msm -name "Makefile*" -type f -exec sed -i 's/-Werror//g' {} \;
-        find arch/arm/mach-msm -name "Makefile*" -type f -exec sed -i 's/EXTRA_CFLAGS.*-Werror/# &/' {} \;
-
-        # Adiciona flags para relaxar warnings
-        if [ -f arch/arm/mach-msm/Makefile ]; then
-            echo "" >> arch/arm/mach-msm/Makefile
-            echo "# PostmarketOS: Relax compiler warnings" >> arch/arm/mach-msm/Makefile
-            echo "KBUILD_CFLAGS += -Wno-error=array-bounds -Wno-error=stringop-overflow" >> arch/arm/mach-msm/Makefile
-            echo "KBUILD_CFLAGS += -Wno-array-bounds -Wno-stringop-overflow" >> arch/arm/mach-msm/Makefile
-        fi
-    fi
-    _log "Criando headers de compatibilidade ARM..."
-
-    # Diretórios necessários
-    mkdir -p arch/arm/include/mach include/mach arch/arm/include/asm
-
-    # sec_debug.h
-    cat > arch/arm/include/mach/sec_debug.h << 'EOF'
-#ifndef __ASM_MACH_SEC_DEBUG_H
-#define __ASM_MACH_SEC_DEBUG_H
-#define sec_debug_init() do {} while (0)
-#define sec_debug_reboot_handler(x) do {} while (0)
-#define sec_debug_hw_init() do {} while (0)
-#define sec_debug_set_upload_magic(x) do {} while (0)
-#define sec_debug_set_upload_cause(x) do {} while (0)
+        sed -i '/^#define false/d; /^#define true/d' include/linux/stddef.h
+        cat >> include/linux/stddef.h <<'EOF'
+#ifndef __cplusplus
+#ifndef false
+#define false	((bool)0)
+#endif
+#ifndef true
+#define true	((bool)1)
+#endif
 #endif
 EOF
-    cp arch/arm/include/mach/sec_debug.h include/mach/ 2>/dev/null || true
-
-    # bitsperlong.h
-    cat > arch/arm/include/asm/bitsperlong.h << 'EOF'
-#ifndef __ASM_ARM_BITSPERLONG_H
-#define __ASM_ARM_BITSPERLONG_H
-#define __BITS_PER_LONG 32
-#endif
-EOF
-
-    # postmarketos_compat.h - VERSÃO ULTRA COMPLETA
-    cat > arch/arm/include/asm/postmarketos_compat.h << 'EOF'
-/*
- * PostmarketOS ARM Compatibility - COMPLETE
- */
-#ifndef __ASM_POSTMARKETOS_COMPAT_H
-#define __ASM_POSTMARKETOS_COMPAT_H
-
-/* ARM architecture version */
-#ifndef __LINUX_ARM_ARCH__
-#define __LINUX_ARM_ARCH__ 7
-#endif
-
-/* Complete CPU configuration */
-#define CONFIG_CPU_V7 1
-#define CONFIG_CPU_32v7 1
-#define CONFIG_CPU_ABRT_EV7 1
-#define CONFIG_CPU_PABRT_V7 1
-#define CONFIG_CPU_CACHE_V7 1
-#define CONFIG_CPU_CACHE_VIPT 1
-#define CONFIG_CPU_COPY_V6 1
-#define CONFIG_CPU_TLB_V7 1
-#define CONFIG_ARM_THUMB 1
-#define CONFIG_CPU_USE_DOMAINS 1
-#define CONFIG_MMU 1
-
-/* Multi-platform support */
-#define MULTI_CACHE 1
-#define MULTI_USER 1
-#define MULTI_DABORT 1
-#define MULTI_PABORT 1
-
-/* CPU Features */
-#define CPU_COPY_USER_V6 1
-#define CPU_CLEAR_USER_V6 1
-
-/* Cache handlers */
-#define CPU_CACHE_v7_invalidate_all v7_invalidate_kern_cache_all
-#define CPU_CACHE_v7_flush_all v7_flush_kern_cache_all
-#define CPU_CACHE_v7_flush_user_all v7_flush_user_cache_all
-#define CPU_CACHE_v7_flush_user_range v7_flush_user_cache_range
-#define CPU_CACHE_v7_coherent_kern_range v7_coherent_kern_range
-#define CPU_CACHE_v7_coherent_user_range v7_coherent_user_range
-#define CPU_CACHE_v7_flush_kern_dcache_area v7_flush_kern_dcache_area
-#define CPU_CACHE_v7_dma_map_area v7_dma_map_area
-#define CPU_CACHE_v7_dma_unmap_area v7_dma_unmap_area
-#define CPU_CACHE_v7_dma_flush_range v7_dma_flush_range
-
-/* Abort handlers */
-#define CPU_DABORT_HANDLER v7_early_abort
-#define CPU_PABORT_HANDLER v7_pabort
-
-/* User operations */
-#define CPU_COPY_USER CPU_COPY_USER_V6
-#define CPU_CLEAR_USER CPU_CLEAR_USER_V6
-
-#endif /* __ASM_POSTMARKETOS_COMPAT_H */
-EOF
-
-    # Aplica o header nos arquivos ARM problemáticos
-    _log "Aplicando fixes nos headers ARM..."
-    for header in page.h glue-cache.h glue-df.h glue-pf.h; do
-        if [ -f "arch/arm/include/asm/$header" ]; then
-            _log "Corrigindo arch/arm/include/asm/$header"
-            # Include compatibility no topo
-            sed -i '1i\#include <asm/postmarketos_compat.h>' "arch/arm/include/asm/$header"
-            # Remove TODOS os #error
-            sed -i '/^#error.*Unknown/d' "arch/arm/include/asm/$header"
-        fi
-    done
-
-    # ============ CONFIGURAÇÕES KERNEL ============
-
-    # Fix linker flags incompatíveis com ARM ld
-    _log "Corrigindo linker flags..."
-
-    # Remove flags problemáticas do Makefile principal
-    sed -i 's/-Wl,--as-needed,-O1,--sort-common//g' Makefile
-    sed -i 's/--as-needed,-O1,--sort-common//g' Makefile
-    sed -i 's/-Wl,--as-needed//g' Makefile
-    sed -i 's/--as-needed//g' Makefile
-
-    # Procura em scripts/Makefile.*
-    find scripts/ -name "Makefile*" -type f -exec sed -i 's/-Wl,--as-needed,-O1,--sort-common//g' {} \;
-    find scripts/ -name "Makefile*" -type f -exec sed -i 's/--as-needed,-O1,--sort-common//g' {} \;
-    find scripts/ -name "Makefile*" -type f -exec sed -i 's/-Wl,--as-needed//g' {} \;
-
-    # Adiciona configurações ARM ao Makefile
-    cat >> Makefile << 'EOF'
-
-# PostmarketOS ARM Configuration
-KBUILD_CFLAGS += -D__LINUX_ARM_ARCH__=7
-KBUILD_CFLAGS += -DCONFIG_CPU_V7=1 -DCONFIG_MMU=1 -DCONFIG_ARM_THUMB=1
-KBUILD_AFLAGS += -D__LINUX_ARM_ARCH__=7
-
-# Fix incompatible linker flags for ARM
-LDFLAGS := $(filter-out -Wl$(comma)--as-needed, $(LDFLAGS))
-LDFLAGS := $(filter-out --as-needed, $(LDFLAGS))
-LDFLAGS := $(filter-out -O1, $(LDFLAGS))
-LDFLAGS := $(filter-out --sort-common, $(LDFLAGS))
-
-# Relax compiler warnings globally
-KBUILD_CFLAGS += -Wno-error=array-bounds -Wno-error=stringop-overflow
-KBUILD_CFLAGS += -Wno-array-bounds -Wno-stringop-overflow -Wno-error
-
-EOF
-
-    # Desativa módulos problemáticos
-    if [ -f drivers/gpu/gpu_sysfs/Kbuild ]; then
-        _log "Desativando gpu_sysfs/Kbuild..."
-        echo "# disabled" > drivers/gpu/gpu_sysfs/Kbuild
     fi
 
-    # Copia config base
-    cp "$srcdir/config-samsung-matisse3g.armv7" .config || _die "Falha ao copiar config"
+    # Fix para INT_DEBUG_TIMER_EXP não definido
+    _log "Aplicando fix para INT_DEBUG_TIMER_EXP"
+    if [ -f arch/arm/mach-msm/timer.c ]; then
+        # Primeiro, verifica se já existe a definição
+        if ! grep -q "INT_DEBUG_TIMER_EXP" arch/arm/mach-msm/include/mach/irqs.h 2>/dev/null; then
+            # Adiciona a definição no arquivo de IRQs apropriado
+            if [ -f arch/arm/mach-msm/include/mach/irqs-8960.h ]; then
+                echo "#define INT_DEBUG_TIMER_EXP	(GIC_SPI_START + 1)" >> arch/arm/mach-msm/include/mach/irqs-8960.h
+                _log "INT_DEBUG_TIMER_EXP definido em irqs-8960.h"
+            elif [ -f arch/arm/mach-msm/include/mach/irqs.h ]; then
+                echo "#define INT_DEBUG_TIMER_EXP	(GIC_SPI_START + 1)" >> arch/arm/mach-msm/include/mach/irqs.h
+                _log "INT_DEBUG_TIMER_EXP definido em irqs.h"
+            else
+                # Cria definição diretamente no timer.c
+                sed -i '1i#define INT_DEBUG_TIMER_EXP (GIC_SPI_START + 1)' arch/arm/mach-msm/timer.c
+                _log "INT_DEBUG_TIMER_EXP definido diretamente no timer.c"
+            fi
+        fi
 
-    # Adiciona configurações ARM críticas
-    _log "Adicionando configurações ARM ao .config..."
-    cat >> .config << 'EOF'
-# PostmarketOS ARM essentials
-CONFIG_CPU_V7=y
-CONFIG_CPU_32v7=y
-CONFIG_CPU_ABRT_EV7=y
-CONFIG_CPU_PABRT_V7=y
-CONFIG_CPU_CACHE_V7=y
-CONFIG_CPU_CACHE_VIPT=y
-CONFIG_CPU_COPY_V6=y
-CONFIG_CPU_TLB_V7=y
-CONFIG_ARM_THUMB=y
-CONFIG_CPU_USE_DOMAINS=y
-CONFIG_MMU=y
-# CONFIG_ARM_LPAE is not set
+        # Alternativa: comentar a linha problemática se ainda falhar
+        sed -i 's/.*INT_DEBUG_TIMER_EXP.*/\t\/\* INT_DEBUG_TIMER_EXP disabled - compatibility fix \*\//' arch/arm/mach-msm/timer.c
+        _log "Linha INT_DEBUG_TIMER_EXP comentada como fallback"
+    fi
 
-# Fix CMA/DMA warnings
-CONFIG_CMA_AREAS=7
-CONFIG_MAX_CMA_AREAS=7
+    # ============ CONFIGURAÇÃO DO KERNEL ============
+    _log "Aplicando configuração do kernel"
 
-# Disable problematic warnings as errors
+    # Copia o config base
+    cp "$srcdir/config-samsung-matisse3g.armv7" .config || _die "Falha ao copiar .config"
+
+    # Aplica correções críticas ANTES da preparação
+    cat >> .config <<'EOF'
+# Correções pós-cópia para compatibilidade
+CONFIG_ARCH_MSM8226=y
+CONFIG_MSM_SMD=y
+CONFIG_HOTPLUG=y
+CONFIG_EXPERIMENTAL=y
+CONFIG_SPMI=y
+CONFIG_OF_SPMI=y
+
+# Desabilita símbolos problemáticos
+CONFIG_CPU_32v6K=n
+CONFIG_CPU_CACHE_VIPT=n
+CONFIG_ARM_THUMBEE=n
+CONFIG_UNUSED_SYMBOLS=n
 CONFIG_WERROR=n
 
-# Compiler flags para relaxar warnings
-EXTRA_CFLAGS += -Wno-error=array-bounds -Wno-error=stringop-overflow
-EXTRA_CFLAGS += -Wno-array-bounds -Wno-stringop-overflow -Wno-error
+# Configurações de áudio/codec
+CONFIG_SND_SOC_ES_SLIM=n
+CONFIG_SND_SOC_ES_I2C=n
+CONFIG_SND_SOC_MAX98506=n
+
+# VSYSCALL fix para kernel 3.4.x
+CONFIG_GENERIC_TIME_VSYSCALL=n
+
+# Fix para linking issues
+CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=n
+CONFIG_MODVERSIONS=n
+
+# Fixes específicos para filesystems
+CONFIG_NTFS_DEBUG=n
+CONFIG_NTFS_RW=y
+CONFIG_EXT4_DEBUG=n
+
+# Reduz complexidade de alguns sistemas de arquivos
+CONFIG_JBD2_DEBUG=n
+
+# Fixes para MSM timer e debug
+CONFIG_MSM_DEBUG_TIMER=n
+CONFIG_DEBUG_TIMEKEEPING=n
+CONFIG_TIMER_STATS=n
+
+# EXT4 simplificado para evitar problemas de linking
+CONFIG_EXT4_FS=y
+CONFIG_EXT4_FS_XATTR=n
+CONFIG_EXT4_FS_POSIX_ACL=n
+CONFIG_EXT4_FS_SECURITY=n
+CONFIG_JBD2_DEBUG=n
+
+# Desabilita NTFS que pode estar causando problemas
+CONFIG_NTFS_FS=n
+CONFIG_NTFS_DEBUG=n
+CONFIG_NTFS_RW=n
 EOF
 
-    # ============ EXECUÇÃO COM CROSS-COMPILER ============
-    _log "Executando preparação com cross-compiler..."
+    # Para kernel 3.4.x, usar oldconfig com input redirecionado
+    _log "Executando make oldconfig (non-interactive)..."
+    yes "" | make -s \
+        ARCH=arm \
+        CROSS_COMPILE="${_cross_prefix}" \
+        HOSTCFLAGS="$host_flags" \
+        HOSTLDFLAGS="-no-pie" \
+        LDFLAGS="" \
+        oldconfig || _die "oldconfig falhou"
 
-    # Verifica novamente o ambiente
-    _log "Cross-compiler test: $(${CROSS_COMPILE}gcc --version | head -n1)"
+    _log "Executando make prepare..."
+    make -s \
+        ARCH=arm \
+        CROSS_COMPILE="${_cross_prefix}" \
+        HOSTCFLAGS="$host_flags" \
+        HOSTLDFLAGS="-no-pie" \
+        LDFLAGS="" \
+        prepare || _die "prepare falhou"
 
-    # oldconfig silencioso para evitar prompts - COM cross-compiler
-    yes "" | make ARCH=arm CROSS_COMPILE="${CROSS_COMPILE}" HOSTCC="$HOSTCC" oldconfig || _die "oldconfig falhou"
-    make ARCH=arm CROSS_COMPILE="${CROSS_COMPILE}" HOSTCC="$HOSTCC" prepare || _die "prepare falhou"
-    make ARCH=arm CROSS_COMPILE="${CROSS_COMPILE}" HOSTCC="$HOSTCC" scripts || _die "scripts falhou"
-
-    _log "Preparação concluída!"
+    _log "Preparação concluída com sucesso!"
 }
 
 build() {
     cd "$builddir"
+    _log "Compilando zImage, módulos e DTBs..."
 
-    _log "Compilando kernel..."
-
-    # Re-configura ambiente (garantia)
-    export ARCH=arm
-    export SUBARCH=arm
-    export CROSS_COMPILE="${_cross_prefix}"
-    export KBUILD_BUILD_VERSION="$((pkgrel + 1))-postmarketOS"
-    export HOSTCC="gcc -std=gnu11"
-    export CC="${_cross_prefix}gcc"
-    export HOSTCFLAGS="-std=gnu11 -Wall -O2 -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free"
-    export KBUILD_HOSTCFLAGS="$HOSTCFLAGS"
-
-    # CRÍTICO: Remove linker flags problemáticas do ambiente
+    # Garante que as LDFLAGS permaneçam limpas durante a compilação
+    unset LDFLAGS
     export LDFLAGS=""
 
-    # Debug: verificar que o cross-compiler está sendo usado
-    _log "Verificando compiladores para build:"
-    _log "  HOSTCC: $HOSTCC"
-    _log "  CC: $CC"
-    _log "  CROSS_COMPILE: $CROSS_COMPILE"
+    _log "Compilando fs com captura completa de erro..."
 
-    # Teste rápido
-    $CC --version | head -n1 || _die "Cross-compiler $CC não funciona"
+    # Cria um script para capturar o comando exato que falha
+    cat > capture_fs_error.sh <<'EOF'
+#!/bin/bash
+set -x
+exec 2>&1
+make V=1 KBUILD_VERBOSE=1 -j1 \
+    ARCH=arm \
+    CROSS_COMPILE="armv7-alpine-linux-musleabihf-" \
+    fs/built-in.o
+EOF
+    chmod +x capture_fs_error.sh
 
-    # Compila com cross-compiler explícito
+    # Executa e captura TUDO
+    if ! ./capture_fs_error.sh 2>&1 | tee fs_full_log.txt; then
+        _log "=== CAPTURANDO ERRO DETALHADO ==="
+        _log "Últimas 30 linhas do log:"
+        tail -n 30 fs_full_log.txt
+
+        _log "Procurando pelo comando LD que falhou..."
+        grep -A5 -B5 "ld.*fs.*built-in" fs_full_log.txt || true
+        grep -A5 -B5 "Error\|error\|failed" fs_full_log.txt | tail -n 20
+
+        _log "Listando arquivos built-in.o criados:"
+        find fs/ -name "built-in.o" -ls
+
+        _log "Testando linking manual dos componentes do fs..."
+        components=""
+        for dir in fs/*/; do
+            if [ -f "${dir}built-in.o" ]; then
+                component=$(basename "$dir")
+                _log "Encontrado componente: $component"
+                components="$components ${dir}built-in.o"
+            fi
+        done
+
+        _log "Componentes encontrados: $components"
+
+        # Tenta o link manual para ver o erro específico
+        _log "Executando link manual:"
+        ${_cross_prefix}ld -EL -r -o fs/built-in.o.manual $components 2>&1 | tee manual_link.log || {
+            _log "=== ERRO DO LINK MANUAL ==="
+            cat manual_link.log
+
+            # Tenta um por um para identificar qual está problemático
+            for comp in $components; do
+                _log "Testando componente individual: $comp"
+                if ! ${_cross_prefix}ld -EL -r -o test_$.o $comp 2>/dev/null; then
+                    _log "COMPONENTE PROBLEMÁTICO: $comp"
+                    ${_cross_prefix}nm $comp | grep " U " | head -10
+                fi
+            done
+        }
+
+        _die "Falha no fs - log detalhado criado"
+    fi
+
+    _log "fs compilado com sucesso, continuando..."
+
     make -j$(nproc) \
         ARCH=arm \
-        SUBARCH=arm \
-        CROSS_COMPILE="${CROSS_COMPILE}" \
-        HOSTCC="$HOSTCC" \
-        CC="$CC" \
-        HOSTCFLAGS="$HOSTCFLAGS" \
+        CROSS_COMPILE="${_cross_prefix}" \
+        HOSTCFLAGS="$host_flags" \
+        HOSTLDFLAGS="-no-pie" \
+        LDFLAGS="" \
+        KBUILD_LDFLAGS="" \
+        KBUILD_LDFLAGS_MODULE="" \
         zImage modules dtbs || _die "Falha na compilação"
 
-    # DTB
+    # Gera dt.img se dtbTool estiver disponível
     if command -v dtbTool >/dev/null 2>&1; then
         _log "Gerando dt.img..."
         dtbTool -s 2048 -p scripts/dtc/ -o arch/arm/boot/dt.img arch/arm/boot/dts/ || _log "dtbTool falhou"
+    else
+        _log "dtbTool não encontrado, pulando dt.img"
     fi
 }
 
@@ -397,12 +339,14 @@ package() {
     cd "$builddir"
     _log "Empacotando kernel..."
 
-    # Instala kernel e módulos
-    make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" INSTALL_PATH="$pkgdir/boot" \
-        ARCH=arm CROSS_COMPILE="${_cross_prefix}" \
+    make DESTDIR="$pkgdir" \
+        INSTALL_MOD_PATH="$pkgdir" \
+        INSTALL_PATH="$pkgdir/boot" \
+        ARCH=arm \
+        CROSS_COMPILE="${_cross_prefix}" \
+        LDFLAGS="" \
         install modules_install || _die "Falha ao instalar"
 
-    # Instala arquivos
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-samsung-matisse3g"
     [ -f arch/arm/boot/dt.img ] && install -Dm644 arch/arm/boot/dt.img "$pkgdir/boot/dt.img"
 
@@ -410,6 +354,6 @@ package() {
 }
 
 sha512sums="
-22318063633d48e1d6c90b895e5bf5d0d1318c686afa74b8186817d1bef686dca8aa4908e63f6a3dc6895ac8b24070adcbc6a8f6a3473ca5710232dc5963ce6c  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
-3e8c37f9ec48f57454e7931064061b8f3b3af536f241b17c78f18415e4b72e5e9c2b2d653c50e72398440a592dbc9b50c107339433b076c069917ec2beeac925  config-samsung-matisse3g.armv7
+7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
+a42873d0a8cce7b8f2adbd62f3450f15a2b10ecfc47703f949079b33bcf6cb72d51f3245f11fd58dc49d1fd089de0b431404f5a7768e8d8e3afe968c7cdb6dc9  config-samsung-matisse3g.armv7
 "
