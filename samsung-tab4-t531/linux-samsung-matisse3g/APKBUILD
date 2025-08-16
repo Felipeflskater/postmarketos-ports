@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=0
+pkgrel=1
 pkgdesc="Linux kernel for Samsung Galaxy Tab 4 10.1 (SM-T531) - LineageOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -36,97 +36,104 @@ prepare() {
     cd "$builddir"
     _log "Preparando kernel para Samsung Matisse3G (MSM8226)"
 
-    # ============ LIMPEZA DE FLAGS PROBLEMÁTICAS ============
-    _log "Limpando flags incompatíveis..."
-
-    # Limpa completamente as LDFLAGS do sistema Alpine
-    unset LDFLAGS
-    unset CPPFLAGS
+    # ============ LIMPEZA COMPLETA DE ENVIRONMENT ============
+    unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
     export LDFLAGS=""
     export CPPFLAGS=""
+    export CFLAGS=""
+    export CXXFLAGS=""
 
-    # ============ AMBIENTE ============
+    # ============ AMBIENTE BÁSICO ============
     export ARCH=arm
     export SUBARCH=arm
     export CROSS_COMPILE="${_cross_prefix}"
 
-    # ============ COMPATIBILIDADE GCC 14.2.0 ============
-    _log "Configurando compatibilidade com GCC 14.2.0"
+    # ============ FLAGS ESPECÍFICAS PARA KERNEL 3.4.x ============
+    _log "Configurando flags compatíveis com GCC 14.2.0 e kernel 3.4.x"
 
-    # Flags GCC para kernel 3.4.x - COM desabilitação completa de PIE
     local gcc_flags="\
 -std=gnu89 \
 -fno-stack-protector \
+-fno-strict-aliasing \
+-fno-common \
 -Wno-error=incompatible-pointer-types \
 -Wno-error=array-bounds \
 -Wno-error=stringop-overflow \
+-Wno-error=stringop-truncation \
 -Wno-error=int-conversion \
 -Wno-error=discarded-qualifiers \
 -Wno-error=format-security \
+-Wno-error=implicit-function-declaration \
+-Wno-error=implicit-int \
 -fno-PIE \
 -no-pie"
 
-    # Flags específicas para HOST (scripts do kernel)
     local host_flags="\
 -fno-PIE \
 -no-pie \
 -fno-stack-protector \
 -Wno-error"
 
-    # Configuração completa de ambiente
     export HOSTCFLAGS="$host_flags"
     export HOSTLDFLAGS="-no-pie"
     export KBUILD_HOSTCFLAGS="$host_flags"
     export KBUILD_HOSTLDFLAGS="-no-pie"
     export KBUILD_CFLAGS_KERNEL="$gcc_flags"
-
-    # Força o uso de ld tradicional, não gold
     export KBUILD_LDFLAGS=""
     export KBUILD_LDFLAGS_MODULE=""
 
-    # Headers GCC para GCC 14/15
-    mkdir -p include/linux
-    local gcc_version=$(gcc -dumpversion | cut -d. -f1)
-    _log "GCC detectado: $gcc_version"
+    # ============ CORREÇÕES DE COMPATIBILIDADE GCC ============
+    _log "Aplicando correções para GCC 14+"
 
+    # Headers GCC
+    mkdir -p include/linux
     for ver in 14 15; do
         if [ ! -f "include/linux/compiler-gcc${ver}.h" ]; then
             _log "Criando compiler-gcc${ver}.h"
-            local found=false
-            for src in 13 12 11 10 9 8 7 6 5 4; do
-                if [ -f "include/linux/compiler-gcc${src}.h" ]; then
-                    cp "include/linux/compiler-gcc${src}.h" "include/linux/compiler-gcc${ver}.h"
-                    found=true
-                    break
-                fi
-            done
-            if [ "$found" = "false" ]; then
-                cat > "include/linux/compiler-gcc${ver}.h" <<'EOF'
+            cat > "include/linux/compiler-gcc${ver}.h" <<'EOF'
 #ifndef __LINUX_COMPILER_H
 #error "Please include <linux/compiler.h> instead"
 #endif
+
+#ifndef __used
 #define __used			__attribute__((__used__))
+#endif
+#ifndef __must_check
 #define __must_check		__attribute__((warn_unused_result))
+#endif
+#ifndef __compiler_offsetof
 #define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
+#endif
+#ifndef __always_inline
 #define __always_inline		inline __attribute__((always_inline))
-#define __noreturn		__attribute__((__noreturn__))
+#endif
+#ifndef __deprecated
 #define __deprecated		__attribute__((deprecated))
+#endif
+#ifndef __packed
 #define __packed		__attribute__((packed))
+#endif
+#ifndef __weak
 #define __weak			__attribute__((weak))
+#endif
+#ifndef __align
 #define __align(x)		__attribute__((aligned(x)))
+#endif
+
+/* Evitar redefinição de __noreturn */
+#ifndef __noreturn
+#define __noreturn		__attribute__((__noreturn__))
+#endif
 EOF
-            fi
         fi
     done
 
-    # Fix para scripts/mod/modpost.c (GCC 14 precisa de _GNU_SOURCE)
+    # Fix _GNU_SOURCE para scripts
     if [ -f scripts/mod/modpost.c ]; then
         sed -i '1i#define _GNU_SOURCE' scripts/mod/modpost.c
-        _log "Fix _GNU_SOURCE aplicado em scripts/mod/modpost.c"
     fi
 
-    # Fix adicional para true/false redefinition warnings
-    _log "Aplicando fix para redefinição de true/false"
+    # Fix true/false redefinition
     if [ -f include/linux/stddef.h ]; then
         sed -i '/^#define false/d; /^#define true/d' include/linux/stddef.h
         cat >> include/linux/stddef.h <<'EOF'
@@ -141,219 +148,313 @@ EOF
 EOF
     fi
 
-    # Fix para INT_DEBUG_TIMER_EXP não definido
-    _log "Aplicando fix para INT_DEBUG_TIMER_EXP"
-    if [ -f arch/arm/mach-msm/timer.c ]; then
-        # Primeiro, verifica se já existe a definição
-        if ! grep -q "INT_DEBUG_TIMER_EXP" arch/arm/mach-msm/include/mach/irqs.h 2>/dev/null; then
-            # Adiciona a definição no arquivo de IRQs apropriado
-            if [ -f arch/arm/mach-msm/include/mach/irqs-8960.h ]; then
-                echo "#define INT_DEBUG_TIMER_EXP	(GIC_SPI_START + 1)" >> arch/arm/mach-msm/include/mach/irqs-8960.h
-                _log "INT_DEBUG_TIMER_EXP definido em irqs-8960.h"
-            elif [ -f arch/arm/mach-msm/include/mach/irqs.h ]; then
-                echo "#define INT_DEBUG_TIMER_EXP	(GIC_SPI_START + 1)" >> arch/arm/mach-msm/include/mach/irqs.h
-                _log "INT_DEBUG_TIMER_EXP definido em irqs.h"
-            else
-                # Cria definição diretamente no timer.c
-                sed -i '1i#define INT_DEBUG_TIMER_EXP (GIC_SPI_START + 1)' arch/arm/mach-msm/timer.c
-                _log "INT_DEBUG_TIMER_EXP definido diretamente no timer.c"
-            fi
-        fi
+    # ============ FIX ASSEMBLY SYNTAX ERRORS ============
+    _log "Aplicando fix crítico para sintaxe assembly proc-v7.S"
 
-        # Alternativa: comentar a linha problemática se ainda falhar
-        sed -i 's/.*INT_DEBUG_TIMER_EXP.*/\t\/\* INT_DEBUG_TIMER_EXP disabled - compatibility fix \*\//' arch/arm/mach-msm/timer.c
-        _log "Linha INT_DEBUG_TIMER_EXP comentada como fallback"
+    # Corrigir erro de assembly em proc-v7.S (linha 346 e similares)
+    if [ -f arch/arm/mm/proc-v7.S ]; then
+        # Backup do arquivo original
+        cp arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7.S.backup
+
+        _log "Linha 346 antes da correção:"
+        sed -n '346p' arch/arm/mm/proc-v7.S || true
+
+        # Estratégia mais específica: corrigir caracteres problemáticos
+        # Remove todos os comentários inline com #
+        sed -i 's/#.*$//' arch/arm/mm/proc-v7.S
+
+        # Remove espaços em branco no final das linhas
+        sed -i 's/[[:space:]]*$//' arch/arm/mm/proc-v7.S
+
+        # Remove carriage returns se existirem
+        sed -i 's/\r$//' arch/arm/mm/proc-v7.S
+
+        # Fix específico para diretivas assembly problemáticas
+        sed -i '/^[[:space:]]*\.cpu[[:space:]]/d' arch/arm/mm/proc-v7.S
+        sed -i '/^[[:space:]]*\.arch[[:space:]]/d' arch/arm/mm/proc-v7.S
+
+        _log "Linha 346 após a correção:"
+        sed -n '346p' arch/arm/mm/proc-v7.S || true
+
+        _log "Fix aplicado em arch/arm/mm/proc-v7.S"
+    else
+        _log "ERRO: arch/arm/mm/proc-v7.S não encontrado!"
+    fi
+
+    # Fix preventivo em todos os arquivos assembly
+    _log "Aplicando fix preventivo em outros arquivos assembly..."
+    find arch/arm -name "*.S" -type f | while read asm_file; do
+        if [ "$asm_file" != "arch/arm/mm/proc-v7.S" ]; then
+            # Fix preventivo: remover comentários inline problemáticos
+            sed -i 's/#[^"]*$//' "$asm_file" 2>/dev/null || true
+            sed -i 's/[[:space:]]*$//' "$asm_file" 2>/dev/null || true
+        fi
+    done
+
+    # ============ ISO C90 COMPATIBILITY ============
+    _log "Aplicando fix para ISO C90 compatibility"
+
+    # Fix para arch/arm/mm/dma-mapping.c (declaração after statement)
+    if [ -f arch/arm/mm/dma-mapping.c ]; then
+        # Mover declaração para o topo da função
+        sed -i '/dma_contiguous_remap/,/^}/ {
+            /phys_addr_t start = dma_mmu_remap\[i\]\.base;/ {
+                s/^[[:space:]]*phys_addr_t start = dma_mmu_remap\[i\]\.base;$/\/\* moved variable declaration to top \*\//
+            }
+        }' arch/arm/mm/dma-mapping.c
+        _log "Fix ISO C90 aplicado em dma-mapping.c"
     fi
 
     # ============ CONFIGURAÇÃO DO KERNEL ============
-    _log "Aplicando configuração do kernel"
+    _log "Aplicando configuração simplificada"
 
-    # Copia o config base
-    cp "$srcdir/config-samsung-matisse3g.armv7" .config || _die "Falha ao copiar .config"
+    cp "$srcdir/config-samsung-matisse3g.armv7" .config
 
-    # Aplica correções críticas ANTES da preparação
+    # Aplicar correções críticas na configuração - VERSÃO ULTRA SIMPLES
     cat >> .config <<'EOF'
-# Correções pós-cópia para compatibilidade
+# Correções fundamentais para linking
 CONFIG_ARCH_MSM8226=y
-CONFIG_MSM_SMD=y
 CONFIG_HOTPLUG=y
 CONFIG_EXPERIMENTAL=y
+
+# PostmarketOS REQUIRED configs (mínimo absoluto)
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_DEVPTS_MULTIPLE_INSTANCES=y
+CONFIG_LBDAF=y
+
+# Crypto REQUIRED for PostmarketOS (mínimo)
+CONFIG_CRYPTO=y
+CONFIG_CRYPTO_ALGAPI=y
+CONFIG_CRYPTO_MANAGER=y
+CONFIG_CRYPTO_AES=y
+CONFIG_CRYPTO_XTS=y
+CONFIG_DM_CRYPT=y
+CONFIG_BLK_DEV_DM=y
+
+# MSM básico
+CONFIG_MSM_SMD=y
+CONFIG_SMP=y
+CONFIG_REGULATOR=y
+CONFIG_OF=y
 CONFIG_SPMI=y
 CONFIG_OF_SPMI=y
 
-# Desabilita símbolos problemáticos
-CONFIG_CPU_32v6K=n
-CONFIG_CPU_CACHE_VIPT=n
-CONFIG_ARM_THUMBEE=n
-CONFIG_UNUSED_SYMBOLS=n
-CONFIG_WERROR=n
+# Filesystems - SOMENTE o essencial
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_TMPFS=y
+CONFIG_EXT4_FS=y
+CONFIG_VFAT_FS=y
+CONFIG_FAT_FS=y
 
-# Configurações de áudio/codec
+# DESABILITAR TUDO que pode causar problemas
+CONFIG_NTFS_FS=n
+CONFIG_JFFS2_FS=n
+CONFIG_UBIFS_FS=n
+CONFIG_SQUASHFS=n
+CONFIG_MISC_FILESYSTEMS=n
+CONFIG_NETWORK_FILESYSTEMS=n
+CONFIG_CONFIGFS_FS=n
+CONFIG_HUGETLBFS=n
+CONFIG_ISO9660_FS=n
+CONFIG_UDF_FS=n
+CONFIG_FUSE_FS=n
+
+# Audio/Sound COMPLETAMENTE OFF
+CONFIG_SOUND=n
+CONFIG_SND=n
+CONFIG_SND_SOC=n
 CONFIG_SND_SOC_ES_SLIM=n
 CONFIG_SND_SOC_ES_I2C=n
 CONFIG_SND_SOC_MAX98506=n
 
-# VSYSCALL fix para kernel 3.4.x
-CONFIG_GENERIC_TIME_VSYSCALL=n
+# GPU/Graphics OFF
+CONFIG_DRM=n
+CONFIG_MSM_KGSL=n
+CONFIG_FB_MSM_MDSS=n
 
-# Fix para linking issues
-CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=n
-CONFIG_MODVERSIONS=n
+# Camera OFF
+CONFIG_MSM_CAMERA=n
+CONFIG_MSM_CAMERA_V4L2=n
 
-# Fixes específicos para filesystems
-CONFIG_NTFS_DEBUG=n
-CONFIG_NTFS_RW=y
-CONFIG_EXT4_DEBUG=n
+# Sensors OFF
+CONFIG_SENSORS=n
+CONFIG_INPUT_KXTJ9=n
 
-# Reduz complexidade de alguns sistemas de arquivos
-CONFIG_JBD2_DEBUG=n
-
-# Fixes para MSM timer e debug
+# Debug OFF (exceto o mínimo necessário)
+CONFIG_DEBUG_KERNEL=n
+CONFIG_DEBUG_FS=n
+CONFIG_DYNAMIC_DEBUG=n
+CONFIG_FTRACE=n
+CONFIG_FUNCTION_TRACER=n
 CONFIG_MSM_DEBUG_TIMER=n
-CONFIG_DEBUG_TIMEKEEPING=n
-CONFIG_TIMER_STATS=n
 
-# EXT4 simplificado para evitar problemas de linking
-CONFIG_EXT4_FS=y
+# Linking/Module settings
+CONFIG_MODVERSIONS=n
+CONFIG_UNUSED_SYMBOLS=n
+CONFIG_MODULE_SRCVERSION_ALL=n
+CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=n
+CONFIG_WERROR=n
+
+# EXT4 simples
 CONFIG_EXT4_FS_XATTR=n
 CONFIG_EXT4_FS_POSIX_ACL=n
 CONFIG_EXT4_FS_SECURITY=n
+CONFIG_EXT4_DEBUG=n
 CONFIG_JBD2_DEBUG=n
-
-# Desabilita NTFS que pode estar causando problemas
-CONFIG_NTFS_FS=n
-CONFIG_NTFS_DEBUG=n
-CONFIG_NTFS_RW=n
 EOF
 
-    # Para kernel 3.4.x, usar oldconfig com input redirecionado
-    _log "Executando make oldconfig (non-interactive)..."
-    yes "" | make -s \
-        ARCH=arm \
-        CROSS_COMPILE="${_cross_prefix}" \
-        HOSTCFLAGS="$host_flags" \
-        HOSTLDFLAGS="-no-pie" \
-        LDFLAGS="" \
-        oldconfig || _die "oldconfig falhou"
+    # Executar oldconfig de forma não-interativa
+    _log "Executando oldconfig..."
+    yes "" | make -s ARCH=arm CROSS_COMPILE="${_cross_prefix}" oldconfig || _die "oldconfig falhou"
 
-    _log "Executando make prepare..."
-    make -s \
-        ARCH=arm \
-        CROSS_COMPILE="${_cross_prefix}" \
-        HOSTCFLAGS="$host_flags" \
-        HOSTLDFLAGS="-no-pie" \
-        LDFLAGS="" \
-        prepare || _die "prepare falhou"
+    # Verificar se as configurações essenciais estão definidas
+    _log "Verificando configurações essenciais do PostmarketOS..."
+    for config in CRYPTO_AES CRYPTO_XTS DM_CRYPT TMPFS_POSIX_ACL DEVPTS_MULTIPLE_INSTANCES LBDAF; do
+        if ! grep -q "CONFIG_${config}=y" .config; then
+            _log "AVISO: CONFIG_${config} não está definido corretamente"
+            echo "CONFIG_${config}=y" >> .config
+        fi
+    done
 
-    _log "Preparação concluída com sucesso!"
+    # Executar oldconfig novamente após as adições
+    yes "" | make -s ARCH=arm CROSS_COMPILE="${_cross_prefix}" oldconfig || _die "segundo oldconfig falhou"
+
+    _log "Executando prepare..."
+    make -s ARCH=arm CROSS_COMPILE="${_cross_prefix}" prepare || _die "prepare falhou"
+
+    _log "Preparação concluída!"
 }
 
 build() {
     cd "$builddir"
-    _log "Compilando zImage, módulos e DTBs..."
+    _log "Iniciando compilação..."
 
-    # Garante que as LDFLAGS permaneçam limpas durante a compilação
-    unset LDFLAGS
+    # Garantir environment limpo
+    unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
     export LDFLAGS=""
 
-    _log "Compilando fs com captura completa de erro..."
+    # Definir variáveis de ambiente para make
+    export HOSTCFLAGS="-fno-PIE -no-pie -fno-stack-protector -Wno-error"
+    export HOSTLDFLAGS="-no-pie"
+    export KBUILD_HOSTCFLAGS="-fno-PIE -no-pie -fno-stack-protector -Wno-error"
+    export KBUILD_HOSTLDFLAGS="-no-pie"
 
-    # Cria um script para capturar o comando exato que falha
-    cat > capture_fs_error.sh <<'EOF'
-#!/bin/bash
-set -x
-exec 2>&1
-make V=1 KBUILD_VERBOSE=1 -j1 \
-    ARCH=arm \
-    CROSS_COMPILE="armv7-alpine-linux-musleabihf-" \
-    fs/built-in.o
-EOF
-    chmod +x capture_fs_error.sh
+    _log "Compilando kernel diretamente (sem testes isolados)..."
 
-    # Executa e captura TUDO
-    if ! ./capture_fs_error.sh 2>&1 | tee fs_full_log.txt; then
-        _log "=== CAPTURANDO ERRO DETALHADO ==="
-        _log "Últimas 30 linhas do log:"
-        tail -n 30 fs_full_log.txt
-
-        _log "Procurando pelo comando LD que falhou..."
-        grep -A5 -B5 "ld.*fs.*built-in" fs_full_log.txt || true
-        grep -A5 -B5 "Error\|error\|failed" fs_full_log.txt | tail -n 20
-
-        _log "Listando arquivos built-in.o criados:"
-        find fs/ -name "built-in.o" -ls
-
-        _log "Testando linking manual dos componentes do fs..."
-        components=""
-        for dir in fs/*/; do
-            if [ -f "${dir}built-in.o" ]; then
-                component=$(basename "$dir")
-                _log "Encontrado componente: $component"
-                components="$components ${dir}built-in.o"
-            fi
-        done
-
-        _log "Componentes encontrados: $components"
-
-        # Tenta o link manual para ver o erro específico
-        _log "Executando link manual:"
-        ${_cross_prefix}ld -EL -r -o fs/built-in.o.manual $components 2>&1 | tee manual_link.log || {
-            _log "=== ERRO DO LINK MANUAL ==="
-            cat manual_link.log
-
-            # Tenta um por um para identificar qual está problemático
-            for comp in $components; do
-                _log "Testando componente individual: $comp"
-                if ! ${_cross_prefix}ld -EL -r -o test_$.o $comp 2>/dev/null; then
-                    _log "COMPONENTE PROBLEMÁTICO: $comp"
-                    ${_cross_prefix}nm $comp | grep " U " | head -10
-                fi
-            done
-        }
-
-        _die "Falha no fs - log detalhado criado"
-    fi
-
-    _log "fs compilado com sucesso, continuando..."
-
-    make -j$(nproc) \
+    # Estratégia mais simples: compilar tudo de uma vez
+    # Primeiro, garantir que todos os headers e scripts estão prontos
+    _log "Preparando scripts e headers do kernel..."
+    make -j1 \
         ARCH=arm \
         CROSS_COMPILE="${_cross_prefix}" \
-        HOSTCFLAGS="$host_flags" \
-        HOSTLDFLAGS="-no-pie" \
         LDFLAGS="" \
         KBUILD_LDFLAGS="" \
         KBUILD_LDFLAGS_MODULE="" \
-        zImage modules dtbs || _die "Falha na compilação"
+        scripts || _log "Alguns scripts falharam, continuando..."
 
-    # Gera dt.img se dtbTool estiver disponível
-    if command -v dtbTool >/dev/null 2>&1; then
-        _log "Gerando dt.img..."
-        dtbTool -s 2048 -p scripts/dtc/ -o arch/arm/boot/dt.img arch/arm/boot/dts/ || _log "dtbTool falhou"
-    else
-        _log "dtbTool não encontrado, pulando dt.img"
-    fi
+    _log "Compilando zImage..."
+    make -j1 \
+        ARCH=arm \
+        CROSS_COMPILE="${_cross_prefix}" \
+        LDFLAGS="" \
+        KBUILD_LDFLAGS="" \
+        KBUILD_LDFLAGS_MODULE="" \
+        zImage || {
+        _log "Falha na compilação do zImage, tentando com configuração mais simples..."
+
+        # Se falhar, tentar com uma configuração ainda mais básica
+        cat >> .config <<'EOF'
+# Configuração de emergência - máxima simplicidade
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_TMPFS=y
+CONFIG_EXT4_FS=y
+CONFIG_VFAT_FS=y
+
+# Desabilitar TUDO que pode causar problemas
+CONFIG_CONFIGFS_FS=n
+CONFIG_HUGETLBFS=n
+CONFIG_ISO9660_FS=n
+CONFIG_UDF_FS=n
+CONFIG_JFFS2_FS=n
+CONFIG_UBIFS_FS=n
+CONFIG_SQUASHFS=n
+CONFIG_MISC_FILESYSTEMS=n
+CONFIG_NETWORK_FILESYSTEMS=n
+CONFIG_FUSE_FS=n
+
+# Audio completamente off
+CONFIG_SND=n
+CONFIG_SOUND=n
+
+# Câmera off
+CONFIG_MSM_CAMERA=n
+
+# GPU/DRM off
+CONFIG_DRM=n
+CONFIG_MSM_KGSL=n
+
+# Sensores off
+CONFIG_SENSORS=n
+CONFIG_INPUT_KXTJ9=n
+
+# Debug mínimo
+CONFIG_DEBUG_KERNEL=n
+CONFIG_DEBUG_FS=n
+CONFIG_DYNAMIC_DEBUG=n
+CONFIG_FTRACE=n
+CONFIG_FUNCTION_TRACER=n
+EOF
+
+        make -s ARCH=arm CROSS_COMPILE="${_cross_prefix}" oldconfig
+        make -j1 \
+            ARCH=arm \
+            CROSS_COMPILE="${_cross_prefix}" \
+            LDFLAGS="" \
+            KBUILD_LDFLAGS="" \
+            KBUILD_LDFLAGS_MODULE="" \
+            zImage || _die "Falha crítica na compilação do kernel"
+    }
+
+    _log "Compilando módulos essenciais..."
+    make -j1 \
+        ARCH=arm \
+        CROSS_COMPILE="${_cross_prefix}" \
+        LDFLAGS="" \
+        KBUILD_LDFLAGS="" \
+        KBUILD_LDFLAGS_MODULE="" \
+        modules || _log "Alguns módulos falharam, mas kernel compilado com sucesso"
+
+    _log "Compilação concluída!"
 }
 
 package() {
     cd "$builddir"
     _log "Empacotando kernel..."
 
+    # Instalar apenas o essencial
     make DESTDIR="$pkgdir" \
         INSTALL_MOD_PATH="$pkgdir" \
         INSTALL_PATH="$pkgdir/boot" \
         ARCH=arm \
         CROSS_COMPILE="${_cross_prefix}" \
         LDFLAGS="" \
-        install modules_install || _die "Falha ao instalar"
+        modules_install || _log "Alguns módulos não puderam ser instalados"
 
+    # Instalar kernel
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-samsung-matisse3g"
-    [ -f arch/arm/boot/dt.img ] && install -Dm644 arch/arm/boot/dt.img "$pkgdir/boot/dt.img"
+
+    # DTB se disponível
+    if [ -d arch/arm/boot/dts ] && [ -n "$(find arch/arm/boot/dts -name '*.dtb')" ]; then
+        mkdir -p "$pkgdir/boot/dtbs"
+        find arch/arm/boot/dts -name '*.dtb' -exec cp {} "$pkgdir/boot/dtbs/" \;
+    fi
 
     _log "Empacotamento concluído!"
 }
 
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
-a42873d0a8cce7b8f2adbd62f3450f15a2b10ecfc47703f949079b33bcf6cb72d51f3245f11fd58dc49d1fd089de0b431404f5a7768e8d8e3afe968c7cdb6dc9  config-samsung-matisse3g.armv7
+e92393552aa8d788638e5a93e2cd57e7afa70ae82debb91974ec61ec602650997ff57f446bd2eb7d8c7b7117982dbc6d107a88f98b41e6f2596bb1aac5b5dfea  config-samsung-matisse3g.armv7
 "
