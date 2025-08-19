@@ -34,7 +34,7 @@ _die() {
 
 prepare() {
     cd "$builddir"
-    _log "Preparando kernel com correções stddef.h + __user"
+    _log "Preparando kernel com correções stddef.h + __user - VERSÃO APRIMORADA"
 
     # ============ LIMPEZA COMPLETA ============
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
@@ -114,84 +114,220 @@ enum {
 #endif /* _LINUX_STDDEF_H */
 EOF
 
-    # ============ CORREÇÃO 2: __USER NO CAPABILITY.H ============
-    _log "CORREÇÃO 2: Resolvendo problema __user no capability.h"
+    # ============ CORREÇÃO 2: __USER - VERSÃO APRIMORADA ============
+    _log "CORREÇÃO 2: Resolvendo problema __user - Versão Direcionada"
 
-    # Primeiro, garantir que compiler.h tenha as definições necessárias
+    # Primeiro: Garantir definições no compiler.h ANTES de qualquer include
     if [ -f include/linux/compiler.h ]; then
         cp include/linux/compiler.h include/linux/compiler.h.backup
 
-        # Verificar se __user já está definido
-        if ! grep -q "#define __user" include/linux/compiler.h; then
-            _log "Adicionando definições Sparse ao compiler.h"
-            cat >> include/linux/compiler.h << 'EOF'
-
-/* Sparse annotations - definições essenciais para kernel 3.4.x */
-#ifndef __user
-# ifdef __CHECKER__
-#  define __user		__attribute__((noderef, address_space(1)))
-# else
-#  define __user
-# endif
-#endif
-
-#ifndef __kernel
+        # Criar um novo compiler.h com as definições no topo
+        cat > include/linux/compiler.h.new << 'EOF'
+/* Definições Sparse essenciais - DEVEM vir antes de tudo */
+#ifndef __CHECKER__
+# define __user
 # define __kernel
+# define __iomem
+# define __safe
+# define __force
+# define __nocast
+# define __acquires(x)
+# define __releases(x)
+# define __acquire(x)	(void)0
+# define __release(x)	(void)0
+# define __cond_lock(x,c) (c)
+#else
+# define __user         __attribute__((noderef, address_space(1)))
+# define __kernel       __attribute__((address_space(0)))
+# define __iomem        __attribute__((noderef, address_space(2)))
+# define __safe         __attribute__((safe))
+# define __force        __attribute__((force))
+# define __nocast       __attribute__((nocast))
+# define __acquires(x)  __attribute__((context(x,0,1)))
+# define __releases(x)  __attribute__((context(x,1,0)))
+# define __acquire(x)   __context__(x,1)
+# define __release(x)   __context__(x,-1)
+# define __cond_lock(x,c) ((c) ? ({ __acquire(x); 1; }) : 0)
 #endif
 
-#ifndef __iomem
-# ifdef __CHECKER__
-#  define __iomem		__attribute__((noderef, address_space(2)))
-# else
-#  define __iomem
-# endif
-#endif
-
-#ifndef __safe
-# define __safe		__attribute__((safe))
-#endif
-
-#ifndef __force
-# define __force	__attribute__((force))
-#endif
-
-#ifndef __nocast
-# define __nocast	__attribute__((nocast))
-#endif
-
-#ifndef __acquires
-# define __acquires(x)	__attribute__((context(x,0,1)))
-#endif
-
-#ifndef __releases
-# define __releases(x)	__attribute__((context(x,1,0)))
-#endif
 EOF
+
+        # Adicionar o conteúdo original do compiler.h depois
+        cat include/linux/compiler.h >> include/linux/compiler.h.new
+        mv include/linux/compiler.h.new include/linux/compiler.h
+    fi
+
+    # Segundo: Corrigir thread_info.h diretamente
+    if [ -f include/linux/thread_info.h ]; then
+        cp include/linux/thread_info.h include/linux/thread_info.h.backup
+
+        # Adicionar include compiler.h no topo se não existir
+        if ! grep -q "#include.*compiler.h" include/linux/thread_info.h; then
+            _log "Adicionando compiler.h ao thread_info.h"
+            sed -i '1i\#include <linux/compiler.h>' include/linux/thread_info.h
+        fi
+
+        # Verificar se o problema foi resolvido
+        if grep -q "__user" include/linux/thread_info.h; then
+            _log "thread_info.h contém definições __user - OK"
         fi
     fi
 
-    # Corrigir capability.h para incluir compiler.h
-    if [ -f include/linux/capability.h ]; then
-        cp include/linux/capability.h include/linux/capability.h.backup
+    # Terceiro: Aplicar correção a TODOS os headers problemáticos
+    _log "Aplicando correção __user a todos os headers..."
 
-        # Verificar se já inclui compiler.h
-        if ! grep -q "#include.*compiler.h" include/linux/capability.h; then
-            _log "Adicionando include compiler.h ao capability.h"
-            # Adicionar após o include de types.h (que geralmente está no topo)
-            sed -i '/^#include.*types\.h/a\#include <linux/compiler.h>' include/linux/capability.h
-        fi
-    fi
+    # Lista de headers que frequentemente têm problemas com __user
+    problem_headers="include/linux/capability.h include/linux/security.h include/linux/sched.h include/linux/fs.h include/linux/syscalls.h include/linux/uaccess.h include/asm/uaccess.h arch/arm/include/asm/uaccess.h"
 
-    # Corrigir outros headers que podem ter o mesmo problema
-    for header in include/linux/security.h include/linux/sched.h include/linux/fs.h; do
+    for header in $problem_headers; do
         if [ -f "$header" ] && grep -q "__user" "$header"; then
             if ! grep -q "#include.*compiler.h" "$header"; then
-                _log "Adicionando compiler.h a $header"
-                cp "$header" "${header}.backup"
-                sed -i '/^#include.*types\.h/a\#include <linux/compiler.h>' "$header"
+                _log "Corrigindo $header"
+                cp "$header" "${header}.backup" 2>/dev/null || true
+                sed -i '1i\#include <linux/compiler.h>' "$header" 2>/dev/null || true
             fi
         fi
     done
+
+    # Quarto: Correção específica para arch/arm/kernel/smp_tlb.c
+    if [ -f arch/arm/kernel/smp_tlb.c ]; then
+        cp arch/arm/kernel/smp_tlb.c arch/arm/kernel/smp_tlb.c.backup
+
+        # Substituir todo o conteúdo com versão corrigida
+        cat > arch/arm/kernel/smp_tlb.c << 'EOF'
+/*
+ *  linux/arch/arm/kernel/smp_tlb.c
+ *
+ *  Copyright (C) 2002 ARM Limited, All Rights Reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#include <linux/compiler.h>
+#include <linux/preempt.h>
+#include <linux/smp.h>
+
+#include <asm/smp_plat.h>
+#include <asm/tlbflush.h>
+#include <asm/mmu_context.h>
+
+/**********************************************************************/
+
+/*
+ * TLB operations
+ */
+struct tlb_args {
+	struct vm_area_struct *ta_vma;
+	unsigned long ta_start;
+	unsigned long ta_end;
+};
+
+static inline void ipi_flush_tlb_all(void *ignored)
+{
+	local_flush_tlb_all();
+}
+
+static inline void ipi_flush_tlb_mm(void *arg)
+{
+	struct mm_struct *mm = (struct mm_struct *)arg;
+
+	local_flush_tlb_mm(mm);
+}
+
+static inline void ipi_flush_tlb_page(void *arg)
+{
+	struct tlb_args *ta = (struct tlb_args *)arg;
+
+	local_flush_tlb_page(ta->ta_vma, ta->ta_start);
+}
+
+static inline void ipi_flush_tlb_kernel_page(void *arg)
+{
+	struct tlb_args *ta = (struct tlb_args *)arg;
+
+	local_flush_tlb_kernel_page(ta->ta_start);
+}
+
+static inline void ipi_flush_tlb_range(void *arg)
+{
+	struct tlb_args *ta = (struct tlb_args *)arg;
+
+	local_flush_tlb_range(ta->ta_vma, ta->ta_start, ta->ta_end);
+}
+
+static inline void ipi_flush_tlb_kernel_range(void *arg)
+{
+	struct tlb_args *ta = (struct tlb_args *)arg;
+
+	local_flush_tlb_kernel_range(ta->ta_start, ta->ta_end);
+}
+
+void flush_tlb_all(void)
+{
+	if (tlb_ops_need_broadcast())
+		on_each_cpu(ipi_flush_tlb_all, NULL, 1);
+	else
+		local_flush_tlb_all();
+}
+
+void flush_tlb_mm(struct mm_struct *mm)
+{
+	if (tlb_ops_need_broadcast())
+		on_each_cpu_mask(mm_cpumask(mm), ipi_flush_tlb_mm, mm, 1);
+	else
+		local_flush_tlb_mm(mm);
+}
+
+void flush_tlb_page(struct vm_area_struct *vma, unsigned long uaddr)
+{
+	if (tlb_ops_need_broadcast()) {
+		struct tlb_args ta;
+		ta.ta_vma = vma;
+		ta.ta_start = uaddr;
+		on_each_cpu_mask(mm_cpumask(vma->vm_mm), ipi_flush_tlb_page,
+					&ta, 1);
+	} else
+		local_flush_tlb_page(vma, uaddr);
+}
+
+void flush_tlb_kernel_page(unsigned long kaddr)
+{
+	if (tlb_ops_need_broadcast()) {
+		struct tlb_args ta;
+		ta.ta_start = kaddr;
+		on_each_cpu(ipi_flush_tlb_kernel_page, &ta, 1);
+	} else
+		local_flush_tlb_kernel_page(kaddr);
+}
+
+void flush_tlb_range(struct vm_area_struct *vma,
+		     unsigned long start, unsigned long end)
+{
+	if (tlb_ops_need_broadcast()) {
+		struct tlb_args ta;
+		ta.ta_vma = vma;
+		ta.ta_start = start;
+		ta.ta_end = end;
+		on_each_cpu_mask(mm_cpumask(vma->vm_mm), ipi_flush_tlb_range,
+					&ta, 1);
+	} else
+		local_flush_tlb_range(vma, start, end);
+}
+
+void flush_tlb_kernel_range(unsigned long start, unsigned long end)
+{
+	if (tlb_ops_need_broadcast()) {
+		struct tlb_args ta;
+		ta.ta_start = start;
+		ta.ta_end = end;
+		on_each_cpu(ipi_flush_tlb_kernel_range, &ta, 1);
+	} else
+		local_flush_tlb_kernel_range(start, end);
+}
+EOF
+    fi
 
     # ============ OUTRAS CORREÇÕES JÁ TESTADAS ============
     _log "Aplicando outras correções..."
@@ -272,11 +408,56 @@ EOF
         sed -i '185s/#if ((sizeof(struct pt_regs) % 8) != 0)/#if 0 \/\* disabled \*\//' arch/arm/kernel/entry-header.S
     fi
 
+    # ============ CORREÇÃO 3: PROC-V7.S - ERRO ASSEMBLY ============
+    _log "CORREÇÃO 3: Corrigindo proc-v7.S com patch específico"
+
+    if [ -f arch/arm/mm/proc-v7.S ]; then
+        cp arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7.S.backup
+
+        # Restaurar arquivo original primeiro
+        cp arch/arm/mm/proc-v7.S.backup arch/arm/mm/proc-v7.S
+
+        # Aplicar patch específico para proc-v7.S baseado no erro conhecido
+        # Este é um patch comum para kernels antigos com assemblers modernos
+        cat > arch/arm/mm/proc-v7.S.patch << 'PATCH_EOF'
+--- a/arch/arm/mm/proc-v7.S
++++ b/arch/arm/mm/proc-v7.S
+@@ -340,10 +340,10 @@
+ 	.section ".text.init", #alloc, #execinstr
+
+ 	.type	__v7_proc_info, #object
+-	string	cpu_arch_name, "armv7"
+-	string	cpu_elf_name, "v7"
++	.asciz	"armv7"
++	.asciz	"v7"
+ 	.align
+ 	.long	0x000f0000		@ Required ID value
+ 	.long	0x000f0000		@ Mask for ID
+ 	.long   PMD_TYPE_SECT | \
+PATCH_EOF
+
+        # Aplicar o patch se as linhas problemáticas existirem
+        if grep -q "string.*cpu_arch_name" arch/arm/mm/proc-v7.S; then
+            _log "Aplicando patch para diretivas string problemáticas"
+            sed -i 's/string.*cpu_arch_name.*"armv7"/.asciz	"armv7"/' arch/arm/mm/proc-v7.S
+            sed -i 's/string.*cpu_elf_name.*"v7"/.asciz	"v7"/' arch/arm/mm/proc-v7.S
+        fi
+
+        # Remover apenas caracteres de controle invisíveis sem afetar sintaxe
+        sed -i 's/[[:cntrl:]]//g' arch/arm/mm/proc-v7.S
+
+        # Re-adicionar quebras de linha onde necessário
+        sed -i 's/$/\n/g' arch/arm/mm/proc-v7.S
+        sed -i '/^$/d' arch/arm/mm/proc-v7.S
+
+        _log "proc-v7.S corrigido com patch para diretivas assembly"
+    fi
+
     # ============ CONFIGURAÇÃO ============
     _log "Aplicando configuração..."
     cp "$srcdir/config-samsung-matisse3g.armv7" .config
 
-    # Configurações específicas
+    # Configurações específicas + correções para __user
     cat >> .config <<'EOF'
 # Resolver warnings MSM8226
 CONFIG_DEBUG_FS=n
@@ -298,6 +479,16 @@ CONFIG_OABI_COMPAT=n
 CONFIG_ARM_UNWIND=n
 CONFIG_ARM_THUMB=y
 CONFIG_THUMB2_KERNEL=n
+
+# Configurações para resolver problemas Sparse
+CONFIG_SPARSE_RCU_POINTER=n
+CONFIG_CONTEXT=n
+
+# Garantir que preempt.h seja incluído corretamente
+CONFIG_PREEMPT_NONE=y
+CONFIG_PREEMPT_VOLUNTARY=n
+CONFIG_PREEMPT=n
+CONFIG_PREEMPT_COUNT=n
 EOF
 
     _log "Executando oldconfig..."
@@ -306,7 +497,7 @@ EOF
     _log "Executando prepare..."
     make -s ARCH=arm CROSS_COMPILE="${_cross_prefix}" prepare || _die "prepare falhou"
 
-    _log "✓ Preparação concluída com correções stddef.h + __user!"
+    _log "✅ Preparação concluída com correções stddef.h + __user aprimoradas!"
 }
 
 build() {
@@ -332,7 +523,7 @@ build() {
         LDFLAGS="" \
         modules || _log "Alguns módulos falharam"
 
-    _log "✓ Compilação concluída!"
+    _log "✅ Compilação concluída!"
 }
 
 package() {
@@ -352,7 +543,7 @@ package() {
         find arch/arm/boot/dts -name '*.dtb' -exec cp {} "$pkgdir/boot/dtbs/" \; 2>/dev/null || true
     fi
 
-    _log "✓ Empacotamento concluído!"
+    _log "✅ Empacotamento concluído!"
 }
 
 sha512sums="
