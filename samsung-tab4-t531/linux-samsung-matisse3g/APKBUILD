@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=1
+pkgrel=3
 pkgdesc="Linux kernel for Samsung Galaxy Tab 4 10.1 (SM-T531) - LineageOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -34,7 +34,7 @@ _die() {
 
 prepare() {
     cd "$builddir"
-    _log "Preparando kernel com correções stddef.h + __user - VERSÃO APRIMORADA"
+    _log "Preparando kernel com correções stddef.h + __user + proc-v7.S - VERSÃO COMPLETA"
 
     # ============ LIMPEZA COMPLETA ============
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
@@ -329,6 +329,188 @@ void flush_tlb_kernel_range(unsigned long start, unsigned long end)
 EOF
     fi
 
+    # ============ CORREÇÃO 3: PROC-V7.S - FORMATAÇÃO ASSEMBLY COMPLETAMENTE CORROMPIDA ============
+    _log "CORREÇÃO 3: Corrigindo proc-v7.S - arquivo assembly COMPLETAMENTE corrompido"
+
+    if [ -f arch/arm/mm/proc-v7.S ]; then
+        cp arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7.S.backup
+
+        _log "PROBLEMA CRÍTICO: proc-v7.S tem formatação assembly completamente corrompida"
+        _log "Aplicando correção MASSIVA de formatação..."
+
+        # Primeiro, limpar caracteres de controle invisíveis
+        sed -i 's/[[:cntrl:]]//g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 1: INSTRUÇÕES BÁSICAS ======
+        _log "Corrigindo instruções mov, bic, add, sub..."
+        # Instruções mov
+        sed -i 's/movpc, lr/mov pc, lr/g' arch/arm/mm/proc-v7.S
+        sed -i 's/movpc, r0/mov pc, r0/g' arch/arm/mm/proc-v7.S
+        sed -i 's/movr0, #/mov r0, #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/movr10, #/mov r10, #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/movr4, r0/mov r4, r0/g' arch/arm/mm/proc-v7.S
+        sed -i 's/movr5, #/mov r5, #/g' arch/arm/mm/proc-v7.S
+
+        # Instruções bic
+        sed -i 's/bicr0, r0,#/bic r0, r0, #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/bicr1, r1,#/bic r1, r1, #/g' arch/arm/mm/proc-v7.S
+
+        # Instruções add/sub
+        sed -i 's/addr0, r0,r2/add r0, r0, r2/g' arch/arm/mm/proc-v7.S
+        sed -i 's/subsr1, r1,r2/subs r1, r1, r2/g' arch/arm/mm/proc-v7.S
+
+        # Instruções branch
+        sed -i 's/bhi1b/bhi 1b/g' arch/arm/mm/proc-v7.S
+        sed -i 's/bne1f/bne 1f/g' arch/arm/mm/proc-v7.S
+        sed -i 's/bne2f/bne 2f/g' arch/arm/mm/proc-v7.S
+        sed -i 's/bne3f/bne 3f/g' arch/arm/mm/proc-v7.S
+        sed -i 's/b1f/b 1f/g' arch/arm/mm/proc-v7.S
+        sed -i 's/b3f/b 3f/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 2: PSEUDO-OPERAÇÕES ======
+        _log "Corrigindo pseudo-operações assembly..."
+        sed -i 's/\.align5/.align 5/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.align2/.align 2/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.pushsection\.idmap\.text/.pushsection .idmap.text, "ax"/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.space4/.space 4/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 3: DIRETIVAS .globl e .equ ======
+        sed -i 's/\.globlcpu_v7_suspend_size/.globl cpu_v7_suspend_size/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.equcpu_v7_suspend_size/.equ cpu_v7_suspend_size/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 4: INSTRUÇÕES LÓGICAS ======
+        _log "Corrigindo instruções lógicas..."
+        sed -i 's/andr10, r0,#/and r10, r0, #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/andr5, r0,#/and r5, r0, #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/andr6, r0,#/and r6, r0, #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/andr0, r0,#/and r0, r0, #/g' arch/arm/mm/proc-v7.S
+
+        sed -i 's/teqr10, #/teq r10, #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/teqr0, r10/teq r0, r10/g' arch/arm/mm/proc-v7.S
+        sed -i 's/teqr0, #/teq r0, #/g' arch/arm/mm/proc-v7.S
+
+        sed -i 's/orrr6, r6,r5,lsr#/orr r6, r6, r5, lsr #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/orrr0, r0,#/orr r0, r0, #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/orreqr0, r0,#/orreq r0, r0, #/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 5: INSTRUÇÕES DE MEMÓRIA ======
+        _log "Corrigindo instruções de memória..."
+        sed -i 's/ldrr10, =/ldr r10, =/g' arch/arm/mm/proc-v7.S
+        sed -i 's/ldrr6, =/ldr r6, =/g' arch/arm/mm/proc-v7.S
+
+        sed -i 's/stmiar12, {/stmia r12, {/g' arch/arm/mm/proc-v7.S
+        sed -i 's/ldmiar12, {/ldmia r12, {/g' arch/arm/mm/proc-v7.S
+        sed -i 's/ldmiar5, {/ldmia r5, {/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 6: INSTRUÇÕES COPROCESSADOR ======
+        _log "Corrigindo instruções coprocessador..."
+        sed -i 's/mcreqp15, 0,r0,c1,c0,1/mcreq p15, 0, r0, c1, c0, 1/g' arch/arm/mm/proc-v7.S
+        sed -i 's/mcrp14, 6,r5,c1,c0,0/mcr p14, 6, r5, c1, c0, 0/g' arch/arm/mm/proc-v7.S
+        sed -i 's/mcrp14, 6,r0,c0,c0,0/mcr p14, 6, r0, c0, c0, 0/g' arch/arm/mm/proc-v7.S
+        sed -i 's/mrcp14, 6,r0,c0,c0,0/mrc p14, 6, r0, c0, c0, 0/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 7: INSTRUÇÕES ESPECÍFICAS ======
+        sed -i 's/ubfxr0, r0,#/ubfx r0, r0, #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/tstr0, #/tst r0, #/g' arch/arm/mm/proc-v7.S
+        sed -i 's/adrr12, /adr r12, /g' arch/arm/mm/proc-v7.S
+        sed -i 's/adrr5, /adr r5, /g' arch/arm/mm/proc-v7.S
+
+        # Instruções bl
+        sed -i 's/blv7_flush_dcache_all/bl v7_flush_dcache_all/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 8: DIRETIVAS STRING ======
+        _log "Corrigindo diretivas string..."
+        sed -i 's/stringcpu_v7_name, "ARMv7 Processor"/.asciz "ARMv7 Processor"/g' arch/arm/mm/proc-v7.S
+        sed -i 's/stringcpu_arch_name, "armv7"/.asciz "armv7"/g' arch/arm/mm/proc-v7.S
+        sed -i 's/stringcpu_elf_name, "v7"/.asciz "v7"/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 9: DIRETIVAS .long ======
+        _log "Corrigindo diretivas .long..."
+        sed -i 's/\.long0x/\.long 0x/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.longpmd_type_sect/.long pmd_type_sect/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.longcpu_arch_name/.long cpu_arch_name/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.longcpu_elf_name/.long cpu_elf_name/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.longhwcap_swp/.long hwcap_swp/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.longcpu_v7_name/.long cpu_v7_name/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.longv7_processor_functions/.long v7_processor_functions/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.longv7wbi_tlb_fns/.long v7wbi_tlb_fns/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.longv6_user_fns/.long v6_user_fns/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.longv7_cache_fns/.long v7_cache_fns/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 10: DIRETIVAS .type e .size ======
+        _log "Corrigindo diretivas .type e .size..."
+        sed -i 's/\.type__v7_ca5mp_proc_info/.type __v7_ca5mp_proc_info/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.type__v7_ca9mp_proc_info/.type __v7_ca9mp_proc_info/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.type__v7_ca7mp_proc_info/.type __v7_ca7mp_proc_info/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.type__v7_ca15mp_proc_info/.type __v7_ca15mp_proc_info/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.type__krait_proc_info/.type __krait_proc_info/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.type__v7_proc_info/.type __v7_proc_info/g' arch/arm/mm/proc-v7.S
+
+        sed -i 's/\.size__v7_ca5mp_proc_info/.size __v7_ca5mp_proc_info/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.size__v7_ca9mp_proc_info/.size __v7_ca9mp_proc_info/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.size__v7_ca7mp_proc_info/.size __v7_ca7mp_proc_info/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.size__v7_ca15mp_proc_info/.size __v7_ca15mp_proc_info/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.size__krait_proc_info/.size __krait_proc_info/g' arch/arm/mm/proc-v7.S
+        sed -i 's/\.size__v7_proc_info/.size __v7_proc_info/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 11: INSTRUÇÕES BRANCH COMPLEXAS ======
+        sed -i 's/b__v7_ca5mp_setup/b __v7_ca5mp_setup/g' arch/arm/mm/proc-v7.S
+        sed -i 's/b__v7_ca9mp_setup/b __v7_ca9mp_setup/g' arch/arm/mm/proc-v7.S
+        sed -i 's/b__v7_ca7mp_setup/b __v7_ca7mp_setup/g' arch/arm/mm/proc-v7.S
+        sed -i 's/b__v7_ca15mp_setup/b __v7_ca15mp_setup/g' arch/arm/mm/proc-v7.S
+        sed -i 's/b__v7_setup/b __v7_setup/g' arch/arm/mm/proc-v7.S
+
+        # ====== PARTE 12: CORREÇÕES ADICIONAIS ======
+        # 6. "mrcp15" deve ser "mrc p15"
+        sed -i 's/mrcp15/mrc p15/g' arch/arm/mm/proc-v7.S
+
+        # 7. "ldrr4" deve ser "ldr r4"
+        sed -i 's/ldrr4/ldr r4/g' arch/arm/mm/proc-v7.S
+
+        # 8. "ldrr5" deve ser "ldr r5"
+        sed -i 's/ldrr5/ldr r5/g' arch/arm/mm/proc-v7.S
+
+        # 9. "movr0, r8" deve ser "mov r0, r8"
+        sed -i 's/movr0, r8/mov r0, r8/g' arch/arm/mm/proc-v7.S
+
+        # 10. "movr4, r0" deve ser "mov r4, r0"
+        sed -i 's/movr4, r0/mov r4, r0/g' arch/arm/mm/proc-v7.S
+
+        # 11. "ldrr0" deve ser "ldr r0"
+        sed -i 's/ldrr0/ldr r0/g' arch/arm/mm/proc-v7.S
+
+        # 12. Corrigir condicionais coladas
+        sed -i 's/#ifndefCONFIG_/#ifndef CONFIG_/g' arch/arm/mm/proc-v7.S
+
+        # 13. Corrigir comentários colados
+        sed -i 's/@[[:space:]]*/@@ /g' arch/arm/mm/proc-v7.S
+        sed -i 's/@@@@/@@/g' arch/arm/mm/proc-v7.S
+
+        # 14. Garantir espaços corretos em instruções
+        sed -i 's/mcr[[:space:]]*p15/mcr p15/g' arch/arm/mm/proc-v7.S
+
+        # 15. Corrigir SMC instruction
+        sed -i 's/smc#1/smc #1/g' arch/arm/mm/proc-v7.S
+
+        # 16. Remover #endif órfãos se ainda existirem
+        line_126=$(sed -n '126p' arch/arm/mm/proc-v7.S | tr -d '[:space:]')
+        line_149=$(sed -n '149p' arch/arm/mm/proc-v7.S | tr -d '[:space:]')
+
+        if [ "$line_126" = "#endif" ]; then
+            _log "Removendo #endif órfão na linha 126"
+            sed -i '126d' arch/arm/mm/proc-v7.S
+        fi
+
+        # Reajustar numeração após possível remoção
+        line_149_new=$(sed -n '148p' arch/arm/mm/proc-v7.S | tr -d '[:space:]')
+        if [ "$line_149_new" = "#endif" ]; then
+            _log "Removendo #endif órfão na linha 148 (antiga 149)"
+            sed -i '148d' arch/arm/mm/proc-v7.S
+        fi
+
+        _log "proc-v7.S corrigido - formatação de assembly COMPLETAMENTE restaurada"
+    fi
+
     # ============ OUTRAS CORREÇÕES JÁ TESTADAS ============
     _log "Aplicando outras correções..."
 
@@ -408,51 +590,6 @@ EOF
         sed -i '185s/#if ((sizeof(struct pt_regs) % 8) != 0)/#if 0 \/\* disabled \*\//' arch/arm/kernel/entry-header.S
     fi
 
-    # ============ CORREÇÃO 3: PROC-V7.S - ERRO ASSEMBLY ============
-    _log "CORREÇÃO 3: Corrigindo proc-v7.S com patch específico"
-
-    if [ -f arch/arm/mm/proc-v7.S ]; then
-        cp arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7.S.backup
-
-        # Restaurar arquivo original primeiro
-        cp arch/arm/mm/proc-v7.S.backup arch/arm/mm/proc-v7.S
-
-        # Aplicar patch específico para proc-v7.S baseado no erro conhecido
-        # Este é um patch comum para kernels antigos com assemblers modernos
-        cat > arch/arm/mm/proc-v7.S.patch << 'PATCH_EOF'
---- a/arch/arm/mm/proc-v7.S
-+++ b/arch/arm/mm/proc-v7.S
-@@ -340,10 +340,10 @@
- 	.section ".text.init", #alloc, #execinstr
-
- 	.type	__v7_proc_info, #object
--	string	cpu_arch_name, "armv7"
--	string	cpu_elf_name, "v7"
-+	.asciz	"armv7"
-+	.asciz	"v7"
- 	.align
- 	.long	0x000f0000		@ Required ID value
- 	.long	0x000f0000		@ Mask for ID
- 	.long   PMD_TYPE_SECT | \
-PATCH_EOF
-
-        # Aplicar o patch se as linhas problemáticas existirem
-        if grep -q "string.*cpu_arch_name" arch/arm/mm/proc-v7.S; then
-            _log "Aplicando patch para diretivas string problemáticas"
-            sed -i 's/string.*cpu_arch_name.*"armv7"/.asciz	"armv7"/' arch/arm/mm/proc-v7.S
-            sed -i 's/string.*cpu_elf_name.*"v7"/.asciz	"v7"/' arch/arm/mm/proc-v7.S
-        fi
-
-        # Remover apenas caracteres de controle invisíveis sem afetar sintaxe
-        sed -i 's/[[:cntrl:]]//g' arch/arm/mm/proc-v7.S
-
-        # Re-adicionar quebras de linha onde necessário
-        sed -i 's/$/\n/g' arch/arm/mm/proc-v7.S
-        sed -i '/^$/d' arch/arm/mm/proc-v7.S
-
-        _log "proc-v7.S corrigido com patch para diretivas assembly"
-    fi
-
     # ============ CONFIGURAÇÃO ============
     _log "Aplicando configuração..."
     cp "$srcdir/config-samsung-matisse3g.armv7" .config
@@ -497,7 +634,7 @@ EOF
     _log "Executando prepare..."
     make -s ARCH=arm CROSS_COMPILE="${_cross_prefix}" prepare || _die "prepare falhou"
 
-    _log "✅ Preparação concluída com correções stddef.h + __user aprimoradas!"
+    _log "✅ Preparação concluída com correções completas: stddef.h + __user + proc-v7.S!"
 }
 
 build() {
