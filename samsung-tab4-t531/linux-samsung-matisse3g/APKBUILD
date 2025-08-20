@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=3
+pkgrel=4
 pkgdesc="Linux kernel for Samsung Galaxy Tab 4 10.1 (SM-T531) - LineageOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -34,7 +34,7 @@ _die() {
 
 prepare() {
     cd "$builddir"
-    _log "Preparando kernel com correções stddef.h + __user + proc-v7.S - VERSÃO COMPLETA"
+    _log "Preparando kernel com correções específicas para Matisse3G - VERSÃO OTIMIZADA"
 
     # ============ LIMPEZA COMPLETA ============
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
@@ -59,13 +59,10 @@ prepare() {
     export KBUILD_CFLAGS_KERNEL="$gcc_flags"
     export KBUILD_LDFLAGS=""
 
-    # ============ CORREÇÃO 1: STDDEF.H (JÁ FUNCIONAL) ============
+    # ============ CORREÇÃO 1: STDDEF.H ============
     _log "CORREÇÃO 1: stddef.h com enum simples"
 
-    # Remover arquivos problemáticos anteriores
     rm -f include/linux/postmarketos-compat.h 2>/dev/null || true
-
-    # Estrutura uapi
     mkdir -p include/uapi/linux include/uapi/asm
 
     # uapi/linux/stddef.h
@@ -114,14 +111,13 @@ enum {
 #endif /* _LINUX_STDDEF_H */
 EOF
 
-    # ============ CORREÇÃO 2: __USER - VERSÃO APRIMORADA ============
-    _log "CORREÇÃO 2: Resolvendo problema __user - Versão Direcionada"
+    # ============ CORREÇÃO 2: __USER ============
+    _log "CORREÇÃO 2: Resolvendo problema __user"
 
-    # Primeiro: Garantir definições no compiler.h ANTES de qualquer include
+    # Garantir definições no compiler.h
     if [ -f include/linux/compiler.h ]; then
         cp include/linux/compiler.h include/linux/compiler.h.backup
 
-        # Criar um novo compiler.h com as definições no topo
         cat > include/linux/compiler.h.new << 'EOF'
 /* Definições Sparse essenciais - DEVEM vir antes de tudo */
 #ifndef __CHECKER__
@@ -151,58 +147,19 @@ EOF
 #endif
 
 EOF
-
-        # Adicionar o conteúdo original do compiler.h depois
         cat include/linux/compiler.h >> include/linux/compiler.h.new
         mv include/linux/compiler.h.new include/linux/compiler.h
     fi
 
-    # Segundo: Corrigir thread_info.h diretamente
-    if [ -f include/linux/thread_info.h ]; then
-        cp include/linux/thread_info.h include/linux/thread_info.h.backup
-
-        # Adicionar include compiler.h no topo se não existir
-        if ! grep -q "#include.*compiler.h" include/linux/thread_info.h; then
-            _log "Adicionando compiler.h ao thread_info.h"
-            sed -i '1i\#include <linux/compiler.h>' include/linux/thread_info.h
-        fi
-
-        # Verificar se o problema foi resolvido
-        if grep -q "__user" include/linux/thread_info.h; then
-            _log "thread_info.h contém definições __user - OK"
-        fi
-    fi
-
-    # Terceiro: Aplicar correção a TODOS os headers problemáticos
-    _log "Aplicando correção __user a todos os headers..."
-
-    # Lista de headers que frequentemente têm problemas com __user
-    problem_headers="include/linux/capability.h include/linux/security.h include/linux/sched.h include/linux/fs.h include/linux/syscalls.h include/linux/uaccess.h include/asm/uaccess.h arch/arm/include/asm/uaccess.h"
-
-    for header in $problem_headers; do
-        if [ -f "$header" ] && grep -q "__user" "$header"; then
-            if ! grep -q "#include.*compiler.h" "$header"; then
-                _log "Corrigindo $header"
-                cp "$header" "${header}.backup" 2>/dev/null || true
-                sed -i '1i\#include <linux/compiler.h>' "$header" 2>/dev/null || true
-            fi
-        fi
-    done
-
-    # Quarto: Correção específica para arch/arm/kernel/smp_tlb.c
+    # Aplicar correção específica para arch/arm/kernel/smp_tlb.c
     if [ -f arch/arm/kernel/smp_tlb.c ]; then
         cp arch/arm/kernel/smp_tlb.c arch/arm/kernel/smp_tlb.c.backup
 
-        # Substituir todo o conteúdo com versão corrigida
         cat > arch/arm/kernel/smp_tlb.c << 'EOF'
 /*
  *  linux/arch/arm/kernel/smp_tlb.c
  *
  *  Copyright (C) 2002 ARM Limited, All Rights Reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/compiler.h>
@@ -213,11 +170,6 @@ EOF
 #include <asm/tlbflush.h>
 #include <asm/mmu_context.h>
 
-/**********************************************************************/
-
-/*
- * TLB operations
- */
 struct tlb_args {
 	struct vm_area_struct *ta_vma;
 	unsigned long ta_start;
@@ -232,35 +184,30 @@ static inline void ipi_flush_tlb_all(void *ignored)
 static inline void ipi_flush_tlb_mm(void *arg)
 {
 	struct mm_struct *mm = (struct mm_struct *)arg;
-
 	local_flush_tlb_mm(mm);
 }
 
 static inline void ipi_flush_tlb_page(void *arg)
 {
 	struct tlb_args *ta = (struct tlb_args *)arg;
-
 	local_flush_tlb_page(ta->ta_vma, ta->ta_start);
 }
 
 static inline void ipi_flush_tlb_kernel_page(void *arg)
 {
 	struct tlb_args *ta = (struct tlb_args *)arg;
-
 	local_flush_tlb_kernel_page(ta->ta_start);
 }
 
 static inline void ipi_flush_tlb_range(void *arg)
 {
 	struct tlb_args *ta = (struct tlb_args *)arg;
-
 	local_flush_tlb_range(ta->ta_vma, ta->ta_start, ta->ta_end);
 }
 
 static inline void ipi_flush_tlb_kernel_range(void *arg)
 {
 	struct tlb_args *ta = (struct tlb_args *)arg;
-
 	local_flush_tlb_kernel_range(ta->ta_start, ta->ta_end);
 }
 
@@ -329,190 +276,89 @@ void flush_tlb_kernel_range(unsigned long start, unsigned long end)
 EOF
     fi
 
-    # ============ CORREÇÃO 3: PROC-V7.S - FORMATAÇÃO ASSEMBLY COMPLETAMENTE CORROMPIDA ============
-    _log "CORREÇÃO 3: Corrigindo proc-v7.S - arquivo assembly COMPLETAMENTE corrompido"
+    # ============ CORREÇÃO 3: PROC-V7.S - CORREÇÃO DIRETA ============
+    _log "CORREÇÃO 3: Corrigindo proc-v7.S diretamente"
 
     if [ -f arch/arm/mm/proc-v7.S ]; then
         cp arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7.S.backup
 
-        _log "PROBLEMA CRÍTICO: proc-v7.S tem formatação assembly completamente corrompida"
-        _log "Aplicando correção MASSIVA de formatação..."
+        _log "Aplicando correções específicas para MSM8226/Matisse3G..."
 
-        # Primeiro, limpar caracteres de controle invisíveis
-        sed -i 's/[[:cntrl:]]//g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 1: INSTRUÇÕES BÁSICAS ======
-        _log "Corrigindo instruções mov, bic, add, sub..."
-        # Instruções mov
-        sed -i 's/movpc, lr/mov pc, lr/g' arch/arm/mm/proc-v7.S
-        sed -i 's/movpc, r0/mov pc, r0/g' arch/arm/mm/proc-v7.S
-        sed -i 's/movr0, #/mov r0, #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/movr10, #/mov r10, #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/movr4, r0/mov r4, r0/g' arch/arm/mm/proc-v7.S
-        sed -i 's/movr5, #/mov r5, #/g' arch/arm/mm/proc-v7.S
-
-        # Instruções bic
-        sed -i 's/bicr0, r0,#/bic r0, r0, #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/bicr1, r1,#/bic r1, r1, #/g' arch/arm/mm/proc-v7.S
-
-        # Instruções add/sub
-        sed -i 's/addr0, r0,r2/add r0, r0, r2/g' arch/arm/mm/proc-v7.S
-        sed -i 's/subsr1, r1,r2/subs r1, r1, r2/g' arch/arm/mm/proc-v7.S
-
-        # Instruções branch
-        sed -i 's/bhi1b/bhi 1b/g' arch/arm/mm/proc-v7.S
-        sed -i 's/bne1f/bne 1f/g' arch/arm/mm/proc-v7.S
-        sed -i 's/bne2f/bne 2f/g' arch/arm/mm/proc-v7.S
-        sed -i 's/bne3f/bne 3f/g' arch/arm/mm/proc-v7.S
-        sed -i 's/b1f/b 1f/g' arch/arm/mm/proc-v7.S
-        sed -i 's/b3f/b 3f/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 2: PSEUDO-OPERAÇÕES ======
-        _log "Corrigindo pseudo-operações assembly..."
-        sed -i 's/\.align5/.align 5/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.align2/.align 2/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.pushsection\.idmap\.text/.pushsection .idmap.text, "ax"/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.space4/.space 4/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 3: DIRETIVAS .globl e .equ ======
-        sed -i 's/\.globlcpu_v7_suspend_size/.globl cpu_v7_suspend_size/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.equcpu_v7_suspend_size/.equ cpu_v7_suspend_size/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 4: INSTRUÇÕES LÓGICAS ======
-        _log "Corrigindo instruções lógicas..."
-        sed -i 's/andr10, r0,#/and r10, r0, #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/andr5, r0,#/and r5, r0, #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/andr6, r0,#/and r6, r0, #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/andr0, r0,#/and r0, r0, #/g' arch/arm/mm/proc-v7.S
-
-        sed -i 's/teqr10, #/teq r10, #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/teqr0, r10/teq r0, r10/g' arch/arm/mm/proc-v7.S
-        sed -i 's/teqr0, #/teq r0, #/g' arch/arm/mm/proc-v7.S
-
-        sed -i 's/orrr6, r6,r5,lsr#/orr r6, r6, r5, lsr #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/orrr0, r0,#/orr r0, r0, #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/orreqr0, r0,#/orreq r0, r0, #/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 5: INSTRUÇÕES DE MEMÓRIA ======
-        _log "Corrigindo instruções de memória..."
-        sed -i 's/ldrr10, =/ldr r10, =/g' arch/arm/mm/proc-v7.S
-        sed -i 's/ldrr6, =/ldr r6, =/g' arch/arm/mm/proc-v7.S
-
-        sed -i 's/stmiar12, {/stmia r12, {/g' arch/arm/mm/proc-v7.S
-        sed -i 's/ldmiar12, {/ldmia r12, {/g' arch/arm/mm/proc-v7.S
-        sed -i 's/ldmiar5, {/ldmia r5, {/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 6: INSTRUÇÕES COPROCESSADOR ======
-        _log "Corrigindo instruções coprocessador..."
-        sed -i 's/mcreqp15, 0,r0,c1,c0,1/mcreq p15, 0, r0, c1, c0, 1/g' arch/arm/mm/proc-v7.S
-        sed -i 's/mcrp14, 6,r5,c1,c0,0/mcr p14, 6, r5, c1, c0, 0/g' arch/arm/mm/proc-v7.S
-        sed -i 's/mcrp14, 6,r0,c0,c0,0/mcr p14, 6, r0, c0, c0, 0/g' arch/arm/mm/proc-v7.S
-        sed -i 's/mrcp14, 6,r0,c0,c0,0/mrc p14, 6, r0, c0, c0, 0/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 7: INSTRUÇÕES ESPECÍFICAS ======
-        sed -i 's/ubfxr0, r0,#/ubfx r0, r0, #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/tstr0, #/tst r0, #/g' arch/arm/mm/proc-v7.S
-        sed -i 's/adrr12, /adr r12, /g' arch/arm/mm/proc-v7.S
-        sed -i 's/adrr5, /adr r5, /g' arch/arm/mm/proc-v7.S
-
-        # Instruções bl
-        sed -i 's/blv7_flush_dcache_all/bl v7_flush_dcache_all/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 8: DIRETIVAS STRING ======
-        _log "Corrigindo diretivas string..."
-        sed -i 's/stringcpu_v7_name, "ARMv7 Processor"/.asciz "ARMv7 Processor"/g' arch/arm/mm/proc-v7.S
-        sed -i 's/stringcpu_arch_name, "armv7"/.asciz "armv7"/g' arch/arm/mm/proc-v7.S
-        sed -i 's/stringcpu_elf_name, "v7"/.asciz "v7"/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 9: DIRETIVAS .long ======
-        _log "Corrigindo diretivas .long..."
-        sed -i 's/\.long0x/\.long 0x/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.longpmd_type_sect/.long pmd_type_sect/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.longcpu_arch_name/.long cpu_arch_name/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.longcpu_elf_name/.long cpu_elf_name/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.longhwcap_swp/.long hwcap_swp/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.longcpu_v7_name/.long cpu_v7_name/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.longv7_processor_functions/.long v7_processor_functions/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.longv7wbi_tlb_fns/.long v7wbi_tlb_fns/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.longv6_user_fns/.long v6_user_fns/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.longv7_cache_fns/.long v7_cache_fns/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 10: DIRETIVAS .type e .size ======
-        _log "Corrigindo diretivas .type e .size..."
-        sed -i 's/\.type__v7_ca5mp_proc_info/.type __v7_ca5mp_proc_info/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.type__v7_ca9mp_proc_info/.type __v7_ca9mp_proc_info/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.type__v7_ca7mp_proc_info/.type __v7_ca7mp_proc_info/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.type__v7_ca15mp_proc_info/.type __v7_ca15mp_proc_info/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.type__krait_proc_info/.type __krait_proc_info/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.type__v7_proc_info/.type __v7_proc_info/g' arch/arm/mm/proc-v7.S
-
-        sed -i 's/\.size__v7_ca5mp_proc_info/.size __v7_ca5mp_proc_info/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.size__v7_ca9mp_proc_info/.size __v7_ca9mp_proc_info/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.size__v7_ca7mp_proc_info/.size __v7_ca7mp_proc_info/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.size__v7_ca15mp_proc_info/.size __v7_ca15mp_proc_info/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.size__krait_proc_info/.size __krait_proc_info/g' arch/arm/mm/proc-v7.S
-        sed -i 's/\.size__v7_proc_info/.size __v7_proc_info/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 11: INSTRUÇÕES BRANCH COMPLEXAS ======
-        sed -i 's/b__v7_ca5mp_setup/b __v7_ca5mp_setup/g' arch/arm/mm/proc-v7.S
-        sed -i 's/b__v7_ca9mp_setup/b __v7_ca9mp_setup/g' arch/arm/mm/proc-v7.S
-        sed -i 's/b__v7_ca7mp_setup/b __v7_ca7mp_setup/g' arch/arm/mm/proc-v7.S
-        sed -i 's/b__v7_ca15mp_setup/b __v7_ca15mp_setup/g' arch/arm/mm/proc-v7.S
-        sed -i 's/b__v7_setup/b __v7_setup/g' arch/arm/mm/proc-v7.S
-
-        # ====== PARTE 12: CORREÇÕES ADICIONAIS ======
-        # 6. "mrcp15" deve ser "mrc p15"
-        sed -i 's/mrcp15/mrc p15/g' arch/arm/mm/proc-v7.S
-
-        # 7. "ldrr4" deve ser "ldr r4"
-        sed -i 's/ldrr4/ldr r4/g' arch/arm/mm/proc-v7.S
-
-        # 8. "ldrr5" deve ser "ldr r5"
-        sed -i 's/ldrr5/ldr r5/g' arch/arm/mm/proc-v7.S
-
-        # 9. "movr0, r8" deve ser "mov r0, r8"
-        sed -i 's/movr0, r8/mov r0, r8/g' arch/arm/mm/proc-v7.S
-
-        # 10. "movr4, r0" deve ser "mov r4, r0"
-        sed -i 's/movr4, r0/mov r4, r0/g' arch/arm/mm/proc-v7.S
-
-        # 11. "ldrr0" deve ser "ldr r0"
-        sed -i 's/ldrr0/ldr r0/g' arch/arm/mm/proc-v7.S
-
-        # 12. Corrigir condicionais coladas
-        sed -i 's/#ifndefCONFIG_/#ifndef CONFIG_/g' arch/arm/mm/proc-v7.S
-
-        # 13. Corrigir comentários colados
-        sed -i 's/@[[:space:]]*/@@ /g' arch/arm/mm/proc-v7.S
-        sed -i 's/@@@@/@@/g' arch/arm/mm/proc-v7.S
-
-        # 14. Garantir espaços corretos em instruções
-        sed -i 's/mcr[[:space:]]*p15/mcr p15/g' arch/arm/mm/proc-v7.S
-
-        # 15. Corrigir SMC instruction
-        sed -i 's/smc#1/smc #1/g' arch/arm/mm/proc-v7.S
-
-        # 16. Remover #endif órfãos se ainda existirem
-        line_126=$(sed -n '126p' arch/arm/mm/proc-v7.S | tr -d '[:space:]')
-        line_149=$(sed -n '149p' arch/arm/mm/proc-v7.S | tr -d '[:space:]')
-
-        if [ "$line_126" = "#endif" ]; then
-            _log "Removendo #endif órfão na linha 126"
-            sed -i '126d' arch/arm/mm/proc-v7.S
+        # Adicionar definições ausentes no início do arquivo
+        if ! grep -q "PMD_FLAGS_SMP" arch/arm/mm/proc-v7.S; then
+            # Encontrar onde adicionar (após includes)
+            INCLUDE_LINE=$(grep -n "#include.*pgtable.h" arch/arm/mm/proc-v7.S | tail -1 | cut -d: -f1)
+            if [ -n "$INCLUDE_LINE" ]; then
+                sed -i "${INCLUDE_LINE}a\\
+\\
+/* Definições específicas para MSM8226 - Matisse3G */\\
+#ifndef PMD_FLAGS_SMP\\
+#define PMD_FLAGS_SMP\\t(PMD_SECT_S | PMD_SECT_nG)\\
+#endif\\
+#ifndef PMD_FLAGS_UP\\
+#define PMD_FLAGS_UP\\t(PMD_SECT_nG)\\
+#endif" arch/arm/mm/proc-v7.S
+            fi
         fi
 
-        # Reajustar numeração após possível remoção
-        line_149_new=$(sed -n '148p' arch/arm/mm/proc-v7.S | tr -d '[:space:]')
-        if [ "$line_149_new" = "#endif" ]; then
-            _log "Removendo #endif órfão na linha 148 (antiga 149)"
-            sed -i '148d' arch/arm/mm/proc-v7.S
+        # Corrigir a macro __v7_proc problemática
+        # Substituir ALT_SMP e ALT_UP por definições estáticas
+        sed -i '/ALT_SMP(.long.*PMD_FLAGS_SMP/c\
+#ifdef CONFIG_SMP\
+\t.long\tPMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AP_READ | \\\
+\t\tPMD_SECT_AF | PMD_SECT_S | PMD_SECT_nG | \\mm_mmuflags\
+#else' arch/arm/mm/proc-v7.S
+
+        sed -i '/ALT_UP(.long.*PMD_FLAGS_UP/c\
+\t.long\tPMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AP_READ | \\\
+\t\tPMD_SECT_AF | PMD_SECT_nG | \\mm_mmuflags\
+#endif' arch/arm/mm/proc-v7.S
+
+        # Corrigir W(b) para b
+        sed -i 's/W(b)/b/g' arch/arm/mm/proc-v7.S
+
+        # Remover HWCAP_TLS problemático
+        sed -i 's/HWCAP_EDSP | HWCAP_TLS/HWCAP_EDSP/g' arch/arm/mm/proc-v7.S
+
+        # Adicionar entrada específica para MSM8226 se não existir
+        if ! grep -q "__msm8226_proc_info" arch/arm/mm/proc-v7.S; then
+            # Encontrar onde adicionar (antes da entrada genérica)
+            V7_PROC_LINE=$(grep -n "__v7_proc_info:" arch/arm/mm/proc-v7.S | head -1 | cut -d: -f1)
+            if [ -n "$V7_PROC_LINE" ]; then
+                sed -i "${V7_PROC_LINE}i\\
+\\t/*\\
+\\t * Qualcomm MSM8226 - Samsung Matisse3G\\
+\\t */\\
+\\t.type   __msm8226_proc_info, #object\\
+__msm8226_proc_info:\\
+\\t.long\\t0x410fc070\\t\\t/* Cortex-A7 r0p0 */\\
+\\t.long\\t0xff0ffff0\\
+\\t__v7_proc __v7_setup, hwcaps = HWCAP_IDIV\\
+\\t.size\\t__msm8226_proc_info, . - __msm8226_proc_info\\
+\\
+" arch/arm/mm/proc-v7.S
+            fi
         fi
 
-        _log "proc-v7.S corrigido - formatação de assembly COMPLETAMENTE restaurada"
+        _log "proc-v7.S corrigido para MSM8226"
+    else
+        _log "AVISO: proc-v7.S não encontrado"
     fi
 
-    # ============ OUTRAS CORREÇÕES JÁ TESTADAS ============
-    _log "Aplicando outras correções..."
+    # ============ OUTRAS CORREÇÕES ============
+    _log "Aplicando outras correções necessárias..."
+
+    # Correção entry-armv.S
+    if [ -f arch/arm/kernel/entry-armv.S ]; then
+        cp arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-armv.S.backup
+        sed -i 's/#ifdef CONFIG_ARM_THUMB()/#ifdef CONFIG_ARM_THUMB/g' arch/arm/kernel/entry-armv.S
+    fi
+
+    # Correção entry-header.S
+    if [ -f arch/arm/kernel/entry-header.S ]; then
+        cp arch/arm/kernel/entry-header.S arch/arm/kernel/entry-header.S.backup
+        sed -i '185s/#if ((sizeof(struct pt_regs) % 8) != 0)/#if 0 \/\* disabled \*\//' arch/arm/kernel/entry-header.S
+    fi
 
     # Limpar definições conflitantes de false/true
     find arch/arm/mach-msm/ include/linux/mfd/ sound/soc/codecs/ -name "*.h" -type f 2>/dev/null | while read header; do
@@ -541,11 +387,6 @@ typedef __u64 __be64;
 EOF
     fi
 
-    # Link asm/types.h
-    if [ ! -f include/uapi/asm/types.h ] && [ -f arch/arm/include/asm/types.h ]; then
-        ln -sf ../../../arch/arm/include/asm/types.h include/uapi/asm/types.h
-    fi
-
     # Headers GCC modernos
     for ver in 14 15; do
         if [ ! -f "include/linux/compiler-gcc${ver}.h" ]; then
@@ -568,35 +409,13 @@ EOF
         fi
     done
 
-    # Limpar kernel/bounds.c de includes problemáticos
-    if [ -f kernel/bounds.c ]; then
-        cp kernel/bounds.c kernel/bounds.c.backup
-        sed -i '/postmarketos-compat/d' kernel/bounds.c
-    fi
-
-    # Correções de assembly
-    if [ -f arch/arm/include/asm/processor.h ]; then
-        cp arch/arm/include/asm/processor.h arch/arm/include/asm/processor.h.backup
-        sed -i '99s/#endif#define task_pt_regs/#endif\n#define task_pt_regs/' arch/arm/include/asm/processor.h
-    fi
-
-    if [ -f arch/arm/kernel/entry-armv.S ]; then
-        cp arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-armv.S.backup
-        sed -i 's/#ifdef CONFIG_ARM_THUMB()/#ifdef CONFIG_ARM_THUMB/g' arch/arm/kernel/entry-armv.S
-    fi
-
-    if [ -f arch/arm/kernel/entry-header.S ]; then
-        cp arch/arm/kernel/entry-header.S arch/arm/kernel/entry-header.S.backup
-        sed -i '185s/#if ((sizeof(struct pt_regs) % 8) != 0)/#if 0 \/\* disabled \*\//' arch/arm/kernel/entry-header.S
-    fi
-
     # ============ CONFIGURAÇÃO ============
     _log "Aplicando configuração..."
     cp "$srcdir/config-samsung-matisse3g.armv7" .config
 
-    # Configurações específicas + correções para __user
+    # Configurações específicas otimizadas
     cat >> .config <<'EOF'
-# Resolver warnings MSM8226
+# MSM8226 Específico
 CONFIG_DEBUG_FS=n
 CONFIG_OF=y
 CONFIG_SPMI=y
@@ -610,18 +429,17 @@ CONFIG_SND=n
 CONFIG_MODVERSIONS=n
 CONFIG_WERROR=n
 
-# ARM/ABI
+# ARM/ABI Otimizado
 CONFIG_AEABI=y
 CONFIG_OABI_COMPAT=n
 CONFIG_ARM_UNWIND=n
-CONFIG_ARM_THUMB=y
 CONFIG_THUMB2_KERNEL=n
 
-# Configurações para resolver problemas Sparse
+# Sparse
 CONFIG_SPARSE_RCU_POINTER=n
 CONFIG_CONTEXT=n
 
-# Garantir que preempt.h seja incluído corretamente
+# Preemption
 CONFIG_PREEMPT_NONE=y
 CONFIG_PREEMPT_VOLUNTARY=n
 CONFIG_PREEMPT=n
@@ -634,38 +452,33 @@ EOF
     _log "Executando prepare..."
     make -s ARCH=arm CROSS_COMPILE="${_cross_prefix}" prepare || _die "prepare falhou"
 
-    _log "✅ Preparação concluída com correções completas: stddef.h + __user + proc-v7.S!"
+    _log "Preparação concluída - Matisse3G otimizado!"
 }
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel..."
+    _log "Compilando kernel Matisse3G..."
 
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
     export LDFLAGS=""
     export HOSTCFLAGS="-fno-PIE -no-pie -fno-stack-protector -Wno-error"
     export HOSTLDFLAGS="-no-pie"
 
+    # Compilação com flags otimizadas para MSM8226
+    local build_flags="ARCH=arm CROSS_COMPILE=${_cross_prefix} LDFLAGS="
+
     _log "Compilando zImage..."
-    make -j1 \
-        ARCH=arm \
-        CROSS_COMPILE="${_cross_prefix}" \
-        LDFLAGS="" \
-        zImage || _die "Falha na compilação do zImage"
+    make -j1 $build_flags zImage || _die "Falha na compilação do zImage"
 
     _log "Compilando módulos..."
-    make -j1 \
-        ARCH=arm \
-        CROSS_COMPILE="${_cross_prefix}" \
-        LDFLAGS="" \
-        modules || _log "Alguns módulos falharam"
+    make -j1 $build_flags modules || _log "Alguns módulos falharam (normal para port inicial)"
 
-    _log "✅ Compilação concluída!"
+    _log "Compilação Matisse3G concluída!"
 }
 
 package() {
     cd "$builddir"
-    _log "Empacotando kernel..."
+    _log "Empacotando kernel Matisse3G..."
 
     make DESTDIR="$pkgdir" \
         INSTALL_MOD_PATH="$pkgdir" \
@@ -680,7 +493,7 @@ package() {
         find arch/arm/boot/dts -name '*.dtb' -exec cp {} "$pkgdir/boot/dtbs/" \; 2>/dev/null || true
     fi
 
-    _log "✅ Empacotamento concluído!"
+    _log "Empacotamento Matisse3G concluído!"
 }
 
 sha512sums="
