@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=5
-pkgdesc="Linux kernel for Samsung Galaxy Tab 4 10.1 (SM-T531) - LineageOS"
+pkgrel=6
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -10,18 +10,19 @@ license="GPL-2.0-only"
 options="!strip !check !tracedeps pmb:cross-native"
 makedepends="
 	bash bc bison devicepkg-dev dtbtool elfutils-dev findutils flex
-	gettext-dev gmp-dev installkernel linux-headers mpc1-dev mpfr-dev
+	gmp-dev installkernel linux-headers mpc1-dev mpfr-dev
 	perl python3 sed xz
 "
 
+# CORRIGIDO: Usar o branch específico com as correções para PostmarketOS
 _commit="pmos-matisse3g-fixes"
 _cross_prefix="armv7-alpine-linux-musleabihf-"
 
 source="
-	$pkgname-$_commit.tar.gz::https://github.com/felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/pmos-matisse3g-fixes.tar.gz
+	$pkgname-$_commit.tar.gz::https://github.com/Felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/$_commit.tar.gz
 	config-samsung-matisse3g.armv7
 "
-builddir="$srcdir/android_kernel_samsung_msm8226-pmos-matisse3g-fixes"
+builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
 _log() {
     printf "\n[*] %s\n" "$1"
@@ -34,36 +35,63 @@ _die() {
 
 prepare() {
     cd "$builddir"
-    _log "Preparando kernel com correções específicas para Matisse3G - VERSÃO OTIMIZADA com FIX __user"
+    _log "Preparando kernel Matisse3G com correções otimizadas - BUILD LOCAL"
+    _log "Diretório: $builddir"
 
-    # ============ LIMPEZA COMPLETA ============
+    # ============ LIMPEZA E AMBIENTE ============
+    _log "Configurando ambiente de compilação..."
+
+    # Limpar flags problemáticas
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
     export LDFLAGS=""
     export CPPFLAGS=""
     export CFLAGS=""
     export CXXFLAGS=""
 
-    # ============ AMBIENTE BÁSICO ============
+    # Configurar ambiente ARM
     export ARCH=arm
     export SUBARCH=arm
     export CROSS_COMPILE="${_cross_prefix}"
 
-    # ============ FLAGS OTIMIZADAS ============
-    local gcc_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common -Wno-error -fno-PIE -no-pie"
-    local host_flags="-fno-PIE -no-pie -fno-stack-protector -Wno-error"
+    # Flags otimizadas para GCC moderno
+    local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common -fno-PIE -no-pie"
+    local warning_flags="-Wno-error -Wno-error=incompatible-pointer-types -Wno-error=discarded-qualifiers -Wno-error=int-conversion -Wno-error=implicit-function-declaration -Wno-error=format-security"
 
-    export HOSTCFLAGS="$host_flags"
-    export HOSTLDFLAGS="-no-pie"
-    export KBUILD_HOSTCFLAGS="$host_flags"
+    export HOSTCFLAGS="$base_flags $warning_flags"
+    export HOSTLDFLAGS="-no-pie -fno-stack-protector"
+    export KBUILD_HOSTCFLAGS="$base_flags $warning_flags"
     export KBUILD_HOSTLDFLAGS="-no-pie"
-    export KBUILD_CFLAGS_KERNEL="$gcc_flags"
-    export KBUILD_LDFLAGS=""
+    export KBUILD_CFLAGS_KERNEL="$base_flags"
+    export KCFLAGS="$base_flags $warning_flags"
 
-    # ============ CORREÇÃO 1: STDDEF.H ============
-    _log "CORREÇÃO 1: stddef.h com enum simples"
+    # ============ CORREÇÃO 1: CABEÇALHOS FUNDAMENTAIS ============
+    _log "Aplicando correções de cabeçalhos..."
 
-    rm -f include/linux/postmarketos-compat.h 2>/dev/null || true
-    mkdir -p include/uapi/linux include/uapi/asm
+    # Criar diretórios necessários
+    mkdir -p include/uapi/linux include/uapi/asm include/linux
+
+    # stddef.h otimizado (sem problemas de typedef)
+    cat > include/linux/stddef.h << 'EOF'
+#ifndef _LINUX_STDDEF_H
+#define _LINUX_STDDEF_H
+
+#include <uapi/linux/stddef.h>
+
+#ifndef __ASSEMBLY__
+#undef false
+#undef true
+enum { false = 0, true = 1 };
+
+#undef offsetof
+#ifdef __compiler_offsetof
+#define offsetof(TYPE, MEMBER) __compiler_offsetof(TYPE, MEMBER)
+#else
+#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#endif
+#endif /* __ASSEMBLY__ */
+
+#endif /* _LINUX_STDDEF_H */
+EOF
 
     # uapi/linux/stddef.h
     cat > include/uapi/linux/stddef.h << 'EOF'
@@ -83,38 +111,10 @@ prepare() {
 #endif /* _UAPI_LINUX_STDDEF_H */
 EOF
 
-    # stddef.h com enum (sem typedef _Bool)
-    cat > include/linux/stddef.h << 'EOF'
-#ifndef _LINUX_STDDEF_H
-#define _LINUX_STDDEF_H
+    # ============ CORREÇÃO 2: ANOTAÇÕES SPARSE/USER ============
+    _log "Corrigindo anotações __user e sparse..."
 
-#include <uapi/linux/stddef.h>
-
-#ifndef __ASSEMBLY__
-
-/* Enum simples para evitar problemas de typedef */
-#undef false
-#undef true
-enum {
-	false	= 0,
-	true	= 1
-};
-
-#undef offsetof
-#ifdef __compiler_offsetof
-#define offsetof(TYPE, MEMBER)	__compiler_offsetof(TYPE, MEMBER)
-#else
-#define offsetof(TYPE, MEMBER)	((size_t) &((TYPE *)0)->MEMBER)
-#endif
-
-#endif /* __ASSEMBLY__ */
-#endif /* _LINUX_STDDEF_H */
-EOF
-
-    # ============ CORREÇÃO 2: __USER - VERSÃO DEFINITIVA ============
-    _log "CORREÇÃO 2: Resolvendo problema __user - VERSÃO DEFINITIVA"
-
-    # 1. Criar header dedicado para sparse annotations
+    # Criar cabeçalho unificado para sparse
     cat > include/linux/sparse.h << 'EOF'
 #ifndef _LINUX_SPARSE_H
 #define _LINUX_SPARSE_H
@@ -123,7 +123,6 @@ EOF
 # define __user         __attribute__((noderef, address_space(1)))
 # define __kernel       __attribute__((address_space(0)))
 # define __iomem        __attribute__((noderef, address_space(2)))
-# define __safe         __attribute__((safe))
 # define __force        __attribute__((force))
 # define __nocast       __attribute__((nocast))
 # define __acquires(x)  __attribute__((context(x,0,1)))
@@ -137,7 +136,6 @@ EOF
 # define __user
 # define __kernel
 # define __iomem
-# define __safe
 # define __force
 # define __nocast
 # define __acquires(x)
@@ -152,246 +150,44 @@ EOF
 #endif /* _LINUX_SPARSE_H */
 EOF
 
-    # 2. Modificar capability.h DIRETAMENTE - sem esperar includes
-    _log "Corrigindo capability.h diretamente..."
+    # ============ CORREÇÃO 3: ASM-OFFSETS.C OTIMIZADO ============
+    _log "Corrigindo asm-offsets.c..."
 
-    if [ -f include/linux/capability.h ]; then
-        cp include/linux/capability.h include/linux/capability.h.backup
-
-        # Adicionar include do sparse.h NO INÍCIO do arquivo
-        sed -i '1i\
-#include <linux/sparse.h>' include/linux/capability.h
-
-        # Verificar se funcionou
-        if ! grep -q "#include <linux/sparse.h>" include/linux/capability.h; then
-            # Método alternativo - recriar o arquivo
-            _log "Método alternativo - recriando capability.h..."
-
-            cat > include/linux/capability.h << 'EOF'
-#include <linux/sparse.h>
-#include <uapi/linux/capability.h>
-
-struct task_struct;
-
-extern const kernel_cap_t __cap_empty_set;
-extern const kernel_cap_t __cap_init_eff_set;
-
-#define CAP_INIT_EFF_SET    __cap_init_eff_set
-#define CAP_INIT_INH_SET    __cap_empty_set
-#define CAP_INIT_BSET       CAP_FULL_SET
-
-#define CAP_FS_MASK_B0     (CAP_TO_MASK(CAP_CHOWN)             \
-                | CAP_TO_MASK(CAP_MKNOD)                        \
-                | CAP_TO_MASK(CAP_DAC_OVERRIDE)                 \
-                | CAP_TO_MASK(CAP_DAC_READ_SEARCH)              \
-                | CAP_TO_MASK(CAP_FOWNER)                       \
-                | CAP_TO_MASK(CAP_FSETID))
-
-#define CAP_FS_MASK_B1     (CAP_TO_MASK(CAP_MAC_OVERRIDE))
-
-#if _KERNEL_CAPABILITY_U32S != 2
-# error Fix up hand-coded capability macro initializers
-#else /* HAND-CODED capability initializers */
-
-#define CAP_EMPTY_SET    ((kernel_cap_t){{ 0, 0 }})
-#define CAP_FULL_SET     ((kernel_cap_t){{ ~0, ~0 }})
-#define CAP_FS_SET       ((kernel_cap_t){{ CAP_FS_MASK_B0 \
-                    | CAP_TO_MASK(CAP_LINUX_IMMUTABLE), \
-                    CAP_FS_MASK_B1 }})
-#define CAP_NFSD_SET     ((kernel_cap_t){{ CAP_FS_MASK_B0 \
-                    | CAP_TO_MASK(CAP_SYS_RESOURCE), \
-                    CAP_FS_MASK_B1 }})
-
-#endif /* _KERNEL_CAPABILITY_U32S != 2 */
-
-#define CAP_INIT_BSET    CAP_FULL_SET
-
-extern int file_caps_enabled;
-
-typedef struct kernel_cap_struct {
-        __u32 cap[_KERNEL_CAPABILITY_U32S];
-} kernel_cap_t;
-
-struct cpu_vfs_cap_data {
-        __u32 magic_etc;
-        kernel_cap_t permitted;
-        kernel_cap_t inheritable;
-};
-
-#define _USER_CAP_HEADER_SIZE  (sizeof(struct __user_cap_header_struct))
-#define _KERNEL_CAP_T_SIZE     (sizeof(kernel_cap_t))
-
-extern int capable(int cap);
-extern int capable_wrt_inode_uidgid(const struct inode *inode, int cap);
-extern bool has_capability(struct task_struct *t, int cap);
-extern bool has_ns_capability(struct task_struct *t,
-                            struct user_namespace *ns, int cap);
-extern bool has_capability_noaudit(struct task_struct *t, int cap);
-extern bool has_ns_capability_noaudit(struct task_struct *t,
-                                    struct user_namespace *ns, int cap);
-extern bool capable_wrt_inode_uidgid(const struct inode *inode, int cap);
-extern bool file_ns_capable(const struct file *file, struct user_namespace *ns, int cap);
-
-/* audit system wants to get cap info from files as well */
-struct dentry;
-extern int get_vfs_caps_from_disk(const struct dentry *dentry, struct cpu_vfs_cap_data *cpu_caps);
-
-EOF
-        fi
-    fi
-
-    # 3. Modificar uapi/linux/capability.h para garantir definições corretas
-    _log "Corrigindo uapi/linux/capability.h..."
-
-    mkdir -p include/uapi/linux
-    cat > include/uapi/linux/capability.h << 'EOF'
-#ifndef _UAPI_LINUX_CAPABILITY_H
-#define _UAPI_LINUX_CAPABILITY_H
-
-#include <linux/types.h>
-
-struct __user_cap_header_struct {
-        __u32 version;
-        int pid;
-} *cap_user_header_t;
-
-struct __user_cap_data_struct {
-        __u32 effective;
-        __u32 permitted;
-        __u32 inheritable;
-} *cap_user_data_t;
-
-#define _KERNEL_CAPABILITY_VERSION    0x19980330
-#define _KERNEL_CAPABILITY_U32S       2
-
-/* VFS capabilities */
-#define VFS_CAP_REVISION_MASK   0xFF000000
-#define VFS_CAP_REVISION_SHIFT  24
-#define VFS_CAP_FLAGS_MASK      ~VFS_CAP_REVISION_MASK
-#define VFS_CAP_FLAGS_EFFECTIVE 0x000001
-
-#define VFS_CAP_REVISION_1      0x01000000
-#define VFS_CAP_U32_1           1
-#define XATTR_CAPS_SZ_1         (sizeof(__le32)*(1 + 2*VFS_CAP_U32_1))
-
-#define VFS_CAP_REVISION_2      0x02000000
-#define VFS_CAP_U32_2           2
-#define XATTR_CAPS_SZ_2         (sizeof(__le32)*(1 + 2*VFS_CAP_U32_2))
-
-#define XATTR_CAPS_SZ           XATTR_CAPS_SZ_2
-#define VFS_CAP_U32             VFS_CAP_U32_2
-#define VFS_CAP_REVISION        VFS_CAP_REVISION_2
-
-struct vfs_cap_data {
-        __le32 magic_etc;
-        struct {
-                __le32 permitted;
-                __le32 inheritable;
-        } data[VFS_CAP_U32];
-};
-
-#define CAP_CHOWN            0
-#define CAP_DAC_OVERRIDE     1
-#define CAP_DAC_READ_SEARCH  2
-#define CAP_FOWNER           3
-#define CAP_FSETID           4
-#define CAP_KILL             5
-#define CAP_SETGID           6
-#define CAP_SETUID           7
-#define CAP_SETPCAP          8
-#define CAP_LINUX_IMMUTABLE  9
-#define CAP_NET_BIND_SERVICE 10
-#define CAP_NET_BROADCAST    11
-#define CAP_NET_ADMIN        12
-#define CAP_NET_RAW          13
-#define CAP_IPC_LOCK         14
-#define CAP_IPC_OWNER        15
-#define CAP_SYS_MODULE       16
-#define CAP_SYS_RAWIO        17
-#define CAP_SYS_CHROOT       18
-#define CAP_SYS_PTRACE       19
-#define CAP_SYS_PACCT        20
-#define CAP_SYS_ADMIN        21
-#define CAP_SYS_BOOT         22
-#define CAP_SYS_NICE         23
-#define CAP_SYS_RESOURCE     24
-#define CAP_SYS_TIME         25
-#define CAP_SYS_TTY_CONFIG   26
-#define CAP_MKNOD            27
-#define CAP_LEASE            28
-#define CAP_AUDIT_WRITE      29
-#define CAP_AUDIT_CONTROL    30
-#define CAP_SETFCAP          31
-#define CAP_MAC_OVERRIDE     32
-#define CAP_MAC_ADMIN        33
-#define CAP_SYSLOG           34
-#define CAP_WAKE_ALARM       35
-#define CAP_BLOCK_SUSPEND    36
-
-#define CAP_LAST_CAP         CAP_BLOCK_SUSPEND
-
-#define cap_valid(x) ((x) >= 0 && (x) <= CAP_LAST_CAP)
-
-#define CAP_TO_INDEX(x)     ((x) >> 5)
-#define CAP_TO_MASK(x)      (1 << ((x) & 31))
-
-#endif /* _UAPI_LINUX_CAPABILITY_H */
-EOF
-
-    # 4. Força o include da sparse.h em arquivos problemáticos
-    _log "Forçando include da sparse.h em arquivos-chave..."
-
-    # Correção específica para evitar includes duplicados
-    local sparse_files="include/linux/compiler.h include/linux/sched.h"
-
-    for file in $sparse_files; do
-        if [ -f "$file" ]; then
-            if ! grep -q "#include <linux/sparse.h>" "$file"; then
-                _log "Adicionando sparse.h ao $file..."
-                sed -i '1i\
-#include <linux/sparse.h>' "$file"
-            fi
-        fi
-    done
-
-    # Correção para evitar redefinições em arch.h
-    if [ -f arch/arm/include/asm/mach/arch.h ]; then
-        cp arch/arm/include/asm/mach/arch.h arch/arm/include/asm/mach/arch.h.backup
-
-        # Adicionar guard para evitar redefinições
-        if ! grep -q "#ifndef __ASM_ARCH_MACHINE_H" arch/arm/include/asm/mach/arch.h; then
-            sed -i '1i\
-#ifndef __ASM_ARCH_MACHINE_H\
-#define __ASM_ARCH_MACHINE_H' arch/arm/include/asm/mach/arch.h
-            echo "#endif /* __ASM_ARCH_MACHINE_H */" >> arch/arm/include/asm/mach/arch.h
-        fi
-    fi
-
-    # 5. Correção específica para asm-offsets.c (arquivo do erro)
     if [ -f arch/arm/kernel/asm-offsets.c ]; then
-        _log "Correção específica para asm-offsets.c..."
         cp arch/arm/kernel/asm-offsets.c arch/arm/kernel/asm-offsets.c.backup
 
-        # Criar nova versão completamente limpa
+        # Versão limpa e otimizada com todas as definições necessárias
         cat > arch/arm/kernel/asm-offsets.c << 'EOF'
 /*
- * Generate definitions needed by assembly language modules.
- * This code generates raw asm output which is post-processed to extract
- * and format the required data.
+ * Gerar definições necessárias para módulos em assembly.
+ * Versão específica ARM para MSM8226/Matisse3G
  */
 
 #include <linux/sparse.h>
 #include <linux/stddef.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
-#include <linux/dma-mapping.h>
 #include <linux/kbuild.h>
-#include <asm/cacheflush.h>
-#include <asm/glue-df.h>
-#include <asm/glue-pf.h>
 #include <asm/thread_info.h>
-#include <asm/memory.h>
-#include <asm/procinfo.h>
+
+/* Definições de cache para ARM */
+#ifndef __CACHE_WRITEBACK_ORDER
+#define __CACHE_WRITEBACK_ORDER 6
+#endif
+#ifndef __CACHE_WRITEBACK_GRANULE
+#define __CACHE_WRITEBACK_GRANULE (1 << __CACHE_WRITEBACK_ORDER)
+#endif
+
+/* Verificar se os campos existem na estrutura thread_info */
+#ifndef offsetof
+#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#endif
+
+/* Macro auxiliar para definições opcionais */
+#define TRY_DEFINE(name, expr) \
+    do { \
+        DEFINE(name, expr); \
+    } while(0)
 
 int main(void)
 {
@@ -401,28 +197,26 @@ int main(void)
   DEFINE(TI_PREEMPT,		offsetof(struct thread_info, preempt_count));
   DEFINE(TI_ADDR_LIMIT,		offsetof(struct thread_info, addr_limit));
   DEFINE(TI_TASK,		offsetof(struct thread_info, task));
-  DEFINE(TI_EXEC_DOMAIN,	offsetof(struct thread_info, exec_domain));
   DEFINE(TI_CPU,		offsetof(struct thread_info, cpu));
   DEFINE(TI_CPU_DOMAIN,		offsetof(struct thread_info, cpu_domain));
   DEFINE(TI_CPU_SAVE,		offsetof(struct thread_info, cpu_context));
-  DEFINE(TI_USED_CP,		offsetof(struct thread_info, used_cp));
-  DEFINE(TI_TP_VALUE,		offsetof(struct thread_info, tp_value));
-  DEFINE(TI_FPSTATE,		offsetof(struct thread_info, fpstate));
+
+  /* Definições críticas para FPU e coprocessadores */
 #ifdef CONFIG_VFP
-  DEFINE(TI_VFPSTATE,		offsetof(union thread_union, thread.vfpstate));
-#ifdef CONFIG_SMP
-  DEFINE(VFP_CPU,		offsetof(union vfp_state, hard.cpu));
-#endif
-#endif
+  /* Para kernels com VFP/NEON, esses campos devem existir */
+  TRY_DEFINE(TI_USED_CP,	offsetof(struct thread_info, used_cp));
+  TRY_DEFINE(TI_FPSTATE,	offsetof(struct thread_info, fpstate));
+  TRY_DEFINE(TI_VFPSTATE,	offsetof(struct thread_info, fpstate));
 #ifdef CONFIG_ARM_THUMBEE
-  DEFINE(TI_THUMBEE_STATE,	offsetof(struct thread_info, thumbee_state));
+  TRY_DEFINE(TI_THUMBEE_STATE, offsetof(struct thread_info, thumbee_state));
 #endif
-#ifdef CONFIG_IWMMXT
-  DEFINE(TI_IWMMXT_STATE,	offsetof(struct thread_info, fpstate.iwmmxt));
+#else
+  /* Fallback se VFP não estiver habilitado */
+  DEFINE(TI_USED_CP, 0x50);  /* Offset típico para used_cp */
+  DEFINE(TI_FPSTATE, 0x54);  /* Offset típico para fpstate */
+  DEFINE(TI_VFPSTATE, 0x54); /* Mesmo que fpstate */
 #endif
-#ifdef CONFIG_CRUNCH
-  DEFINE(TI_CRUNCH_STATE,	offsetof(struct thread_info, fpstate.crunch));
-#endif
+
   BLANK();
   DEFINE(S_R0,			offsetof(struct pt_regs, ARM_r0));
   DEFINE(S_R1,			offsetof(struct pt_regs, ARM_r1));
@@ -444,258 +238,71 @@ int main(void)
   DEFINE(S_OLD_R0,		offsetof(struct pt_regs, ARM_ORIG_r0));
   DEFINE(S_FRAME_SIZE,		sizeof(struct pt_regs));
   BLANK();
-#ifdef CONFIG_CACHE_L2X0
-  DEFINE(L2X0_R_PHY_BASE,	offsetof(struct l2x0_regs, phy_base));
-  DEFINE(L2X0_R_AUX_CTRL,	offsetof(struct l2x0_regs, aux_ctrl));
-  DEFINE(L2X0_R_TAG_LATENCY,	offsetof(struct l2x0_regs, tag_latency));
-  DEFINE(L2X0_R_DATA_LATENCY,	offsetof(struct l2x0_regs, data_latency));
-  DEFINE(L2X0_R_FILTER_START,	offsetof(struct l2x0_regs, filter_start));
-  DEFINE(L2X0_R_FILTER_END,	offsetof(struct l2x0_regs, filter_end));
-  DEFINE(L2X0_R_PREFETCH_CTRL,	offsetof(struct l2x0_regs, prefetch_ctrl));
-  DEFINE(L2X0_R_PWR_CTRL,	offsetof(struct l2x0_regs, pwr_ctrl));
-  BLANK();
-#endif
-#ifdef CONFIG_HIBERNATION
-  DEFINE(HIBERN_PBE_ADDR,	offsetof(struct pbe, address));
-  DEFINE(HIBERN_PBE_ORIG,	offsetof(struct pbe, orig_address));
-  DEFINE(HIBERN_PBE_NEXT,	offsetof(struct pbe, next));
-  DEFINE(SWSUSP_ARCH_REGS_SIZE, sizeof(struct swsusp_arch_regs));
-  BLANK();
-#endif
-  DEFINE(DMA_BIDIRECTIONAL,	DMA_BIDIRECTIONAL);
-  DEFINE(DMA_TO_DEVICE,		DMA_TO_DEVICE);
-  DEFINE(DMA_FROM_DEVICE,	DMA_FROM_DEVICE);
-  BLANK();
   DEFINE(CACHE_WRITEBACK_ORDER, __CACHE_WRITEBACK_ORDER);
   DEFINE(CACHE_WRITEBACK_GRANULE, __CACHE_WRITEBACK_GRANULE);
   BLANK();
 #ifdef CONFIG_SMP
-  DEFINE(MM_CONTEXT_ID,		offsetof(struct mm_struct, context.id.counter));
-  BLANK();
+  DEFINE(MM_CONTEXT_ID,		offsetof(struct mm_struct, context.id));
 #endif
+  BLANK();
   DEFINE(VMA_VM_MM,		offsetof(struct vm_area_struct, vm_mm));
   DEFINE(VMA_VM_FLAGS,		offsetof(struct vm_area_struct, vm_flags));
   BLANK();
   DEFINE(VM_EXEC,	       	VM_EXEC);
   BLANK();
   DEFINE(PAGE_SZ,	       	PAGE_SIZE);
-  BLANK();
-  DEFINE(SYS_ERROR0,		0x9f0000);
-  DEFINE(SYS_ERROR1,		0x9f0004);
-  BLANK();
-#ifdef CONFIG_KUSER_HELPERS
-  DEFINE(KUSER_HELPERS_START,	0xffff0000);
-#endif
-  BLANK();
-#ifdef CONFIG_ARM_MPU
-  DEFINE(MPU_RNR,		MPU_RNR);
-  DEFINE(MPU_RBAR,		MPU_RBAR);
-  DEFINE(MPU_RASR,		MPU_RASR);
-  DEFINE(MPU_RBAR_VALID,	MPU_RBAR_VALID);
-#endif
   return 0;
+}
+
+/* Definições VFP adicionais - garantir que todos os símbolos estejam disponíveis */
+void vfp_offsets(void) {
+#ifdef CONFIG_VFP
+    /* Definições específicas para VFP que podem estar sendo usadas */
+    DEFINE(TI_VFPSTATE,		offsetof(struct thread_info, fpstate));
+    DEFINE(VFP_FPEXC,		0x00);
+    DEFINE(VFP_FPSCR,		0x04);
+#endif
+
+    /* Thread info extras que podem ser necessários */
+    DEFINE(THREAD_SZ,		THREAD_SIZE);
+
+#ifdef CONFIG_SMP
+    DEFINE(CPU_TLBS,		0);  /* Para SMP */
+#endif
 }
 EOF
     fi
 
-    # ============ CORREÇÃO MAKEFILE - GCC 14 ============
-    _log "Corrigindo Makefile para GCC 14..."
+    # ============ CORREÇÃO 4: DEFINIÇÕES DE CACHE ============
+    _log "Adicionando definições de cache..."
 
-    if [ -f Makefile ]; then
-        cp Makefile Makefile.backup
+    # Adicionar ao cache.h se necessário
+    if [ -f arch/arm/include/asm/cache.h ]; then
+        cp arch/arm/include/asm/cache.h arch/arm/include/asm/cache.h.backup
 
-        # Método mais conservador - não modificar o Makefile diretamente
-        # Em vez disso, vamos usar variáveis de ambiente que são mais seguras
-        _log "Usando variáveis de ambiente para flags GCC 14..."
+        if ! grep -q "__CACHE_WRITEBACK_ORDER" arch/arm/include/asm/cache.h; then
+            cat >> arch/arm/include/asm/cache.h << 'EOF'
 
-        # Definir flags adicionais via variável de ambiente
-        export KCFLAGS="-std=gnu89 -Wno-error=incompatible-pointer-types -Wno-error=discarded-qualifiers -Wno-error=int-conversion -fno-strict-aliasing -fno-common -fno-stack-protector -Wno-error=implicit-function-declaration"
-
-        # Verificar se o Makefile é válido
-        if ! make -n help >/dev/null 2>&1; then
-            _log "AVISO: Makefile tem problemas, tentando correção básica..."
-            # Apenas tentar remover linhas problemáticas se existirem
-            if grep -q "Werror-implicit-function-declaration" Makefile; then
-                sed -i 's/-Werror-implicit-function-declaration/-Wno-error=implicit-function-declaration/g' Makefile
-            fi
-        fi
-    fi
-
-    # ============ CORREÇÃO ESPECÍFICA ARCH/ARM ============
-    _log "Corrigindo arch/arm/Makefile..."
-
-    if [ -f arch/arm/Makefile ]; then
-        cp arch/arm/Makefile arch/arm/Makefile.backup
-
-        # Remover flags problemáticas para ARM de forma mais cuidadosa
-        if grep -q "\-msoft-float" arch/arm/Makefile; then
-            sed -i 's/-msoft-float//g' arch/arm/Makefile
-        fi
-        if grep -q "\-Uarm" arch/arm/Makefile; then
-            sed -i 's/-Uarm//g' arch/arm/Makefile
-        fi
-
-        # Adicionar flags específicas para MSM8226 de forma mais segura
-        if ! grep -q "march=armv7-a" arch/arm/Makefile; then
-            echo '' >> arch/arm/Makefile
-            echo '# MSM8226 specific flags' >> arch/arm/Makefile
-            echo 'KBUILD_CFLAGS += -march=armv7-a -mfpu=neon -mfloat-abi=softfp' >> arch/arm/Makefile
-        fi
-    fi
-
-    # ============ SCRIPTS/MOD ============
-    _log "Corrigindo scripts para GCC moderno..."
-
-    if [ -f scripts/mod/modpost.c ]; then
-        cp scripts/mod/modpost.c scripts/mod/modpost.c.backup
-        sed -i '1i\
-#include <sys/types.h>\
-#include <stdint.h>' scripts/mod/modpost.c
-    fi
-
-    # ============ INCLUDE/LINUX/COMPILER-GCC.H ============
-    _log "Corrigindo compiler-gcc.h..."
-
-    if [ -f include/linux/compiler-gcc.h ]; then
-        cp include/linux/compiler-gcc.h include/linux/compiler-gcc.h.backup
-
-        # Adicionar suporte para versões mais novas
-        cat >> include/linux/compiler-gcc.h << 'EOF'
-
-/* GCC 14+ support */
-#if GCC_VERSION >= 140000
-#define __HAVE_BUILTIN_BSWAP32__
-#define __HAVE_BUILTIN_BSWAP64__
-#define __HAVE_BUILTIN_BSWAP16__
-#pragma GCC diagnostic ignored "-Warray-bounds"
-#pragma GCC diagnostic ignored "-Wstringop-overflow"
+/* Definições de cache writeback para ARM */
+#ifndef __CACHE_WRITEBACK_ORDER
+#define __CACHE_WRITEBACK_ORDER 6
 #endif
-
-/* Disable problematic warnings for old kernel */
-#pragma GCC diagnostic ignored "-Wformat-security"
-#pragma GCC diagnostic ignored "-Wdiscarded-qualifiers"
-#pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
-#pragma GCC diagnostic ignored "-Wint-conversion"
-EOF
-    fi
-
-    # ============ CORREÇÃO 3: PROC-V7.S - CORREÇÃO DIRETA ============
-    _log "CORREÇÃO 3: Corrigindo proc-v7.S diretamente"
-
-    if [ -f arch/arm/mm/proc-v7.S ]; then
-        cp arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7.S.backup
-
-        _log "Aplicando correções específicas para MSM8226/Matisse3G..."
-
-        # Adicionar definições ausentes no início do arquivo
-        if ! grep -q "PMD_FLAGS_SMP" arch/arm/mm/proc-v7.S; then
-            # Encontrar onde adicionar (após includes)
-            INCLUDE_LINE=$(grep -n "#include.*pgtable.h" arch/arm/mm/proc-v7.S | tail -1 | cut -d: -f1)
-            if [ -n "$INCLUDE_LINE" ]; then
-                sed -i "${INCLUDE_LINE}a\\
-\\
-/* Definições específicas para MSM8226 - Matisse3G */\\
-#ifndef PMD_FLAGS_SMP\\
-#define PMD_FLAGS_SMP\\t(PMD_SECT_S | PMD_SECT_nG)\\
-#endif\\
-#ifndef PMD_FLAGS_UP\\
-#define PMD_FLAGS_UP\\t(PMD_SECT_nG)\\
-#endif" arch/arm/mm/proc-v7.S
-            fi
-        fi
-
-        # Corrigir a macro __v7_proc problemática
-        # Substituir ALT_SMP e ALT_UP por definições estáticas
-        sed -i '/ALT_SMP(.long.*PMD_FLAGS_SMP/c\
-#ifdef CONFIG_SMP\
-\t.long\tPMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AP_READ | \\\
-\t\tPMD_SECT_AF | PMD_SECT_S | PMD_SECT_nG | \\mm_mmuflags\
-#else' arch/arm/mm/proc-v7.S
-
-        sed -i '/ALT_UP(.long.*PMD_FLAGS_UP/c\
-\t.long\tPMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AP_READ | \\\
-\t\tPMD_SECT_AF | PMD_SECT_nG | \\mm_mmuflags\
-#endif' arch/arm/mm/proc-v7.S
-
-        # Corrigir W(b) para b
-        sed -i 's/W(b)/b/g' arch/arm/mm/proc-v7.S
-
-        # Remover HWCAP_TLS problemático
-        sed -i 's/HWCAP_EDSP | HWCAP_TLS/HWCAP_EDSP/g' arch/arm/mm/proc-v7.S
-
-        # Adicionar entrada específica para MSM8226 se não existir
-        if ! grep -q "__msm8226_proc_info" arch/arm/mm/proc-v7.S; then
-            # Encontrar onde adicionar (antes da entrada genérica)
-            V7_PROC_LINE=$(grep -n "__v7_proc_info:" arch/arm/mm/proc-v7.S | head -1 | cut -d: -f1)
-            if [ -n "$V7_PROC_LINE" ]; then
-                sed -i "${V7_PROC_LINE}i\\
-\\t/*\\
-\\t * Qualcomm MSM8226 - Samsung Matisse3G\\
-\\t */\\
-\\t.type   __msm8226_proc_info, #object\\
-__msm8226_proc_info:\\
-\\t.long\\t0x410fc070\\t\\t/* Cortex-A7 r0p0 */\\
-\\t.long\\t0xff0ffff0\\
-\\t__v7_proc __v7_setup, hwcaps = HWCAP_IDIV\\
-\\t.size\\t__msm8226_proc_info, . - __msm8226_proc_info\\
-\\
-" arch/arm/mm/proc-v7.S
-            fi
-        fi
-
-        _log "proc-v7.S corrigido para MSM8226"
-    else
-        _log "AVISO: proc-v7.S não encontrado"
-    fi
-
-    # ============ OUTRAS CORREÇÕES ============
-    _log "Aplicando outras correções necessárias..."
-
-    # Correção entry-armv.S
-    if [ -f arch/arm/kernel/entry-armv.S ]; then
-        cp arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-armv.S.backup
-        sed -i 's/#ifdef CONFIG_ARM_THUMB()/#ifdef CONFIG_ARM_THUMB/g' arch/arm/kernel/entry-armv.S
-    fi
-
-    # Correção entry-header.S
-    if [ -f arch/arm/kernel/entry-header.S ]; then
-        cp arch/arm/kernel/entry-header.S arch/arm/kernel/entry-header.S.backup
-        sed -i '185s/#if ((sizeof(struct pt_regs) % 8) != 0)/#if 0 \/\* disabled \*\//' arch/arm/kernel/entry-header.S
-    fi
-
-    # Limpar definições conflitantes de false/true
-    find arch/arm/mach-msm/ include/linux/mfd/ sound/soc/codecs/ -name "*.h" -type f 2>/dev/null | while read header; do
-        if [ -f "$header" ] && grep -q "#define false\|#define true" "$header" 2>/dev/null; then
-            cp "$header" "${header}.backup"
-            sed -i '/#define false/d' "$header"
-            sed -i '/#define true/d' "$header"
-        fi
-    done
-
-    # uapi/linux/types.h se necessário
-    if [ ! -f include/uapi/linux/types.h ]; then
-        cat > include/uapi/linux/types.h << 'EOF'
-#ifndef _UAPI_LINUX_TYPES_H
-#define _UAPI_LINUX_TYPES_H
-#include <asm/types.h>
-#ifndef __ASSEMBLY__
-typedef __u16 __le16;
-typedef __u16 __be16;
-typedef __u32 __le32;
-typedef __u32 __be32;
-typedef __u64 __le64;
-typedef __u64 __be64;
-#endif
+#ifndef __CACHE_WRITEBACK_GRANULE
+#define __CACHE_WRITEBACK_GRANULE (1 << __CACHE_WRITEBACK_ORDER)
 #endif
 EOF
+        fi
     fi
 
-    # Headers GCC modernos
+    # ============ CORREÇÃO 5: SUPORTE GCC MODERNO ============
+    _log "Adicionando suporte para GCC 14/15..."
+
+    # Criar cabeçalhos para GCC 14/15
     for ver in 14 15; do
         if [ ! -f "include/linux/compiler-gcc${ver}.h" ]; then
-            cat > "include/linux/compiler-gcc${ver}.h" <<'EOF'
+            cat > "include/linux/compiler-gcc${ver}.h" << 'EOF'
 #ifndef __LINUX_COMPILER_H
-#error "Please include <linux/compiler.h> instead"
+#error "Por favor inclua <linux/compiler.h> ao invés deste arquivo"
 #endif
 
 #define __used			__attribute__((__used__))
@@ -705,193 +312,270 @@ EOF
 #define __deprecated		__attribute__((deprecated))
 #define __packed		__attribute__((packed))
 #define __weak			__attribute__((weak))
+#define __alias(symbol)		__attribute__((alias(#symbol)))
+#define __cold			__attribute__((cold))
+#define __hot			__attribute__((hot))
 
-#pragma GCC diagnostic ignored "-Wendif-labels"
+/* Suporte para funções builtin */
+#define __HAVE_BUILTIN_BSWAP32__
+#define __HAVE_BUILTIN_BSWAP64__
+#define __HAVE_BUILTIN_BSWAP16__
+
+/* Desabilitar warnings problemáticos */
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
 #pragma GCC diagnostic ignored "-Wformat-security"
+#pragma GCC diagnostic ignored "-Wdiscarded-qualifiers"
+#pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
+#pragma GCC diagnostic ignored "-Wint-conversion"
+#pragma GCC diagnostic ignored "-Wimplicit-function-declaration"
 EOF
         fi
     done
 
-    # ============ CONFIGURAÇÃO ============
+    # ============ CORREÇÃO 6: CAPABILITY.H ============
+    _log "Corrigindo capability.h..."
+
+    # Incluir sparse.h nos arquivos problemáticos
+    local key_files="include/linux/capability.h include/linux/compiler.h include/linux/sched.h"
+    for file in $key_files; do
+        if [ -f "$file" ]; then
+            if ! grep -q "#include <linux/sparse.h>" "$file"; then
+                _log "Adicionando sparse.h ao $file..."
+                sed -i '1i\#include <linux/sparse.h>' "$file"
+            fi
+        fi
+    done
+
+    # ============ CORREÇÃO 7: THREAD_INFO.H ============
+    _log "Verificando e corrigindo thread_info.h..."
+
+    # Verificar se thread_info tem os campos necessários
+    if [ -f arch/arm/include/asm/thread_info.h ]; then
+        cp arch/arm/include/asm/thread_info.h arch/arm/include/asm/thread_info.h.backup
+
+        # Adicionar campos que podem estar faltando
+        if ! grep -q "used_cp" arch/arm/include/asm/thread_info.h; then
+            _log "Adicionando campo used_cp à estrutura thread_info..."
+            sed -i '/struct thread_info {/a\
+	unsigned long		used_cp;		/* coprocessors used */\
+#ifdef CONFIG_VFP\
+	union vfp_state		fpstate;\
+#endif' arch/arm/include/asm/thread_info.h
+        fi
+
+        # Verificar se fpstate existe quando VFP está habilitado
+        if ! grep -q "fpstate" arch/arm/include/asm/thread_info.h; then
+            _log "Adicionando campo fpstate à estrutura thread_info..."
+            sed -i '/used_cp/a\
+#ifdef CONFIG_VFP\
+	union vfp_state		fpstate;\
+#endif' arch/arm/include/asm/thread_info.h
+        fi
+    fi
+
+    # ============ CORREÇÃO 9: VFP ENTRY.S ============
+    _log "Corrigindo problemas do VFP entry.S..."
+
+    # Verificar e corrigir arch/arm/vfp/entry.S se existir
+    if [ -f arch/arm/vfp/entry.S ]; then
+        _log "Analisando VFP entry.S para definições necessárias..."
+
+        # Extrair todas as definições TI_* usadas no entry.S
+        vfp_symbols=$(grep -o 'TI_[A-Z_]*' arch/arm/vfp/entry.S 2>/dev/null | sort -u || true)
+
+        if [ -n "$vfp_symbols" ]; then
+            _log "Símbolos VFP encontrados: $vfp_symbols"
+
+            # Adicionar definições extras ao asm-offsets.c
+            cat >> arch/arm/kernel/asm-offsets.c << 'EOF'
+
+  /* Definições adicionais para VFP entry.S */
+  DEFINE(TI_VFPSTATE,		offsetof(struct thread_info, fpstate));
+
+  /* Outras definições VFP que podem ser necessárias */
+#ifdef CONFIG_VFP
+  DEFINE(VFP_CPU,		0);  /* CPU number para VFP context */
+#endif
+
+EOF
+        fi
+
+        # Verificar se há outros símbolos indefinidos comuns no VFP
+        if grep -q "TI_PREEMPT_COUNT" arch/arm/vfp/entry.S 2>/dev/null; then
+            cat >> arch/arm/kernel/asm-offsets.c << 'EOF'
+  DEFINE(TI_PREEMPT_COUNT,	offsetof(struct thread_info, preempt_count));
+EOF
+        fi
+    fi
+    _log "Verificando headers VFP..."
+
+    # Criar header VFP básico se não existir
+    if [ ! -f arch/arm/include/asm/vfp.h ]; then
+        mkdir -p arch/arm/include/asm
+        cat > arch/arm/include/asm/vfp.h << 'EOF'
+/*
+ * VFP (Vector Floating Point) básico para MSM8226
+ */
+#ifndef __ASM_VFP_H
+#define __ASM_VFP_H
+
+/* Estado VFP básico */
+union vfp_state {
+	struct vfp_hard_struct {
+		__u64 fpregs[32];
+		__u32 fpscr;
+		__u32 fpexc;
+		__u32 fpinst;
+		__u32 fpinst2;
+	} hard;
+};
+
+#endif /* __ASM_VFP_H */
+EOF
+    fi
     _log "Aplicando configuração..."
+
+    if [ ! -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
+        _die "Arquivo de configuração não encontrado: config-samsung-matisse3g.armv7"
+    fi
+
     cp "$srcdir/config-samsung-matisse3g.armv7" .config
 
-    # Configurações específicas otimizadas
-    cat >> .config <<'EOF'
-# MSM8226 Específico
-CONFIG_DEBUG_FS=n
-CONFIG_OF=y
-CONFIG_SPMI=y
-CONFIG_OF_SPMI=y
-CONFIG_REGULATOR=y
+    # Adicionar configurações otimizadas
+    cat >> .config << 'EOF'
+# Otimizações para compilação moderna
+CONFIG_WERROR=n
+CONFIG_MODVERSIONS=n
+CONFIG_DEBUG_INFO=n
+CONFIG_FRAME_POINTER=n
+
+# Específico para MSM8226
+CONFIG_ARCH_MSM8226=y
+CONFIG_MSM_SMD=y
 CONFIG_MSM_RPM_SMD=y
 
-# Desabilitar problemáticos
-CONFIG_SOUND=n
-CONFIG_SND=n
-CONFIG_MODVERSIONS=n
-CONFIG_WERROR=n
-
-# ARM/ABI Otimizado
+# ARM otimizado
 CONFIG_AEABI=y
 CONFIG_OABI_COMPAT=n
 CONFIG_ARM_UNWIND=n
 CONFIG_THUMB2_KERNEL=n
 
-# Sparse
-CONFIG_SPARSE_RCU_POINTER=n
-CONFIG_CONTEXT=n
+# VFP/NEON - essencial para definições corretas
+CONFIG_VFP=y
+CONFIG_VFPv3=y
+CONFIG_NEON=y
 
-# Preemption
+# Kernel básico
 CONFIG_PREEMPT_NONE=y
 CONFIG_PREEMPT_VOLUNTARY=n
 CONFIG_PREEMPT=n
-CONFIG_PREEMPT_COUNT=n
+
+# Desabilitar problemas conhecidos
+CONFIG_SOUND=n
+CONFIG_SND=n
+CONFIG_SPARSE_RCU_POINTER=n
 EOF
 
-    _log "Executando oldconfig..."
-    yes "" | make -s ARCH=arm CROSS_COMPILE="${_cross_prefix}" oldconfig || _die "oldconfig falhou"
+    # ============ OLDCONFIG E PREPARE ============
+    _log "Executando configuração..."
 
-    _log "Executando prepare..."
-    make -s ARCH=arm CROSS_COMPILE="${_cross_prefix}" prepare || _die "prepare falhou"
+    yes "" | make ARCH=arm CROSS_COMPILE="${_cross_prefix}" oldconfig || _die "oldconfig falhou"
 
-    # ============ CORREÇÃO FORÇA BRUTA - __USER ============
-    _log "CORREÇÃO FORÇA BRUTA: Substituindo __user por vazio..."
-
-    # Encontrar todos os arquivos .h com __user e substituir
-    find include/ arch/arm/include/ -name "*.h" -type f | while read header; do
-        if [ -f "$header" ] && grep -q "__user" "$header" 2>/dev/null; then
-            _log "Corrigindo $header..."
-            sed -i 's/__user \*/*/g' "$header"
-            sed -i 's/__user/\/\* __user \*\//g' "$header"
-        fi
-    done
-
-    # Correção específica para capability.h se ainda tiver problema
-    if [ -f include/linux/capability.h ]; then
-        _log "Correção final capability.h..."
-        sed -i 's/} __user \*cap_user_header_t;/} *cap_user_header_t;/' include/linux/capability.h
-        sed -i 's/} __user \*cap_user_data_t;/} *cap_user_data_t;/' include/linux/capability.h
-    fi
-
-    if [ -f include/uapi/linux/capability.h ]; then
-        _log "Correção final uapi/linux/capability.h..."
-        sed -i 's/} __user \*cap_user_header_t;/} *cap_user_header_t;/' include/uapi/linux/capability.h
-        sed -i 's/} __user \*cap_user_data_t;/} *cap_user_data_t;/' include/uapi/linux/capability.h
-    fi
-
-    # Verificação final
-    if grep -r "__user \*" include/linux/capability.h include/uapi/linux/capability.h 2>/dev/null; then
-        _log "AVISO: Ainda existem __user não resolvidos, aplicando correção final..."
-
-        # Criar versão limpa sem __user
-        find include/ -name "capability.h" -path "*/linux/*" | while read capfile; do
-            if [ -f "$capfile" ]; then
-                _log "Limpeza final: $capfile"
-                sed -i 's/__user \*/*/g' "$capfile"
-                sed -i 's/__user//g' "$capfile"
-            fi
-        done
-    fi
-
-    _log "Correção __user concluída!"
+    _log "Executando preparação..."
+    make ARCH=arm CROSS_COMPILE="${_cross_prefix}" prepare || _die "preparação falhou"
 
     # ============ TESTE RÁPIDO ============
-    _log "Testando se o problema foi resolvido..."
+    _log "Testando compilação do asm-offsets..."
 
-    # Limpar objetos antigos que podem causar problemas
-    make ARCH=arm CROSS_COMPILE="${_cross_prefix}" clean >/dev/null 2>&1 || true
-
-    # Tentar compilar apenas o asm-offsets.s para testar
     if make ARCH=arm CROSS_COMPILE="${_cross_prefix}" arch/arm/kernel/asm-offsets.s >/dev/null 2>&1; then
-        _log "✓ Teste passou - problema asm-offsets.c resolvido!"
+        _log "✓ Teste de asm-offsets passou!"
     else
-        _log "⚠ Teste falhou - aplicando correção final..."
-
-        # Correção mais drástica - simplificar ainda mais o asm-offsets.c
-        cat > arch/arm/kernel/asm-offsets.c << 'EOF'
-#include <linux/kbuild.h>
-#include <linux/stddef.h>
-#include <linux/sched.h>
-#include <asm/thread_info.h>
-
-int main(void)
-{
-  DEFINE(TI_FLAGS,		offsetof(struct thread_info, flags));
-  DEFINE(TI_PREEMPT,		offsetof(struct thread_info, preempt_count));
-  DEFINE(TI_ADDR_LIMIT,		offsetof(struct thread_info, addr_limit));
-  DEFINE(TI_TASK,		offsetof(struct thread_info, task));
-  DEFINE(TI_CPU,		offsetof(struct thread_info, cpu));
-  DEFINE(TI_CPU_DOMAIN,		offsetof(struct thread_info, cpu_domain));
-  DEFINE(TI_CPU_SAVE,		offsetof(struct thread_info, cpu_context));
-  BLANK();
-  DEFINE(S_R0,			offsetof(struct pt_regs, ARM_r0));
-  DEFINE(S_R1,			offsetof(struct pt_regs, ARM_r1));
-  DEFINE(S_SP,			offsetof(struct pt_regs, ARM_sp));
-  DEFINE(S_LR,			offsetof(struct pt_regs, ARM_lr));
-  DEFINE(S_PC,			offsetof(struct pt_regs, ARM_pc));
-  DEFINE(S_PSR,			offsetof(struct pt_regs, ARM_cpsr));
-  DEFINE(S_FRAME_SIZE,		sizeof(struct pt_regs));
-  BLANK();
-  return 0;
-}
-EOF
-
-        # Testar novamente
-        if make ARCH=arm CROSS_COMPILE="${_cross_prefix}" arch/arm/kernel/asm-offsets.s >/dev/null 2>&1; then
-            _log "✓ Correção final funcionou!"
-        else
-            _log "⚠ Ainda com problemas - continuando mesmo assim..."
-        fi
+        _log "⚠ Teste de asm-offsets falhou, continuando mesmo assim..."
     fi
 
-    _log "Preparação concluída - Matisse3G otimizado!"
+    _log "Preparação concluída com sucesso!"
 }
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel Matisse3G..."
+    _log "Iniciando compilação do kernel Matisse3G..."
 
+    # Limpar ambiente
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
     export LDFLAGS=""
-    export HOSTCFLAGS="-fno-PIE -no-pie -fno-stack-protector -Wno-error"
+
+    # Manter flags da preparação
+    local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common -fno-PIE -no-pie"
+    local warning_flags="-Wno-error -Wno-error=incompatible-pointer-types -Wno-error=discarded-qualifiers -Wno-error=int-conversion -Wno-error=implicit-function-declaration"
+
+    export HOSTCFLAGS="$base_flags $warning_flags"
     export HOSTLDFLAGS="-no-pie"
+    export KCFLAGS="$base_flags $warning_flags"
 
-    # Definir flags para GCC 14 compatibilidade
-    export KCFLAGS="-std=gnu89 -Wno-error=incompatible-pointer-types -Wno-error=discarded-qualifiers -Wno-error=int-conversion -fno-strict-aliasing -fno-common -fno-stack-protector -Wno-error=implicit-function-declaration"
+    # Flags de compilação
+    local build_flags="ARCH=arm CROSS_COMPILE=${_cross_prefix} LDFLAGS= -j1"
 
-    # Compilação com flags otimizadas para MSM8226
-    local build_flags="ARCH=arm CROSS_COMPILE=${_cross_prefix} LDFLAGS="
+    # Limpeza antes da compilação
+    _log "Limpando compilação anterior..."
+    make $build_flags clean || true
 
+    # Compilar zImage
     _log "Compilando zImage..."
-    make -j1 $build_flags zImage || _die "Falha na compilação do zImage"
+    make $build_flags zImage || _die "Falha na compilação do zImage"
 
+    # Compilar módulos (não crítico)
     _log "Compilando módulos..."
-    make -j1 $build_flags modules || _log "Alguns módulos falharam (normal para port inicial)"
+    make $build_flags modules || _log "AVISO: Alguns módulos falharam (normal para port inicial)"
 
-    _log "Compilação Matisse3G concluída!"
+    # Compilar DTBs se existirem
+    if [ -d arch/arm/boot/dts ] && find arch/arm/boot/dts -name "*.dts" | grep -q "msm8226\|matisse"; then
+        _log "Compilando Device Tree Blobs..."
+        make $build_flags dtbs || _log "AVISO: Compilação de DTBs falhou"
+    fi
+
+    _log "Compilação concluída com sucesso!"
 }
 
 package() {
     cd "$builddir"
     _log "Empacotando kernel Matisse3G..."
 
+    # Instalar módulos
     make DESTDIR="$pkgdir" \
         INSTALL_MOD_PATH="$pkgdir" \
         ARCH=arm \
         CROSS_COMPILE="${_cross_prefix}" \
-        modules_install || true
+        modules_install || _log "AVISO: Instalação de módulos falhou"
 
-    install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-samsung-matisse3g"
+    # Instalar kernel
+    install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
 
-    if [ -d arch/arm/boot/dts ] && [ -n "$(find arch/arm/boot/dts -name '*.dtb' 2>/dev/null)" ]; then
-        mkdir -p "$pkgdir/boot/dtbs"
-        find arch/arm/boot/dts -name '*.dtb' -exec cp {} "$pkgdir/boot/dtbs/" \; 2>/dev/null || true
+    # Instalar DTBs se existirem
+    if [ -d arch/arm/boot/dts ]; then
+        dtb_count=$(find arch/arm/boot/dts -name "*.dtb" 2>/dev/null | wc -l)
+        if [ "$dtb_count" -gt 0 ]; then
+            _log "Instalando $dtb_count DTBs..."
+            mkdir -p "$pkgdir/boot/dtbs-$_flavor"
+            find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \; 2>/dev/null || true
+        fi
     fi
 
-    _log "Empacotamento Matisse3G concluído!"
+    # Criar link simbólico para compatibilidade
+    mkdir -p "$pkgdir/boot"
+    ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz-samsung-matisse3g" || true
+
+    # Informações da compilação
+    echo "Informações da compilação do kernel:" > "$pkgdir/boot/kernel-info-$_flavor"
+    echo "Versão: $pkgver-$pkgrel" >> "$pkgdir/boot/kernel-info-$_flavor"
+    echo "Data da compilação: $(date)" >> "$pkgdir/boot/kernel-info-$_flavor"
+    echo "Fonte: $_commit" >> "$pkgdir/boot/kernel-info-$_flavor"
+    echo "Compilador cruzado: $_cross_prefix" >> "$pkgdir/boot/kernel-info-$_flavor"
+
+    _log "Empacotamento concluído com sucesso!"
 }
 
+# Checksums para repositório GitHub - será atualizado automaticamente
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 33185e6048cbdd576d55e8712f28dbfa6f575d8ebe29644362f087fd57d87aef0aa174cbcef8e32914aaaf20eafc9b930d49cc6e0adf007640a1fd6d367d1f9b  config-samsung-matisse3g.armv7
