@@ -1,0 +1,78 @@
+--- a/arch/arm/include/asm/thread_info.h
++++ b/arch/arm/include/asm/thread_info.h
+@@ -50,6 +50,14 @@ struct thread_info {
+ 	struct restart_block	restart_block;
+ };
+ 
++/* Garantir definições necessárias para assembly */
++#ifndef TI_PREEMPT
++#define TI_PREEMPT		8
++#endif
++#ifndef TI_ADDR_LIMIT
++#define TI_ADDR_LIMIT		12
++#endif
++
+ #define INIT_THREAD_INFO(tsk)						\
+ {									\
+ 	.task		= &tsk,						\
+--- a/arch/arm/include/asm/ptrace.h
++++ b/arch/arm/include/asm/ptrace.h
+@@ -20,6 +20,11 @@
+ #define PSR_x		0x0000ff00	/* Extension field */
+ #define PSR_c		0x000000ff	/* Control field */
+ 
++/* Garantir definição S_PC para assembly */
++#ifndef S_PC
++#define S_PC		60
++#endif
++
+ /*
+  * Groups of PSR bits
+  */
+--- a/arch/arm/include/asm/vfpmacros.h
++++ b/arch/arm/include/asm/vfpmacros.h
+@@ -10,6 +10,15 @@
+ 
+ #include <asm/vfp.h>
+ 
++/* Garantir definições VFP para assembly */
++#ifndef TI_VFPSTATE
++#define TI_VFPSTATE		(TI_USED_CP + 4*16)
++#endif
++
++#ifndef TI_CPU
++#define TI_CPU			4
++#endif
++
+ @ Macros to allow building with old toolkits (with no VFP support)
+ 	.macro	VFPFMRX, rd, sysreg, cond
+ 	MRC\cond	p10, 7, \rd, \sysreg, cr0, 0	@ FMRX	\rd, \sysreg
+--- a/include/linux/types.h
++++ b/include/linux/types.h
+@@ -1,6 +1,14 @@
+ #ifndef _LINUX_TYPES_H
+ #define _LINUX_TYPES_H
+ 
++/* Garantir definições básicas de tipos */
++#ifndef __KERNEL__
++#ifndef size_t
++typedef unsigned long size_t;
++#endif
++#endif
++
++
+ #define __EXPORTED_HEADERS__
+ #include <uapi/linux/types.h>
+ 
+@@ -204,4 +212,10 @@ struct callback_head {
+ };
+ #define rcu_head callback_head
+ 
++/* Tipos adicionais necessários */
++#ifndef bool
++typedef _Bool bool;
++#define true 1
++#define false 0
++#endif
++
+ #endif /*  _LINUX_TYPES_H */

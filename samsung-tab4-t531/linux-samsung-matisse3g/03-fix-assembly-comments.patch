@@ -1,0 +1,50 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -1,5 +1,5 @@
+ /*
+- *  arch/arm/include/asm/assembler.h
++ *  arch/arm/include/asm/assembler.h - ARM assembly macros
+  *
+  *  Copyright (C) 1996-2000 Russell King
+  *
+@@ -15,6 +15,12 @@
+ #include <asm/ptrace.h>
+ #include <asm/domain.h>
+ 
++/* Garantir compatibilidade de comentários ARM assembly */
++#ifdef __ASSEMBLER__
++.macro COMMENT text:vararg
++    @ \text
++.endm
++#endif
++
+ /*
+  * Endian independent macros for shifting bytes within registers.
+  */
+--- a/arch/arm/kernel/entry-common.S
++++ b/arch/arm/kernel/entry-common.S
+@@ -1,5 +1,5 @@
+ /*
+- *  linux/arch/arm/kernel/entry-common.S
++ *  linux/arch/arm/kernel/entry-common.S - ARM common entry points
+  *
+  *  Copyright (C) 2000 Russell King
+  *
+@@ -8,7 +8,7 @@
+  *  published by the Free Software Foundation.
+  */
+ 
+-#include <asm/unistd.h>
++#include <asm/unistd.h>  @ System call definitions
+ #include <asm/ftrace.h>
+ #include <asm/unwind.h>
+ 
+@@ -16,7 +16,7 @@
+ 
+ 	.align	5
+ /*
+- * This is the fast syscall return path.  We do as little as
++ * This is the fast syscall return path. We do as little as
+  * possible here, and this includes saving r0 back into the SVC
+  * stack.
+  */
