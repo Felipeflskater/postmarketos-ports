@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=8
+pkgrel=11
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -21,6 +21,7 @@ source="
 	$pkgname-$_commit.tar.gz::https://github.com/Felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/$_commit.tar.gz
 	config-samsung-matisse3g.armv7
 	fix-user-macro.patch
+	fix-vfp-assembly.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -38,6 +39,19 @@ prepare() {
     _log "Preparando kernel Matisse3G com correções otimizadas - BUILD LOCAL"
     _log "Diretório: $builddir"
 
+    # ============ APLICAR PATCHES ============
+    _log "Aplicando patches..."
+
+    # Aplicar patch fix-user-macro.patch se existir
+    if [ -f "$srcdir/fix-user-macro.patch" ]; then
+        patch -p1 < "$srcdir/fix-user-macro.patch" || _log "AVISO: fix-user-macro.patch falhou"
+    fi
+
+    # Aplicar patch fix-vfp-assembly.patch
+    if [ -f "$srcdir/fix-vfp-assembly.patch" ]; then
+        patch -p1 < "$srcdir/fix-vfp-assembly.patch" || _log "AVISO: fix-vfp-assembly.patch falhou"
+    fi
+
     # ============ VERIFICAÇÃO DO COMPILADOR CRUZADO ============
     _log "Verificando disponibilidade do compilador cruzado..."
 
@@ -51,19 +65,102 @@ prepare() {
         _die "Compilador cruzado ARM não encontrado!"
     fi
 
-    # ============ CORREÇÃO CRÍTICA: __user MACRO ============
-    _log "CORREÇÃO CRÍTICA: Corrigindo macro __user em capability.h..."
+    # ============ CORREÇÃO MANUAL ADICIONAL DO VFP - AGRESSIVA ============
+    _log "Aplicando correções AGRESSIVAS no VFP..."
 
-    # Criar patch temporário para capability.h
-    if [ -f include/linux/capability.h ]; then
-        # Backup
-        cp include/linux/capability.h include/linux/capability.h.backup
+    if [ -f arch/arm/vfp/entry.S ]; then
+        # Backup do arquivo
+        cp arch/arm/vfp/entry.S arch/arm/vfp/entry.S.backup
 
-        # Adicionar definição de __user no início do arquivo
-        sed -i '1i#ifndef __user\n#define __user\n#endif' include/linux/capability.h
+        _log "Conteúdo original das linhas problemáticas:"
+        sed -n '25,40p' arch/arm/vfp/entry.S | while read line; do
+            _log "  $line"
+        done
 
-        _log "✓ Macro __user definida em capability.h"
+        # Correção ESPECÍFICA e DIRETA das linhas problemáticas
+        # Linha ~30: str r2, [sp, @ S_PC]
+        sed -i '/str.*r2.*\[sp.*,/c\	str	r2, [sp, #S_PC]		@ update regs->ARM_pc for Thumb 2 case' arch/arm/vfp/entry.S
+
+        # Linha ~32: ldr r11, [r10, @ TI_CPU]
+        sed -i '/ldr.*r11.*\[r10.*,/c\	ldr	r11, [r10, #TI_CPU]	@ CPU number' arch/arm/vfp/entry.S
+
+        # Linha ~33: add r10, r10, @ TI_VFPSTATE
+        sed -i '/add.*r10.*r10.*,/c\	add	r10, r10, #TI_VFPSTATE	@ r10 = workspace' arch/arm/vfp/entry.S
+
+        # Correções adicionais para casos não capturados
+        sed -i 's/\[sp,.*@.*S_PC\]/[sp, #S_PC]/g' arch/arm/vfp/entry.S
+        sed -i 's/\[r10,.*@.*TI_CPU\]/[r10, #TI_CPU]/g' arch/arm/vfp/entry.S
+        sed -i 's/r10,.*@.*TI_VFPSTATE/r10, #TI_VFPSTATE/g' arch/arm/vfp/entry.S
+
+        # Correção geral: @ dentro de operandos -> #
+        sed -i 's/\(\[[^]]*\),[ \t]*@[ \t]*\([A-Z_][A-Z_0-9]*\)\]/\1, #\2]/g' arch/arm/vfp/entry.S
+        sed -i 's/\([^,]*\),[ \t]*@[ \t]*\([A-Z_][A-Z_0-9]*\)[ \t]*\([^@]*\)$/\1, #\2 \3/g' arch/arm/vfp/entry.S
+
+        # Remover espaços problemáticos
+        sed -i 's/\[sp,/#&/g; s/#\[sp,/[sp, #/g' arch/arm/vfp/entry.S
+        sed -i 's/\[r10,/#&/g; s/#\[r10,/[r10, #/g' arch/arm/vfp/entry.S
+        sed -i 's/r10,/#&/g; s/#r10,/r10, #/g' arch/arm/vfp/entry.S
+
+        _log "Conteúdo APÓS correção:"
+        sed -n '25,40p' arch/arm/vfp/entry.S | while read line; do
+            _log "  $line"
+        done
+
+        # Verificação final
+        if grep -q "\[.*,.*@\|r[0-9][0-9]*,.*@" arch/arm/vfp/entry.S; then
+            _log "ATENÇÃO: Ainda há problemas no VFP! Aplicando correção final..."
+
+            # Correção de emergência - reescrever as linhas manualmente
+            cat > /tmp/vfp_fix.sed << 'EOF'
+/str.*r2.*\[sp/ {
+    c\	str	r2, [sp, #S_PC]		@ update regs->ARM_pc for Thumb 2 case
+}
+/ldr.*r11.*\[r10/ {
+    c\	ldr	r11, [r10, #TI_CPU]	@ CPU number
+}
+/add.*r10.*r10/ {
+    c\	add	r10, r10, #TI_VFPSTATE	@ r10 = workspace
+}
+EOF
+            sed -i -f /tmp/vfp_fix.sed arch/arm/vfp/entry.S
+            rm -f /tmp/vfp_fix.sed
+        fi
+
+        _log "✓ Correções agressivas aplicadas no VFP"
+    else
+        _log "ERRO: arch/arm/vfp/entry.S não encontrado!"
     fi
+
+    # ============ CORREÇÃO GLOBAL: ARQUIVOS ASSEMBLY ARM ============
+    _log "Corrigindo sintaxe de comentários em arquivos assembly ARM..."
+
+    # Encontrar e corrigir todos os arquivos .S com problemas de comentário
+    find arch/arm/ -name "*.S" -type f | while read -r asm_file; do
+        if grep -q "^[ \t]*#[^i]" "$asm_file" 2>/dev/null; then
+            # Backup
+            cp "$asm_file" "${asm_file}.backup" 2>/dev/null || true
+
+            # Corrigir comentários: # -> @ (exceto #include, #define, etc.)
+            # Manter diretivas de preprocessador intactas
+            sed -i '
+                # Não tocar em diretivas de preprocessador
+                /^[ \t]*#include/b
+                /^[ \t]*#define/b
+                /^[ \t]*#if/b
+                /^[ \t]*#else/b
+                /^[ \t]*#endif/b
+                /^[ \t]*#undef/b
+                /^[ \t]*#error/b
+                /^[ \t]*#warning/b
+
+                # Corrigir comentários # -> @
+                s/^[ \t]*#\([^idue]\)/@ \1/g
+                s/\([^"]\)#\([^idue]\)/\1@ \2/g
+            ' "$asm_file"
+
+            _log "✓ Corrigido assembly: $asm_file"
+        fi
+    done
 
     # ============ CORREÇÃO ADICIONAL: COMPILER.H ============
     _log "Corrigindo include/linux/compiler.h..."
@@ -149,9 +246,12 @@ EOF
     export SUBARCH=arm
     export CROSS_COMPILE="${_cross_prefix}"
 
+    # ============ FLAGS OTIMIZADAS PARA VFP ============
     local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common -fno-PIE -no-pie"
     local warning_flags="-Wno-error -Wno-array-bounds -Wno-stringop-overflow -Wno-format-overflow -Wno-incompatible-pointer-types -Wno-discarded-qualifiers -Wno-int-conversion -Wno-implicit-function-declaration -Wno-format-security"
     local gcc_compat="-fgnu89-inline -fno-strict-overflow -fconserve-stack -fno-delete-null-pointer-checks -fno-tree-loop-im -fno-tree-loop-ivcanon"
+    # Adicionar flags específicas para assembly
+    local asm_flags="-Wa,--fatal-warnings -Wa,--noexecstack"
 
     export HOSTCFLAGS="$base_flags $warning_flags $gcc_compat"
     export HOSTLDFLAGS="-no-pie -fno-stack-protector"
@@ -159,6 +259,8 @@ EOF
     export KBUILD_HOSTLDFLAGS="-no-pie"
     export KBUILD_CFLAGS_KERNEL="$base_flags"
     export KCFLAGS="$base_flags $warning_flags $gcc_compat"
+    export AFLAGS="$asm_flags"
+    export KBUILD_AFLAGS="$asm_flags"
 
     # ============ CORREÇÃO CRÍTICA: KBUILD.H ============
     _log "CORREÇÃO CRÍTICA: Corrigindo include/linux/kbuild.h..."
@@ -262,15 +364,17 @@ CONFIG_PINCTRL_MSM=y
 CONFIG_COMMON_CLK=y
 CONFIG_CLKDEV_LOOKUP=y
 
-# ============ VFP ============
+# ============ VFP - CONFIGURAÇÃO OTIMIZADA ============
 CONFIG_VFP=y
 CONFIG_VFPv3=y
 CONFIG_NEON=y
+CONFIG_ARM_UNWIND=y
 
 # ============ DESABILITAR PROBLEMÁTICOS ============
 CONFIG_WERROR=n
 CONFIG_MODVERSIONS=n
 CONFIG_DEBUG_INFO=n
+CONFIG_DEBUG_STRICT_USER_COPY_CHECKS=n
 
 # ============ PREEMPTION ============
 CONFIG_PREEMPT_NONE=y
@@ -297,12 +401,14 @@ EOF
                             HOSTCFLAGS="$HOSTCFLAGS" \
                             HOSTLDFLAGS="$HOSTLDFLAGS" \
                             KCFLAGS="$KCFLAGS" \
+                            AFLAGS="$AFLAGS" \
                             oldconfig || {
         _log "oldconfig falhou, tentando olddefconfig..."
         make ARCH=arm CROSS_COMPILE="${_cross_prefix}" \
              HOSTCFLAGS="$HOSTCFLAGS" \
              HOSTLDFLAGS="$HOSTLDFLAGS" \
              KCFLAGS="$KCFLAGS" \
+             AFLAGS="$AFLAGS" \
              olddefconfig || _die "configuração falhou"
     }
 
@@ -316,6 +422,7 @@ EOF
          HOSTCFLAGS="$HOSTCFLAGS" \
          HOSTLDFLAGS="$HOSTLDFLAGS" \
          KCFLAGS="$KCFLAGS" \
+         AFLAGS="$AFLAGS" \
          prepare || _die "preparação falhou"
 
     _log "Preparação concluída com sucesso!"
@@ -332,26 +439,46 @@ build() {
     export SUBARCH=arm
     export CROSS_COMPILE="${_cross_prefix}"
 
-    # ============ FLAGS CORRIGIDAS - SEM ESPAÇOS ============
+    # ============ FLAGS CORRIGIDAS PARA VFP ============
     local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common -fno-PIE -no-pie"
     local warning_flags="-Wno-error -Wno-array-bounds -Wno-stringop-overflow -Wno-format-overflow -Wno-incompatible-pointer-types -Wno-discarded-qualifiers -Wno-int-conversion -Wno-implicit-function-declaration -Wno-format-security"
     local gcc_compat="-fgnu89-inline -fno-strict-overflow -fconserve-stack -fno-delete-null-pointer-checks -fno-tree-loop-im -fno-tree-loop-ivcanon"
+    local asm_flags="-Wa,--fatal-warnings -Wa,--noexecstack"
 
     export HOSTCFLAGS="$base_flags $warning_flags $gcc_compat"
     export HOSTLDFLAGS="-no-pie"
     export KCFLAGS="$base_flags $warning_flags $gcc_compat"
+    export AFLAGS="$asm_flags"
+    export KBUILD_AFLAGS="$asm_flags"
 
     # ============ LIMPEZA ANTES DA COMPILAÇÃO ============
-    _log "Limpando arquivos de compilação anterior..."
+    _log "Limpeza parcial (mantendo configurações)..."
     make ARCH=arm CROSS_COMPILE="${_cross_prefix}" clean || true
 
-    # ============ COMPILAÇÃO COM FLAGS SEPARADAS ============
+    # ============ COMPILAÇÃO INCREMENTAL COM DEBUG ============
+    _log "Testando compilação do VFP primeiro..."
+
+    # Tentar compilar apenas o VFP para verificar se a correção funcionou
+    make ARCH=arm \
+         CROSS_COMPILE="${_cross_prefix}" \
+         HOSTCFLAGS="$HOSTCFLAGS" \
+         HOSTLDFLAGS="$HOSTLDFLAGS" \
+         KCFLAGS="$KCFLAGS" \
+         AFLAGS="$AFLAGS" \
+         LDFLAGS="" \
+         V=1 \
+         arch/arm/vfp/entry.o || _die "Falha na compilação do VFP - verifique o patch"
+
+    _log "✓ VFP compilado com sucesso! Continuando com kernel completo..."
+
+    # ============ COMPILAÇÃO COMPLETA ============
     _log "Compilando zImage..."
     make ARCH=arm \
          CROSS_COMPILE="${_cross_prefix}" \
          HOSTCFLAGS="$HOSTCFLAGS" \
          HOSTLDFLAGS="$HOSTLDFLAGS" \
          KCFLAGS="$KCFLAGS" \
+         AFLAGS="$AFLAGS" \
          LDFLAGS="" \
          -j1 \
          zImage || _die "Falha na compilação do zImage"
@@ -362,6 +489,7 @@ build() {
          HOSTCFLAGS="$HOSTCFLAGS" \
          HOSTLDFLAGS="$HOSTLDFLAGS" \
          KCFLAGS="$KCFLAGS" \
+         AFLAGS="$AFLAGS" \
          LDFLAGS="" \
          -j1 \
          modules || _log "AVISO: Alguns módulos falharam"
@@ -374,6 +502,7 @@ build() {
              HOSTCFLAGS="$HOSTCFLAGS" \
              HOSTLDFLAGS="$HOSTLDFLAGS" \
              KCFLAGS="$KCFLAGS" \
+             AFLAGS="$AFLAGS" \
              LDFLAGS="" \
              -j1 \
              dtbs || _log "AVISO: Compilação de DTBs falhou"
@@ -416,7 +545,7 @@ package() {
     echo "Data da compilação: $(date)" >> "$pkgdir/boot/kernel-info-$_flavor"
     echo "Fonte: $_commit" >> "$pkgdir/boot/kernel-info-$_flavor"
     echo "Compilador cruzado: $_cross_prefix" >> "$pkgdir/boot/kernel-info-$_flavor"
-    echo "Correções aplicadas: __user macro, MSM_SPM_REGULATOR=n, flags corrigidas" >> "$pkgdir/boot/kernel-info-$_flavor"
+    echo "Correções aplicadas: __user macro, MSM_SPM_REGULATOR=n, VFP assembly fix, flags corrigidas" >> "$pkgdir/boot/kernel-info-$_flavor"
 
     _log "Empacotamento concluído com sucesso!"
 }
@@ -424,5 +553,6 @@ package() {
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 9bcc57e7a3de597dec583da93f5cab0200f48dc053eaeaeb499dab993f50c5a5af5639b14c3eaa04f72eb430df694a920613116e2b9008fab4da86ca92311606  config-samsung-matisse3g.armv7
-SKIP  fix-user-macro.patch
+69657e99b87a2cef01abe424011b49dcebfe9c7d994ea856906db3d72fd87f7f608cd8eb2496c8b09ef15f2b999cebef0c67f64cddf1c33c6925d4fbf1c948f0  fix-user-macro.patch
+d3780432738043cd3a757ecd251ad7268e9abc9621c720c6a3a590937daaa6ced9f7d3ac3923d4606f41e9c2d3f442a78341efa0cdbc602a2917c4c023ebbe4d  fix-vfp-assembly.patch
 "
