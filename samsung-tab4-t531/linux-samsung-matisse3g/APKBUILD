@@ -20,10 +20,6 @@ source="
 	$pkgname-$_commit.tar.gz::https://github.com/Felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/$_commit.tar.gz
 	config-samsung-matisse3g.armv7
 	01-fix-vfp-assembly-syntax.patch
-	02-fix-compiler-macros.patch
-	03-fix-assembly-comments.patch
-	04-fix-kbuild-headers.patch
-	05-add-missing-defines.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -72,6 +68,111 @@ _setup_build_environment() {
     export LDFLAGS=""
 
     _log "✓ Ambiente de compilação configurado"
+}
+
+_apply_manual_fixes() {
+    _log "Aplicando correções manuais..."
+
+    # Corrigir asm-offsets.c
+    if [ -f arch/arm/kernel/asm-offsets.c ] && ! grep -q "#define __user" arch/arm/kernel/asm-offsets.c; then
+        sed -i '1i#ifndef __user\n#define __user\n#endif\n' arch/arm/kernel/asm-offsets.c
+        _log "✓ asm-offsets.c corrigido"
+    fi
+
+    # Criar kbuild.h se não existir ou não tiver DEFINE
+    if [ ! -f include/linux/kbuild.h ] || ! grep -q "DEFINE" include/linux/kbuild.h; then
+        mkdir -p include/linux
+        cat > include/linux/kbuild.h << 'EOF'
+#ifndef __LINUX_KBUILD_H
+#define __LINUX_KBUILD_H
+
+#define DEFINE(sym, val) \
+        __asm__ __volatile__("\n->" #sym " %0 " #val : : "i" (val))
+
+#define BLANK() \
+        __asm__ __volatile__("\n->" : : )
+
+#define OFFSET(sym, str, mem) \
+        DEFINE(sym, offsetof(struct str, mem))
+
+#define COMMENT(x) \
+        __asm__ __volatile__("\n->#" x)
+
+#endif
+EOF
+        _log "✓ kbuild.h criado"
+    fi
+
+    # Criar/melhorar compiler.h
+    mkdir -p include/linux
+    if [ ! -f include/linux/compiler.h ] || ! grep -q "__user" include/linux/compiler.h; then
+        cat >> include/linux/compiler.h << 'EOF'
+
+#ifndef __user
+#define __user
+#endif
+#ifndef __kernel
+#define __kernel
+#endif
+#ifndef __force
+#define __force
+#endif
+#ifndef __iomem
+#define __iomem
+#endif
+#ifndef __acquires
+#define __acquires(x)
+#endif
+#ifndef __releases
+#define __releases(x)
+#endif
+EOF
+        _log "✓ compiler.h melhorado"
+    fi
+
+    # Adicionar definições thread_info se necessário
+    if [ -f arch/arm/include/asm/thread_info.h ] && ! grep -q "TI_PREEMPT.*8" arch/arm/include/asm/thread_info.h; then
+        cat >> arch/arm/include/asm/thread_info.h << 'EOF'
+
+#ifndef TI_PREEMPT
+#define TI_PREEMPT		8
+#endif
+#ifndef TI_ADDR_LIMIT
+#define TI_ADDR_LIMIT		12
+#endif
+EOF
+        _log "✓ thread_info.h melhorado"
+    fi
+
+    # Adicionar S_PC ao ptrace.h se necessário
+    if [ -f arch/arm/include/asm/ptrace.h ] && ! grep -q "S_PC.*60" arch/arm/include/asm/ptrace.h; then
+        sed -i '/PSR_c.*0x000000ff/a\\n#ifndef S_PC\n#define S_PC\t\t60\n#endif' arch/arm/include/asm/ptrace.h
+        _log "✓ ptrace.h melhorado"
+    fi
+
+    # Adicionar definições VFP
+    if [ -f arch/arm/include/asm/vfpmacros.h ] && ! grep -q "TI_VFPSTATE" arch/arm/include/asm/vfpmacros.h; then
+        sed -i '/include.*asm\/vfp\.h/a\\n#ifndef TI_VFPSTATE\n#define TI_VFPSTATE\t\t(TI_USED_CP + 4*16)\n#endif\n#ifndef TI_CPU\n#define TI_CPU\t\t\t4\n#endif' arch/arm/include/asm/vfpmacros.h
+        _log "✓ vfpmacros.h melhorado"
+    fi
+
+    # Criar stddef.h básico
+    mkdir -p include/uapi/linux
+    if [ ! -f include/uapi/linux/stddef.h ]; then
+        cat > include/uapi/linux/stddef.h << 'EOF'
+#ifndef _UAPI_LINUX_STDDEF_H
+#define _UAPI_LINUX_STDDEF_H
+#ifndef __ASSEMBLY__
+#ifndef NULL
+#define NULL ((void *)0)
+#endif
+#endif
+#endif
+EOF
+        _log "✓ uapi/stddef.h criado"
+    fi
+
+    _log "✓ Correções manuais aplicadas"
 }
 
 _apply_config_fixes() {
@@ -141,8 +242,11 @@ prepare() {
     # Configurar ambiente
     _setup_build_environment
 
-    # Aplicar patches (automático via abuild)
-    default_prepare
+    # Aplicar patch VFP (único que funcionou)
+    patch -p1 < "$srcdir/01-fix-vfp-assembly-syntax.patch" || _log "AVISO: Patch VFP falhou"
+
+    # Aplicar correções manuais
+    _apply_manual_fixes
 
     # Aplicar configuração
     if [ ! -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
@@ -240,7 +344,7 @@ Kernel: $pkgver-$pkgrel
 Data: $(date)
 Fonte: $_commit
 Compilador: $CROSS_COMPILE
-Patches aplicados: VFP assembly, compiler macros, assembly comments, kbuild headers, missing defines
+Patches aplicados: VFP assembly fix, correções inline para headers e definições
 EOF
 
     _log "✓ Empacotamento concluído"
@@ -250,8 +354,4 @@ sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 9bcc57e7a3de597dec583da93f5cab0200f48dc053eaeaeb499dab993f50c5a5af5639b14c3eaa04f72eb430df694a920613116e2b9008fab4da86ca92311606  config-samsung-matisse3g.armv7
 56c15f47049ab547a6128a0e507ec1b198f14ab5881d88187212f0b05c40f860f8a9897e935e8f2229f2838c110ff9cefb2198e022e97ef25cbb095157547574  01-fix-vfp-assembly-syntax.patch
-7f7546ecc15ac32d990a83849f3f890518dc71387522dfe3d8f02b6c7c4132c683e22caf850fdddd3399b749db4a356032d2c749e62fb0e029047e8660491b2b  02-fix-compiler-macros.patch
-b1a59d5b307498bc250727fd01984593f5cbf2c1a975e10936c82bff672ba2e442883d614a422d0f18b373b55fac20ae4b5b4259c7403cd3c8d7d81c909b3fee  03-fix-assembly-comments.patch
-18b2c9896cc530a8f14b1ed69a0a30f418eedf9de622ec0e052e305c1f6a679bef145b62dc5da3878766394605f77ec7b66a15f74459464fe61c81dff459ad7e  04-fix-kbuild-headers.patch
-d278ddf44fdc49f3c8a97d660a3672e8ce9df89be13246b0c4c47c6249607e2364875ca5bd057989eece8bafa5f5601dd9ee4f871fcd9e49ef9554ded300259e  05-add-missing-defines.patch
 "
