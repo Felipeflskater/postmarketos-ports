@@ -98,6 +98,33 @@ _fix_makefile_pie() {
     fi
 }
 
+_fix_exfat_redefinitions() {
+    _log "Corrigindo redefinições do exFAT..."
+
+    local exfat_file="fs/exfat/exfat_super.c"
+
+    if [ -f "$exfat_file" ]; then
+        # Backup do arquivo
+        cp "$exfat_file" "$exfat_file.backup"
+
+        # Remove macro redefinitions
+        sed -i '/^#define GLOBAL_ROOT_UID (0)/d' "$exfat_file"
+        sed -i '/^#define GLOBAL_ROOT_GID (0)/d' "$exfat_file"
+
+        # Remove function redefinitions - versão mais segura
+        sed -i '/^static inline bool uid_eq(uid_t left, uid_t right)$/,/^}$/d' "$exfat_file"
+        sed -i '/^static inline bool gid_eq(gid_t left, gid_t right)$/,/^}$/d' "$exfat_file"
+        sed -i '/^static inline uid_t from_kuid_munged(struct user_namespace \*to, uid_t kuid)$/,/^}$/d' "$exfat_file"
+        sed -i '/^static inline gid_t from_kgid_munged(struct user_namespace \*to, gid_t kgid)$/,/^}$/d' "$exfat_file"
+        sed -i '/^static inline uid_t make_kuid(struct user_namespace \*from, uid_t uid)$/,/^}$/d' "$exfat_file"
+        sed -i '/^static inline gid_t make_kgid(struct user_namespace \*from, gid_t gid)$/,/^}$/d' "$exfat_file"
+
+        _log "✓ Redefinições do exFAT removidas"
+    else
+        _log "AVISO: $exfat_file não encontrado - pulando correção exFAT"
+    fi
+}
+
 _fix_redefinitions() {
     _log "Corrigindo redefinições problemáticas..."
 
@@ -367,6 +394,9 @@ prepare() {
     # Corrigir redefinições problemáticas
     _fix_redefinitions
 
+    # Corrigir redefinições do exFAT
+    _fix_exfat_redefinitions
+
     # Aplicar configuração
     if [ ! -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
         _die "Arquivo de configuração não encontrado"
@@ -466,7 +496,7 @@ Kernel: $pkgver-$pkgrel
 Data: $(date)
 Fonte: $_commit
 Compilador: $CROSS_COMPILE
-Patches aplicados: VFP assembly fix, PIE inline fix, correções inline para headers e definições
+Patches aplicados: VFP assembly fix, PIE inline fix, correções inline para headers e definições, exFAT fix
 EOF
 
     _log "✓ Empacotamento concluído"
