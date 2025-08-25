@@ -48,26 +48,87 @@ _detect_cross_compiler() {
 }
 
 _setup_build_environment() {
-    # Limpar flags conflitantes
+    # Limpar flags conflitantes COMPLETAMENTE
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
 
     export ARCH=arm
     export SUBARCH=arm
 
-    # Flags otimizadas para kernel antigo
-    local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common -fno-PIE"
-    local warning_flags="-Wno-error -Wno-array-bounds -Wno-stringop-overflow -Wno-format-overflow"
-    local compat_flags="-fgnu89-inline -fno-strict-overflow -fconserve-stack"
+    # FLAGS ANTI-PIE AGRESSIVAS para HOST
+    export HOSTCC="gcc"
+    export HOSTCXX="g++"
+    local host_flags="-fno-PIE -fno-pic -no-pie -fno-stack-protector -O2 -static-libgcc"
+    export HOSTCFLAGS="$host_flags -std=gnu89"
+    export HOSTCXXFLAGS="$host_flags"
+    export HOSTLDFLAGS="-no-pie -static"
+
+    # Flags para o kernel ARM - mais conservadoras
+    local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common"
+    local warning_flags="-Wno-error -Wno-array-bounds -Wno-stringop-overflow -Wno-format-overflow -Wno-builtin-macro-redefined"
+    local compat_flags="-fgnu89-inline -fno-strict-overflow -fconserve-stack -fno-builtin"
     local asm_flags="-Wa,--fatal-warnings -Wa,--noexecstack"
 
-    export HOSTCFLAGS="$base_flags $warning_flags $compat_flags"
-    export HOSTLDFLAGS="-no-pie"
     export KCFLAGS="$base_flags $warning_flags $compat_flags"
     export AFLAGS="$asm_flags"
     export KBUILD_AFLAGS="$asm_flags"
+    export KBUILD_CFLAGS="$base_flags $warning_flags $compat_flags"
     export LDFLAGS=""
 
-    _log "✓ Ambiente de compilação configurado"
+    _log "✓ Ambiente de compilação configurado com flags anti-PIE"
+}
+
+_fix_makefile_pie() {
+    _log "Aplicando correção PIE inline no Makefile.host..."
+
+    # Aplicar correção diretamente no arquivo
+    if [ -f scripts/Makefile.host ]; then
+        # Backup do original
+        cp scripts/Makefile.host scripts/Makefile.host.orig
+
+        # Adicionar flags anti-PIE
+        sed -i '/^HOST_EXTRACXXFLAGS := \$(HOSTCXXFLAGS)/a\\n# Force disable PIE for all host programs - Alpine Linux compatibility\nHOST_EXTRACFLAGS += -fno-PIE -fno-pic -no-pie\nHOST_EXTRACXXFLAGS += -fno-PIE -fno-pic -no-pie' scripts/Makefile.host
+
+        # Corrigir comandos de linkagem
+        sed -i 's/cmd_host-csingle.*= \$(HOSTCC) \$(hostc_flags) -o \$@ \$</      cmd_host-csingle\t= $(HOSTCC) $(hostc_flags) -fno-PIE -no-pie -o $@ $</' scripts/Makefile.host
+        sed -i 's/cmd_host-cmulti.*= \$(HOSTCC) \$(host_flags) -o \$@/      cmd_host-cmulti\t= $(HOSTCC) $(host_flags) -fno-PIE -no-pie -o $@/' scripts/Makefile.host
+
+        _log "✓ Makefile.host corrigido para PIE"
+    else
+        _log "AVISO: scripts/Makefile.host não encontrado"
+    fi
+}
+
+_fix_redefinitions() {
+    _log "Corrigindo redefinições problemáticas..."
+
+    # Caso específico para stdbool.h se existir
+    if [ -f include/linux/stdbool.h ]; then
+        cp include/linux/stdbool.h include/linux/stdbool.h.backup
+        cat > include/linux/stdbool.h << 'EOF'
+#ifndef _LINUX_STDBOOL_H
+#define _LINUX_STDBOOL_H
+
+#ifndef __cplusplus
+#ifndef __KERNEL__
+typedef _Bool bool;
+#ifndef bool
+#define bool _Bool
+#endif
+#ifndef true
+#define true 1
+#endif
+#ifndef false
+#define false 0
+#endif
+#endif /* __KERNEL__ */
+#endif /* __cplusplus */
+
+#endif /* _LINUX_STDBOOL_H */
+EOF
+        _log "✓ stdbool.h corrigido"
+    fi
+
+    _log "✓ Redefinições corrigidas"
 }
 
 _apply_manual_fixes() {
@@ -156,20 +217,58 @@ EOF
         _log "✓ vfpmacros.h melhorado"
     fi
 
-    # Criar stddef.h básico
+    # Criar stddef.h mais robusto
     mkdir -p include/uapi/linux
     if [ ! -f include/uapi/linux/stddef.h ]; then
         cat > include/uapi/linux/stddef.h << 'EOF'
 #ifndef _UAPI_LINUX_STDDEF_H
 #define _UAPI_LINUX_STDDEF_H
+
+#ifdef __KERNEL__
+#include <linux/compiler.h>
+#endif
+
 #ifndef __ASSEMBLY__
-#ifndef NULL
+
+#ifdef __KERNEL__
+#undef NULL
+#if defined(__cplusplus)
+#define NULL 0
+#else
 #define NULL ((void *)0)
 #endif
-#endif
-#endif
+
+#undef offsetof
+#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#endif /* __KERNEL__ */
+
+#endif /* __ASSEMBLY__ */
+#endif /* _UAPI_LINUX_STDDEF_H */
 EOF
         _log "✓ uapi/stddef.h criado"
+    fi
+
+    # Corrigir include/linux/stddef.h se existir
+    if [ -f include/linux/stddef.h ]; then
+        # Backup do original
+        cp include/linux/stddef.h include/linux/stddef.h.orig
+
+        # Remover redefinições problemáticas
+        sed -i '/^#define false /d' include/linux/stddef.h
+        sed -i '/^#define true /d' include/linux/stddef.h
+
+        # Adicionar proteções contra redefinição
+        if ! grep -q "#ifndef false" include/linux/stddef.h; then
+            sed -i '/#define __kernel_false/i #ifndef false' include/linux/stddef.h
+            sed -i '/#define __kernel_false/a #endif' include/linux/stddef.h
+        fi
+
+        if ! grep -q "#ifndef true" include/linux/stddef.h; then
+            sed -i '/#define __kernel_true/i #ifndef true' include/linux/stddef.h
+            sed -i '/#define __kernel_true/a #endif' include/linux/stddef.h
+        fi
+
+        _log "✓ include/linux/stddef.h corrigido"
     fi
 
     _log "✓ Correções manuais aplicadas"
@@ -207,16 +306,30 @@ CONFIG_DEBUG_STRICT_USER_COPY_CHECKS=n
 CONFIG_PREEMPT_NONE=y
 CONFIG_PREEMPT_VOLUNTARY=n
 CONFIG_PREEMPT=n
+
+# ============ COMPILADOR ============
+CONFIG_CC_OPTIMIZE_FOR_SIZE=n
+CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
 EOF
 
     # Remover configurações conflitantes
     sed -i 's/CONFIG_MSM_SPM_REGULATOR=y/CONFIG_MSM_SPM_REGULATOR=n/' .config
+
+    # Adicionar defines para evitar conflitos de redefinição
+    echo 'KBUILD_CFLAGS += -D__KERNEL_STRICT_NAMES' >> .config
+    echo 'KBUILD_CFLAGS += -Wno-builtin-macro-redefined' >> .config
 
     _log "✓ Configurações corrigidas"
 }
 
 _test_critical_build() {
     _log "Testando componentes críticos..."
+
+    # Testar scripts host primeiro (onde está falhando)
+    _log "Testando compilação de scripts host..."
+    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         scripts/basic/fixdep || _die "Falha na compilação dos scripts host"
 
     # Testar VFP especificamente
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" V=1 \
@@ -239,14 +352,20 @@ prepare() {
     # Detectar compilador
     _detect_cross_compiler
 
-    # Configurar ambiente
+    # Configurar ambiente ANTES de qualquer coisa
     _setup_build_environment
 
-    # Aplicar patch VFP (único que funcionou)
-    patch -p1 < "$srcdir/01-fix-vfp-assembly-syntax.patch" || _log "AVISO: Patch VFP falhou"
+    # Aplicar patches
+    default_prepare
+
+    # Aplicar correção PIE inline
+    _fix_makefile_pie
 
     # Aplicar correções manuais
     _apply_manual_fixes
+
+    # Corrigir redefinições problemáticas
+    _fix_redefinitions
 
     # Aplicar configuração
     if [ ! -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
@@ -256,17 +375,19 @@ prepare() {
     cp "$srcdir/config-samsung-matisse3g.armv7" .config
     _apply_config_fixes
 
-    # Configuração automatizada
+    # Configuração automatizada com flags explícitas
     _log "Executando configuração automatizada..."
     printf "n\ny\n" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-                           HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" \
-                           oldconfig || make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-                                            HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" \
-                                            olddefconfig || _die "Configuração falhou"
+                           HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+                           KCFLAGS="$KCFLAGS" oldconfig || \
+                      make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+                           HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+                           KCFLAGS="$KCFLAGS" olddefconfig || _die "Configuração falhou"
 
-    # Preparar build
+    # Preparar build com flags explícitas
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
          prepare || _die "Preparação falhou"
 
     _log "✓ Preparação concluída"
@@ -286,17 +407,17 @@ build() {
     # Limpeza parcial
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" clean || true
 
-    # Compilar zImage
+    # Compilar zImage com todas as flags explícitas
     _log "Compilando zImage..."
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
          KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" LDFLAGS="$LDFLAGS" \
          -j$(nproc) zImage || _die "Falha na compilação do zImage"
 
     # Compilar módulos
     _log "Compilando módulos..."
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
          KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" LDFLAGS="$LDFLAGS" \
          -j$(nproc) modules || _log "AVISO: Alguns módulos falharam"
 
@@ -304,7 +425,8 @@ build() {
     if find arch/arm/boot/dts -name "*.dts" 2>/dev/null | grep -q "msm8226\|matisse"; then
         _log "Compilando Device Tree Blobs..."
         make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-             HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
+             HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+             KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
              dtbs || _log "AVISO: DTBs falharam"
     fi
 
@@ -344,7 +466,7 @@ Kernel: $pkgver-$pkgrel
 Data: $(date)
 Fonte: $_commit
 Compilador: $CROSS_COMPILE
-Patches aplicados: VFP assembly fix, correções inline para headers e definições
+Patches aplicados: VFP assembly fix, PIE inline fix, correções inline para headers e definições
 EOF
 
     _log "✓ Empacotamento concluído"
