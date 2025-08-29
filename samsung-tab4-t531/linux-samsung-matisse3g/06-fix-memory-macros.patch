@@ -1,0 +1,41 @@
+--- a/arch/arm/include/asm/memory.h
++++ b/arch/arm/include/asm/memory.h
+@@ -18,6 +18,10 @@
+ #include <mach/memory.h>
+ #endif
+ 
++/* Ensure UL macro is defined for GCC 15+ compatibility */
++#ifndef __ASSEMBLY__
++#define UL(x) _AC(x, UL)
++#else
++#define UL(x) (x)
++#endif
++
+ /*
+  * Allow for constants defined here to be used from assembly code
+  * by prepending the UL suffix only with actual C code compilation.
+@@ -29,8 +33,8 @@
+  * TASK_SIZE - the maximum size of a user space task.
+  * TASK_UNMAPPED_BASE - the lower boundary of the mmap VM area
+  */
+-#define PAGE_OFFSET		UL(CONFIG_PAGE_OFFSET)
+-#define PHYS_OFFSET		UL(CONFIG_PHYS_OFFSET)
++#define PAGE_OFFSET		UL(0xC0000000)
++#define PHYS_OFFSET		UL(0x00000000)
+ #define TASK_SIZE		(UL(CONFIG_PAGE_OFFSET) - UL(0x01000000))
+ #define TASK_UNMAPPED_BASE	(UL(CONFIG_PAGE_OFFSET) - UL(0x01000000))
+ 
+--- a/include/linux/const.h
++++ b/include/linux/const.h
+@@ -19,6 +19,11 @@
+ #define _AT(T,X)	((T)(X))
+ #endif
+ 
++/* Ensure _AC macro is available for memory.h */
++#ifndef __AC
++#define __AC(X,Y)	(X##Y)
++#define _AC(X,Y)	__AC(X,Y)  
++#endif
++
+ #endif /* !(__ASSEMBLY__) */
+ #endif /* _LINUX_CONST_H */

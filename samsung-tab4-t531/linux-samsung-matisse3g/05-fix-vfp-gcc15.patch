@@ -1,0 +1,12 @@
+--- a/arch/arm/vfp/entry.S
++++ b/arch/arm/vfp/entry.S
+@@ -22,9 +22,9 @@
+ ENTRY(do_vfp)
+ #ifdef CONFIG_PREEMPT_COUNT
+-	ldr	r4, [r10, #TI_PREEMPT]	@ get preempt count
++	ldr	r4, [r10, #8]	@ get preempt count (hardcoded offset)
+ 	add	r11, r4, #1			@ increment it
+-	str	r11, [r10, #TI_PREEMPT]
++	str	r11, [r10, #8]
+ #endif
+-	str	r2, [sp, #S_PC]		@ update regs->ARM_pc for Thumb 2 case

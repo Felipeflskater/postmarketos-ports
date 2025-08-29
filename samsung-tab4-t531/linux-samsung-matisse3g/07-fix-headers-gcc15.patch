@@ -1,0 +1,36 @@
+--- /dev/null
++++ b/include/linux/kbuild.h
+@@ -0,0 +1,18 @@
++#ifndef __LINUX_KBUILD_H
++#define __LINUX_KBUILD_H
++
++/* Helper macros for kernel build system - GCC 15+ compatible */
++
++#define DEFINE(sym, val) \
++        __asm__ __volatile__("\n->" #sym " %0 " #val : : "i" (val))
++
++#define BLANK() \
++        __asm__ __volatile__("\n->" : : )
++
++#define OFFSET(sym, str, mem) \
++        DEFINE(sym, offsetof(struct str, mem))
++
++#define COMMENT(x) \
++        __asm__ __volatile__("\n->#" x)
++
++#endif /* __LINUX_KBUILD_H */
+--- a/arch/arm/kernel/asm-offsets.c
++++ b/arch/arm/kernel/asm-offsets.c
+@@ -10,6 +10,12 @@
+  */
+ #include <linux/stddef.h>
+ #include <linux/sched.h>
++
++/* GCC 15+ compatibility - ensure user attribute is defined */
++#ifndef __user  
++#define __user __attribute__((noderef, address_space(1)))
++#endif
++
+ #include <linux/mm.h>
+ #include <linux/dma-mapping.h>
+ #ifdef CONFIG_KVM_ARM_HOST

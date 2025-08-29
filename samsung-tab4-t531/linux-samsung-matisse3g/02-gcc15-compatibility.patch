@@ -1,0 +1,18 @@
+--- a/include/linux/compiler.h
++++ b/include/linux/compiler.h
+@@ -315,4 +315,15 @@ void ftrace_likely_update(struct ftrace_branch_data *f, int val, int expect);
+ # define __visible
+ #endif
+ 
++/* GCC 15+ compatibility - only add if not already defined */
++#ifndef __always_inline
++#define __always_inline inline __attribute__((always_inline))
++#endif
++#ifndef __deprecated  
++#define __deprecated __attribute__((deprecated))
++#endif
++#ifndef __force
++#define __force __attribute__((force))
++#endif
++
+ #endif /* __LINUX_COMPILER_H */

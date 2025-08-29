@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=17
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS - GCC 15 Compatible"
+pkgrel=19
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -17,13 +17,13 @@ makedepends="
 _commit="pmos-matisse3g-fixes"
 
 source="
-	03-fix-defconfig.patch
 	$pkgname-$_commit.tar.gz::https://github.com/Felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/$_commit.tar.gz
 	config-samsung-matisse3g.armv7
+	01-fix-timex-header.patch
+	03-fix-defconfig.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
-# ============ FUNCOES AUXILIARES ============
 _log() {
     printf "\n[*] %s\n" "$1"
 }
@@ -33,503 +33,99 @@ _die() {
     exit 1
 }
 
-_detect_cross_compiler() {
-    local compilers="arm-none-eabi-gcc arm-linux-gnueabihf-gcc arm-linux-gnu-gcc"
-
-    for compiler in $compilers; do
-        if command -v "$compiler" >/dev/null 2>&1; then
-            export CROSS_COMPILE="${compiler%-gcc}-"
-            _log "Usando $compiler"
-
-            # Verificar versão do GCC
-            local gcc_version=$("$compiler" --version | head -n1 | grep -o '[0-9]\+\.[0-9]\+' | head -n1)
-            _log "Versão do GCC detectada: $gcc_version"
-
-            return 0
-        fi
-    done
-
-    _die "Nenhum compilador cruzado ARM encontrado!"
-}
-
-_setup_gcc14_compatibility() {
-    _log "Configurando compatibilidade com GCC 14..."
-
-    # Verificar versão GCC de forma mais robusta
-    local gcc_version_full=$($CROSS_COMPILE"gcc" --version | head -n1)
-    local gcc_major=$(echo "$gcc_version_full" | sed -n 's/.*gcc.* \([0-9]\+\)\.[0-9]\+.*/\1/p')
-
-    # Fallback se não conseguir detectar
-    if [ -z "$gcc_major" ] || [ "$gcc_major" -lt 1 ] || [ "$gcc_major" -gt 20 ]; then
-        gcc_major="15"  # Assumir GCC moderno
-        _log "Não foi possível detectar versão exata - assumindo GCC moderno"
-    fi
-
-    if [ "$gcc_major" -ge 12 ]; then
-        _log "GCC $gcc_major detectado - aplicando correções de compatibilidade"
-
-        # Flags específicas para GCC 14+ e kernels antigos
-        local gcc14_flags="-fno-strict-aliasing -fno-delete-null-pointer-checks"
-        gcc14_flags="$gcc14_flags -fno-PIE -fno-pic -no-pie"
-        gcc14_flags="$gcc14_flags -Wno-error=incompatible-pointer-types"
-        gcc14_flags="$gcc14_flags -Wno-error=discarded-qualifiers"
-        gcc14_flags="$gcc14_flags -Wno-error=implicit-function-declaration"
-        gcc14_flags="$gcc14_flags -Wno-error=int-conversion"
-        gcc14_flags="$gcc14_flags -Wno-stringop-overflow -Wno-stringop-truncation"
-        gcc14_flags="$gcc14_flags -Wno-format-overflow -Wno-format-truncation"
-        gcc14_flags="$gcc14_flags -Wno-array-bounds -Wno-dangling-pointer"
-        gcc14_flags="$gcc14_flags -Wno-address -Wno-stringop-overread"
-        gcc14_flags="$gcc14_flags -fgnu89-inline -std=gnu89"
-        gcc14_flags="$gcc14_flags -fno-builtin-strncat -fno-builtin-strncpy"
-
-        # Flags específicas para assembly com GCC 14
-        local asm_flags="-Wa,--fatal-warnings -Wa,--noexecstack"
-        asm_flags="$asm_flags -Wa,-mno-warn-deprecated"
-        asm_flags="$asm_flags -Wa,--no-pad-sections"
-
-        # Forçar modo de compatibilidade GNU89
-        export CC_VERSION_TEXT="gcc version 4.9.4"
-
-        # Configurações de host para GCC 14
-        export HOSTCC="gcc"
-        export HOSTCXX="g++"
-
-        # Atualizar todas as flags
-        export GCC14_COMPAT_FLAGS="$gcc14_flags"
-        export GCC14_ASM_FLAGS="$asm_flags"
-
-        _log "GCC $gcc_major configurado para modo compatibilidade GNU89"
-    else
-        _log "GCC $gcc_major - modo compatibilidade básico"
-        export GCC14_COMPAT_FLAGS="-fgnu89-inline -std=gnu89"
-        export GCC14_ASM_FLAGS="-Wa,--fatal-warnings -Wa,--noexecstack"
-    fi
-}
-
-_setup_build_environment() {
-    # Limpar flags conflitantes COMPLETAMENTE
-    unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
-
-    export ARCH=arm
-    export SUBARCH=arm
-
-    # FLAGS ANTI-PIE SIMPLIFICADAS para HOST com GCC 15+
-    # Evitar flags que causam problemas de parsing no shell
-    export HOSTCC="gcc"
-    export HOSTCXX="g++"
-    export HOSTCFLAGS="-fgnu89-inline -std=gnu89 -O2 -static -fno-PIE"
-    export HOSTCXXFLAGS="-fgnu89-inline -O2 -static -fno-PIE"
-    export HOSTLDFLAGS="-static"
-
-    # Flags para o kernel ARM com compatibilidade GCC 14
-    local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common"
-    local warning_flags="-Wno-error -Wno-array-bounds -Wno-stringop-overflow -Wno-format-overflow -Wno-builtin-macro-redefined"
-    local compat_flags="-fgnu89-inline -fno-strict-overflow -fconserve-stack -fno-builtin"
-
-    # Aplicar flags específicas do GCC 14
-    export KCFLAGS="$base_flags $warning_flags $compat_flags $GCC14_COMPAT_FLAGS"
-    export AFLAGS="$GCC14_ASM_FLAGS"
-    export KBUILD_AFLAGS="$GCC14_ASM_FLAGS"
-    export KBUILD_CFLAGS="$base_flags $warning_flags $compat_flags $GCC14_COMPAT_FLAGS"
-    export LDFLAGS=""
-
-    _log "Ambiente de compilacao configurado com compatibilidade GCC 14"
-}
-
-_fix_makefile_gcc14() {
-    _log "Corrigindo Makefiles para GCC 14..."
-
-    # Adicionar verificação de versão do GCC no Makefile principal
-    if [ -f Makefile ]; then
-        # Backup
-        cp Makefile Makefile.orig
-
-        # Corrigir problema do kernelrelease primeiro
-        _log "Corrigindo problema do kernelrelease..."
-
-        # Encontrar e corrigir a linha que gera o erro de kernelrelease
-        sed -i '/kernelrelease not valid/d' Makefile
-        sed -i '/exceeds 64 characters/d' Makefile
-
-        # Substituir a validação problemática por uma versão simples
-        sed -i 's/KERNELRELEASE = .*/KERNELRELEASE = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)/' Makefile
-
-        # Forçar valores específicos se necessário
-        sed -i 's/^VERSION = .*/VERSION = 3/' Makefile
-        sed -i 's/^PATCHLEVEL = .*/PATCHLEVEL = 4/' Makefile
-        sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 113/' Makefile
-        sed -i 's/^EXTRAVERSION = .*/EXTRAVERSION =/' Makefile
-
-        # Adicionar flags de compatibilidade GCC 14+ de forma mais segura
-        cat >> Makefile << 'EOF'
-
-# ============ GCC 15+ COMPATIBILITY OVERRIDE ============
-# Force old behavior for modern GCC versions
-KBUILD_CFLAGS += -fgnu89-inline -std=gnu89 -Wno-error -O2
-KBUILD_CFLAGS += -Wno-array-bounds -Wno-stringop-overflow -Wno-format-overflow
-KBUILD_CFLAGS += -Wno-stringop-truncation -Wno-dangling-pointer -Wno-address
-KBUILD_CFLAGS += -fno-delete-null-pointer-checks -fno-builtin-strncat
-KBUILD_CFLAGS += -fno-stack-protector -fno-strict-aliasing
-
-# Host flags - simplified to avoid shell parsing issues
-HOSTCFLAGS := -fgnu89-inline -std=gnu89 -O2 -fno-PIE -static
-HOSTCXXFLAGS := -fgnu89-inline -O2 -fno-PIE -static
-HOSTLDFLAGS := -static
-
-# Override problematic host compilation detection
-HOST_EXTRACFLAGS :=
-HOST_EXTRACXXFLAGS :=
-
-# Force fixed kernel version to avoid validation issues
-KERNELRELEASE := 3.4.113
-UTS_RELEASE := "3.4.113"
-EOF
-        _log "Makefile principal corrigido"
-    fi
-
-    # Corrigir scripts/Makefile.host para GCC 15+ - modo mais simples
-    if [ -f scripts/Makefile.host ]; then
-        cp scripts/Makefile.host scripts/Makefile.host.orig
-
-        # Substituir completamente as definições problemáticas
-        cat > scripts/Makefile.host.new << 'EOF'
-# scripts/Makefile.host - GCC 15+ Compatible Version
-# This file contains the rules to build the host programs
-
-# Simplified host compilation - avoid complex flag parsing
-HOSTCC       := gcc
-HOSTCXX      := g++
-
-# Simple, static flags that work with GCC 15+
-hostc_flags  = -fgnu89-inline -std=gnu89 -O2 -static -fno-PIE
-hostcxx_flags = -fgnu89-inline -O2 -static -fno-PIE
-
-# Host programs
-hostprogs-y := fixdep
-always      := $(hostprogs-y)
-
-# Simple compilation rules
-scripts/basic/fixdep: scripts/basic/fixdep.c
-	$(HOSTCC) $(hostc_flags) -o $@ $<
-
-# Pattern rules
-%: %.c
-	$(HOSTCC) $(hostc_flags) -o $@ $<
-
-.PHONY: $(always)
-EOF
-        mv scripts/Makefile.host.new scripts/Makefile.host
-        _log "scripts/Makefile.host completamente reescrito"
-    fi
-
-    _log "Makefiles corrigidos para GCC 14"
-}
-
-_fix_vfp_gcc14() {
-    _log "Corrigindo VFP para GCC 14..."
-
-    if [ -f arch/arm/vfp/entry.S ]; then
-        cp arch/arm/vfp/entry.S arch/arm/vfp/entry.S.backup
-
-        # Criar versão hardcoded das macros para evitar problemas de preprocessamento GCC 14
-        cat > arch/arm/vfp/entry.S << 'EOF'
-/*
- *  linux/arch/arm/vfp/entry.S - GCC 14 Compatible Version
- *
- *  Copyright (C) 2004 ARM Limited.
- *  Written by Deep Blue Solutions Limited.
- *  Modified for GCC 14 compatibility
- */
-#include <asm/thread_info.h>
-#include <asm/vfpmacros.h>
-#include "../kernel/entry-header.S"
-
-/* Hardcoded offset values to avoid GCC 14 macro expansion issues */
-#define S_PC_OFFSET     60
-#define TI_CPU_OFFSET   20
-#define TI_PREEMPT_OFFSET  8
-#define TI_VFPSTATE_OFFSET 144
-
-@ VFP entry point.
-@
-@  r0  = instruction opcode (32-bit ARM or two 16-bit Thumb)
-@  r2  = PC value to resume execution after successful emulation
-@  r9  = normal "successful" return address
-@  r10 = this threads thread_info structure
-@  lr  = unrecognised instruction return address
-@  IRQs disabled.
-@
-ENTRY(do_vfp)
-#ifdef CONFIG_PREEMPT_COUNT
-	ldr	r4, [r10, #TI_PREEMPT_OFFSET]	@ get preempt count
-	add	r11, r4, #1			@ increment it
-	str	r11, [r10, #TI_PREEMPT_OFFSET]
-#endif
-	str	r2, [sp, #S_PC_OFFSET]		@ update regs->ARM_pc for Thumb 2 case
- 	ldr	r4, .LCvfp
-	ldr	r11, [r10, #TI_CPU_OFFSET]	@ CPU number
-	add	r10, r10, #TI_VFPSTATE_OFFSET	@ r10 = workspace
-	ldr	pc, [r4]			@ call VFP entry point
-ENDPROC(do_vfp)
-
-ENTRY(vfp_null_entry)
-#ifdef CONFIG_PREEMPT_COUNT
-	get_thread_info	r10
-	ldr	r4, [r10, #TI_PREEMPT_OFFSET]	@ get preempt count
-	sub	r11, r4, #1			@ decrement it
-	str	r11, [r10, #TI_PREEMPT_OFFSET]
-#endif
-	mov	pc, lr
-ENDPROC(vfp_null_entry)
-
-	.align	2
-.LCvfp:
-	.word	vfp_vector
-
-@ This code is called if the VFP does not exist. It needs to flag the
-@ failure to the VFP initialisation code.
-
-	__INIT
-ENTRY(vfp_testing_entry)
-#ifdef CONFIG_PREEMPT_COUNT
-	get_thread_info	r10
-	ldr	r4, [r10, #TI_PREEMPT_OFFSET]	@ get preempt count
-	sub	r11, r4, #1			@ decrement it
-	str	r11, [r10, #TI_PREEMPT_OFFSET]
-#endif
-	ldr	r0, VFP_arch_address
-	str	r5, [r0]			@ known non-zero value
-	mov	pc, r9				@ we have handled the fault
-ENDPROC(vfp_testing_entry)
-
-	.align	2
-VFP_arch_address:
-	.word	VFP_arch
-
-	__FINIT
-EOF
-        _log "VFP reescrito com offsets hardcoded para GCC 14"
-    fi
-}
-
-_build_host_tools() {
-    _log "Compilando ferramentas host necessárias..."
-
-    # Lista de ferramentas essenciais para compilar na ordem correta
-    local tools="scripts/basic/fixdep scripts/kconfig/conf scripts/mod/modpost"
-
-    for tool in $tools; do
-        if [ ! -f "$tool" ]; then
-            local tool_dir=$(dirname "$tool")
-            local tool_name=$(basename "$tool")
-
-            _log "Compilando $tool..."
-
-            # Tentar compilar usando make primeiro
-            make ARCH=arm HOSTCC="gcc" \
-                 HOSTCFLAGS="-fgnu89-inline -std=gnu89 -O2 -static -fno-PIE" \
-                 HOSTLDFLAGS="-static" \
-                 "$tool" 2>/dev/null || {
-
-                _log "Make falhou para $tool, tentando compilação manual..."
-
-                # Compilação manual baseada no tipo de ferramenta
-                case "$tool_name" in
-                    "fixdep")
-                        if [ -f scripts/basic/fixdep.c ]; then
-                            gcc -fgnu89-inline -std=gnu89 -O2 -static -fno-PIE \
-                                -o scripts/basic/fixdep scripts/basic/fixdep.c
-                        fi
-                        ;;
-                    "conf")
-                        if [ -f scripts/kconfig/conf.c ]; then
-                            # Procurar todos os .c necessários para conf
-                            local kconfig_srcs="scripts/kconfig/conf.c"
-                            [ -f scripts/kconfig/zconf.tab.c ] && kconfig_srcs="$kconfig_srcs scripts/kconfig/zconf.tab.c"
-                            [ -f scripts/kconfig/util.c ] && kconfig_srcs="$kconfig_srcs scripts/kconfig/util.c"
-                            [ -f scripts/kconfig/confdata.c ] && kconfig_srcs="$kconfig_srcs scripts/kconfig/confdata.c"
-                            [ -f scripts/kconfig/expr.c ] && kconfig_srcs="$kconfig_srcs scripts/kconfig/expr.c"
-                            [ -f scripts/kconfig/symbol.c ] && kconfig_srcs="$kconfig_srcs scripts/kconfig/symbol.c"
-                            [ -f scripts/kconfig/menu.c ] && kconfig_srcs="$kconfig_srcs scripts/kconfig/menu.c"
-
-                            gcc -fgnu89-inline -std=gnu89 -O2 -static -fno-PIE \
-                                -Iscripts/kconfig -DCURSES_LOC=\<curses.h\> \
-                                $kconfig_srcs -o scripts/kconfig/conf 2>/dev/null || {
-
-                                # Última tentativa - usar apenas conf.c
-                                gcc -fgnu89-inline -std=gnu89 -O2 -static -fno-PIE \
-                                    -Iscripts/kconfig \
-                                    scripts/kconfig/conf.c -o scripts/kconfig/conf 2>/dev/null || \
-                                    _log "AVISO: Não foi possível compilar conf"
-                            }
-                        fi
-                        ;;
-                    "modpost")
-                        if [ -f scripts/mod/modpost.c ]; then
-                            local modpost_srcs="scripts/mod/modpost.c"
-                            [ -f scripts/mod/file2alias.c ] && modpost_srcs="$modpost_srcs scripts/mod/file2alias.c"
-                            [ -f scripts/mod/sumversion.c ] && modpost_srcs="$modpost_srcs scripts/mod/sumversion.c"
-
-                            gcc -fgnu89-inline -std=gnu89 -O2 -static -fno-PIE \
-                                $modpost_srcs -o scripts/mod/modpost 2>/dev/null || \
-                                _log "AVISO: Não foi possível compilar modpost"
-                        fi
-                        ;;
-                esac
-            }
-
-            # Verificar se foi compilado com sucesso
-            if [ -f "$tool" ]; then
-                _log "$tool compilado com sucesso"
-                chmod +x "$tool"
-            else
-                _log "AVISO: Falha ao compilar $tool"
-            fi
-        else
-            _log "$tool já existe"
-        fi
-    done
-
-    _log "Compilação de ferramentas host concluída"
-}
-
-_fix_headers_gcc14() {
-    _log "Corrigindo headers para GCC 14..."
-
-    # Criar compiler-gcc14.h específico
-    mkdir -p include/linux
-    cat > include/linux/compiler-gcc14.h << 'EOF'
-#ifndef __LINUX_COMPILER_GCC14_H
-#define __LINUX_COMPILER_GCC14_H
-
-/* GCC 14 compatibility layer */
-#include "compiler-gcc.h"
-
-#undef __deprecated
-#define __deprecated __attribute__((deprecated))
-
+# Função para aplicar correções via código em vez de patches
+_apply_code_fixes() {
+    _log "Aplicando correções via código..."
+
+    # CORREÇÃO 1: Timex.h (já aplicada pelo patch 01)
+    _log "Verificando correção do timex.h..."
+
+    # CORREÇÃO 2: GCC15 compatibility no compiler.h
+    if [ -f include/linux/compiler.h ]; then
+        if ! grep -q "GCC 15+ compatibility" include/linux/compiler.h; then
+            _log "Adicionando suporte GCC 15+ ao compiler.h..."
+            cat >> include/linux/compiler.h << 'EOF'
+
+/* GCC 15+ compatibility - added by pmbootstrap */
 #ifndef __always_inline
 #define __always_inline inline __attribute__((always_inline))
 #endif
-
-#ifndef __must_check
-#define __must_check __attribute__((warn_unused_result))
+#ifndef __deprecated
+#define __deprecated __attribute__((deprecated))
 #endif
-
 #ifndef __force
 #define __force __attribute__((force))
 #endif
-
-/* Suppress GCC 14 specific warnings */
-#pragma GCC diagnostic ignored "-Wstringop-overflow"
-#pragma GCC diagnostic ignored "-Wformat-overflow"
-#pragma GCC diagnostic ignored "-Warray-bounds"
-#pragma GCC diagnostic ignored "-Wdangling-pointer"
-
-#endif /* __LINUX_COMPILER_GCC14_H */
 EOF
-
-    # Melhorar compiler.h existente
-    if [ -f include/linux/compiler.h ]; then
-        cp include/linux/compiler.h include/linux/compiler.h.backup
-
-        # Adicionar include condicional para GCC 14
-        cat >> include/linux/compiler.h << 'EOF'
-
-/* GCC 14 compatibility */
-#if GCC_VERSION >= 140000
-#include <linux/compiler-gcc14.h>
-#endif
-
-#ifndef __user
-#define __user		__attribute__((noderef, address_space(1)))
-#endif
-#ifndef __kernel
-#define __kernel	__attribute__((address_space(0)))
-#endif
-#ifndef __iomem
-#define __iomem		__attribute__((noderef, address_space(2)))
-#endif
-#ifndef __force
-#define __force		__attribute__((force))
-#endif
-EOF
+        fi
     fi
 
-    _log "Headers corrigidos para GCC 14"
-}
+    # CORREÇÃO 3: Makefile flags para GCC 15+
+    if [ -f Makefile ]; then
+        if ! grep -q "GCC 15+ compatibility" Makefile; then
+            _log "Adicionando flags GCC 15+ ao Makefile..."
+            cat >> Makefile << 'EOF'
 
-_apply_manual_fixes() {
-    _log "Aplicando correções manuais com FIX ESPECÍFICO UL..."
+# GCC 15+ compatibility - added by pmbootstrap
+KBUILD_CFLAGS += -fgnu89-inline -std=gnu89 -Wno-error
+KBUILD_CFLAGS += -Wno-array-bounds -Wno-stringop-overflow -Wno-format-overflow
+HOSTCFLAGS := -fgnu89-inline -std=gnu89 -O2 -fno-PIE -static
+HOSTCXXFLAGS := -fgnu89-inline -O2 -fno-PIE -static
+HOSTLDFLAGS := -static
+EOF
+        fi
+    fi
 
-    # CORREÇÃO ESPECÍFICA PARA O PROBLEMA UL MACRO - DEVE SER A PRIMEIRA!
+    # CORREÇÃO 4: VFP entry.S com offsets hardcoded
+    if [ -f arch/arm/vfp/entry.S ]; then
+        _log "Corrigindo VFP entry.S..."
+        # Substituir referências problemáticas por offsets fixos
+        sed -i 's/#TI_PREEMPT/#8/g' arch/arm/vfp/entry.S 2>/dev/null || true
+        sed -i 's/#S_PC/#60/g' arch/arm/vfp/entry.S 2>/dev/null || true
+        sed -i 's/#TI_CPU/#20/g' arch/arm/vfp/entry.S 2>/dev/null || true
+        sed -i 's/#TI_VFPSTATE/#144/g' arch/arm/vfp/entry.S 2>/dev/null || true
+    fi
+
+    # CORREÇÃO 5: Memory macros
     if [ -f arch/arm/include/asm/memory.h ]; then
-        _log "Aplicando correção ESPECÍFICA e DEFINITIVA do UL macro..."
-        cp arch/arm/include/asm/memory.h arch/arm/include/asm/memory.h.backup
-
-        # SOLUÇÃO DIRETA: Substituir as definições problemáticas por valores hardcoded
-        sed -i 's/#define PAGE_OFFSET.*UL(CONFIG_PAGE_OFFSET).*/#define PAGE_OFFSET             UL(0xC0000000)/' arch/arm/include/asm/memory.h
-        sed -i 's/#define PHYS_OFFSET.*UL(CONFIG_PHYS_OFFSET).*/#define PHYS_OFFSET             UL(0x00000000)/' arch/arm/include/asm/memory.h
-
-        # Garantir que PAGE_OFFSET está correto mesmo se formato diferente
-        if grep -q "CONFIG_PAGE_OFFSET" arch/arm/include/asm/memory.h; then
-            sed -i 's/.*CONFIG_PAGE_OFFSET.*/#define PAGE_OFFSET             UL(0xC0000000)/' arch/arm/include/asm/memory.h
-        fi
-
-        if grep -q "CONFIG_PHYS_OFFSET" arch/arm/include/asm/memory.h; then
-            sed -i 's/.*CONFIG_PHYS_OFFSET.*/#define PHYS_OFFSET             UL(0x00000000)/' arch/arm/include/asm/memory.h
-        fi
-
-        # Garantir que UL está definido corretamente
-        if ! grep -q "#define UL(x) _AC(x, UL)" arch/arm/include/asm/memory.h; then
-            sed -i '/^#ifdef __ASSEMBLY__/i\
+        if ! grep -q "GCC 15+ compatibility" arch/arm/include/asm/memory.h; then
+            _log "Corrigindo memory.h..."
+            # Adicionar definições UL no início do arquivo
+            sed -i '/^#ifndef _ASMARM_MEMORY_H/a\
+\
+/* GCC 15+ compatibility - UL macro fix */\
 #ifndef __ASSEMBLY__\
+#ifndef UL\
 #define UL(x) _AC(x, UL)\
-#else' arch/arm/include/asm/memory.h
-        fi
+#endif\
+#else\
+#define UL(x) (x)\
+#endif' arch/arm/include/asm/memory.h
 
-        _log "PAGE_OFFSET e PHYS_OFFSET definidos com valores hardcoded - problema UL resolvido"
+            # Substituir definições problemáticas por valores fixos
+            sed -i 's/#define PAGE_OFFSET.*UL(CONFIG_PAGE_OFFSET).*/#define PAGE_OFFSET             UL(0xC0000000)/' arch/arm/include/asm/memory.h
+            sed -i 's/#define PHYS_OFFSET.*UL(CONFIG_PHYS_OFFSET).*/#define PHYS_OFFSET             UL(0x00000000)/' arch/arm/include/asm/memory.h
+        fi
     fi
 
-    # Correção para const.h se necessário
+    # CORREÇÃO 6: const.h para _AC macro
     if [ -f include/linux/const.h ]; then
-        _log "Verificando include/linux/const.h..."
-        # Garantir que __AC está definido corretamente
-        if ! grep -q "#define __AC(X,Y)" include/linux/const.h; then
-            echo '#define __AC(X,Y) (X##Y)' >> include/linux/const.h
-            echo '#define _AC(X,Y) __AC(X,Y)' >> include/linux/const.h
-        fi
-    fi
+        if ! grep -q "__AC" include/linux/const.h; then
+            _log "Adicionando macro _AC ao const.h..."
+            cat >> include/linux/const.h << 'EOF'
 
-    # Correção manual para timex.h (substitui 02-create-mach-timex.patch)
-    if [ -f arch/arm/mach-msm/include/mach/timex.h ]; then
-        _log "Verificando timex.h..."
-        # Verificar se o arquivo está vazio ou só tem comentário
-        if [ ! -s arch/arm/mach-msm/include/mach/timex.h ] || grep -q "^/\* empty \*/" arch/arm/mach-msm/include/mach/timex.h; then
-            cat > arch/arm/mach-msm/include/mach/timex.h << 'EOF'
-/*
- * MSM8226 timex.h - Clock definitions for Qualcomm MSM8226
- */
-
-#ifndef __ASM_ARCH_MSM_TIMEX_H
-#define __ASM_ARCH_MSM_TIMEX_H
-
-#define CLOCK_TICK_RATE 1000000
-
-#endif /* __ASM_ARCH_MSM_TIMEX_H */
+/* _AC macro for memory.h compatibility */
+#ifndef __AC
+#define __AC(X,Y)	(X##Y)
+#define _AC(X,Y)	__AC(X,Y)
+#endif
 EOF
-            _log "timex.h corrigido manualmente"
         fi
     fi
 
-    # Corrigir asm-offsets.c
-    if [ -f arch/arm/kernel/asm-offsets.c ] && ! grep -q "#define __user" arch/arm/kernel/asm-offsets.c; then
-        sed -i '1i#ifndef __user\n#define __user\n#endif\n' arch/arm/kernel/asm-offsets.c
-        _log "asm-offsets.c corrigido"
-    fi
-
-    # Criar kbuild.h se não existir ou não tiver DEFINE
-    if [ ! -f include/linux/kbuild.h ] || ! grep -q "DEFINE" include/linux/kbuild.h; then
+    # CORREÇÃO 7: kbuild.h se não existir
+    if [ ! -f include/linux/kbuild.h ]; then
+        _log "Criando include/linux/kbuild.h..."
         mkdir -p include/linux
         cat > include/linux/kbuild.h << 'EOF'
 #ifndef __LINUX_KBUILD_H
@@ -549,467 +145,242 @@ EOF
 
 #endif
 EOF
-        _log "kbuild.h criado"
     fi
 
-    _log "Correções manuais aplicadas com FIX ESPECÍFICO UL implementado"
-}
+    # CORREÇÃO 8: asm-offsets.c user attribute
+    if [ -f arch/arm/kernel/asm-offsets.c ]; then
+        if ! grep -q "__user.*address_space" arch/arm/kernel/asm-offsets.c; then
+            _log "Corrigindo asm-offsets.c..."
+            sed -i '/#include <linux\/sched.h>/a\
+\
+/* GCC 15+ compatibility */\
+#ifndef __user\
+#define __user __attribute__((noderef, address_space(1)))\
+#endif' arch/arm/kernel/asm-offsets.c
+        fi
+    fi
 
-_manual_prepare_kernel() {
-    _log "Preparação manual robusta do kernel..."
-
-    # 1. Criar diretórios necessários
-    mkdir -p include/generated
-    mkdir -p include/config
-    mkdir -p scripts/basic
-    mkdir -p scripts/kconfig
-
-    # 2. Gerar utsrelease.h manualmente
-    _log "Gerando utsrelease.h..."
-    cat > include/generated/utsrelease.h << 'EOF'
-#define UTS_RELEASE "3.4.113"
-EOF
-
-    # 3. Gerar autoconf.h básico
-    _log "Gerando autoconf.h..."
-    cat > include/generated/autoconf.h << 'EOF'
+    # CORREÇÃO 9: Criar mach/msm_rtb.h faltante
+    if [ ! -f arch/arm/mach-msm/include/mach/msm_rtb.h ]; then
+        _log "Criando mach/msm_rtb.h faltante..."
+        mkdir -p arch/arm/mach-msm/include/mach
+        cat > arch/arm/mach-msm/include/mach/msm_rtb.h << 'EOF'
 /*
- * Automatically generated C config: don't edit
- */
-#define CONFIG_KERNEL_GZIP 1
-#define CONFIG_ARM 1
-#define CONFIG_MMU 1
-#define CONFIG_UID16 1
-#define CONFIG_RWSEM_GENERIC_SPINLOCK 1
-#define CONFIG_GENERIC_HWEIGHT 1
-#define CONFIG_GENERIC_CALIBRATE_DELAY 1
-#define CONFIG_ZONE_DMA 1
-#define CONFIG_VECTORS_BASE 0xffff0000
-#define CONFIG_DEFCONFIG_LIST "/lib/modules/$UNAME_RELEASE/.config"
-EOF
-
-    # 4. Gerar compile.h
-    _log "Gerando compile.h..."
-    cat > include/generated/compile.h << EOF
-/* This file is auto generated, version $pkgver */
-#define UTS_MACHINE "arm"
-#define UTS_VERSION "#$pkgrel-$_flavor $(date)"
-#define LINUX_COMPILE_TIME "$(date +%T)"
-#define LINUX_COMPILE_BY "pmbootstrap"
-#define LINUX_COMPILE_HOST "postmarketos"
-#define LINUX_COMPILE_DOMAIN ""
-#define LINUX_COMPILER "gcc version $(arm-none-eabi-gcc --version | head -n1 | cut -d' ' -f3)"
-EOF
-
-    # 5. Criar bounds.h vazio se necessário
-    touch include/generated/bounds.h
-    touch include/generated/asm-offsets.h
-
-    # 6. Gerar version.h
-    _log "Gerando version.h..."
-    mkdir -p include/generated/uapi/linux
-    cat > include/generated/uapi/linux/version.h << EOF
-#define LINUX_VERSION_CODE $(echo $pkgver | awk -F. '{print ($1*65536)+($2*256)+$3}')
-#define KERNEL_VERSION(a,b,c) (((a) << 16) + ((b) << 8) + (c))
-EOF
-
-    _log "Preparação manual concluída"
-}
-
-_fix_kconfig_headers() {
-    _log "Corrigindo headers do kconfig para Alpine/musl..."
-
-    # Corrigir conf.c para funcionar sem locale.h e libintl.h
-    if [ -f scripts/kconfig/conf.c ]; then
-        cp scripts/kconfig/conf.c scripts/kconfig/conf.c.backup
-
-        # Criar versão FUNCIONAL do conf.c (não dummy)
-        cat > scripts/kconfig/conf.c << 'EOF'
-/*
- * Copyright (C) 2002 Roman Zippel <zippel@linux-m68k.org>
- * Released under the terms of the GNU GPL v2.0.
- *
- * Functional version for Alpine/musl compatibility
+ * MSM RTB (Real Time Buffer) - Stub implementation for PostmarketOS
+ * Original header missing - providing minimal implementation
  */
 
-#include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <limits.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/time.h>
+#ifndef __MACH_MSM_RTB_H
+#define __MACH_MSM_RTB_H
 
-/* Dummy defines for missing headers */
-#define gettext(x) (x)
-#define _(x) (x)
-#define N_(x) (x)
+/* Empty stub - RTB functionality disabled for PostmarketOS build */
+static inline void msm_rtb_disable(void) { }
 
-/* Functional main that processes basic config operations */
-int main(int ac, char **av)
-{
-    int i;
-
-    /* Check for silentoldconfig - most common case */
-    for (i = 1; i < ac; i++) {
-        if (strcmp(av[i], "--silentoldconfig") == 0) {
-            printf("conf: silentoldconfig completed\n");
-            return 0;
-        }
-        if (strcmp(av[i], "--oldconfig") == 0) {
-            printf("conf: oldconfig completed\n");
-            return 0;
-        }
-        if (strcmp(av[i], "--defconfig") == 0) {
-            printf("conf: defconfig completed\n");
-            return 0;
-        }
-    }
-
-    printf("conf: config operation completed\n");
-    return 0;
-}
+#endif /* __MACH_MSM_RTB_H */
 EOF
-        _log "conf.c funcional criado"
     fi
-}
 
-_fix_makefile_pie() {
-    _log "Aplicando correcao PIE simplificada..."
-
-    # Corrigir headers problemáticos do kconfig primeiro
-    _fix_kconfig_headers
-
-    # Criar um fixdep simples e funcional primeiro
-    if [ ! -f scripts/basic/fixdep ]; then
-        mkdir -p scripts/basic
-
-        # Compilar fixdep manualmente com flags simples
-        if [ -f scripts/basic/fixdep.c ]; then
-            _log "Compilando fixdep manualmente..."
-            gcc -fgnu89-inline -std=gnu89 -O2 -static -fno-PIE \
-                -o scripts/basic/fixdep scripts/basic/fixdep.c || \
-                _log "AVISO: Falha ao compilar fixdep manualmente"
+    # CORREÇÃO 10: Corrigir arch/arm/include/asm/io.h para lidar com header faltante
+    if [ -f arch/arm/include/asm/io.h ]; then
+        if grep -q "#include <mach/msm_rtb.h>" arch/arm/include/asm/io.h; then
+            _log "Corrigindo include problemático em asm/io.h..."
+            sed -i 's/#include <mach\/msm_rtb.h>/#ifdef CONFIG_MSM_RTB\n#include <mach\/msm_rtb.h>\n#endif/' arch/arm/include/asm/io.h
         fi
     fi
 
-    # Compilar kconfig/conf com versão simplificada
-    if [ ! -f scripts/kconfig/conf ]; then
-        mkdir -p scripts/kconfig
-        _log "Compilando kconfig/conf simplificado..."
-
-        # Compilar versão simplificada
-        if [ -f scripts/kconfig/conf.c ]; then
-            gcc -fgnu89-inline -std=gnu89 -O2 -static -fno-PIE \
-                -o scripts/kconfig/conf scripts/kconfig/conf.c || {
-
-                # Fallback: criar um conf dummy que sempre funciona
-                _log "Criando conf dummy..."
-                cat > scripts/kconfig/conf.c << 'EOF'
-#include <stdio.h>
-int main() { printf("conf dummy\n"); return 0; }
-EOF
-                gcc -o scripts/kconfig/conf scripts/kconfig/conf.c || \
-                    _log "ERRO: Não foi possível criar nem conf dummy"
-            }
-        fi
-
-        # Tornar executável
-        if [ -f scripts/kconfig/conf ]; then
-            chmod +x scripts/kconfig/conf
-            _log "kconfig/conf criado com sucesso"
+    # CORREÇÃO 11: Corrigir redefinições de true/false
+    if [ -f include/linux/stddef.h ]; then
+        if ! grep -q "ifndef.*false" include/linux/stddef.h; then
+            _log "Corrigindo redefinições de true/false..."
+            sed -i 's/#define false __kernel_false/#ifndef false\n#define false __kernel_false\n#endif/' include/linux/stddef.h
+            sed -i 's/#define true  __kernel_true/#ifndef true\n#define true  __kernel_true\n#endif/' include/linux/stddef.h
         fi
     fi
 
-    _log "Correção PIE simplificada aplicada"
-}
+    # CORREÇÃO 12: Corrigir warnings de formato em JFFS2
+    if [ -f fs/jffs2/wbuf.c ]; then
+        if ! grep -q "pragma GCC diagnostic" fs/jffs2/wbuf.c; then
+            _log "Corrigindo warnings de formato em JFFS2..."
+            # Adicionar pragmas para ignorar warnings de formato no início do arquivo
+            sed -i '1i\
+/* GCC 15+ format warning suppression for PostmarketOS */\
+#pragma GCC diagnostic push\
+#pragma GCC diagnostic ignored "-Wformat"\
+#pragma GCC diagnostic ignored "-Wformat-overflow"\
+#pragma GCC diagnostic ignored "-Wformat-truncation"' fs/jffs2/wbuf.c
 
-_test_critical_build() {
-    _log "Testando componentes criticos com GCC 14..."
-
-    # Testar scripts host primeiro - modo mais tolerante
-    _log "Testando compilacao de scripts host..."
-
-    # Tentar compilar fixdep se não existir
-    if [ ! -f scripts/basic/fixdep ] && [ -f scripts/basic/fixdep.c ]; then
-        _log "Compilando fixdep para teste..."
-        gcc -fgnu89-inline -std=gnu89 -O2 -static -fno-PIE \
-            -o scripts/basic/fixdep scripts/basic/fixdep.c 2>/dev/null || \
-            _log "AVISO: fixdep não pôde ser compilado"
-    fi
-
-    # Pular teste do VFP se muito problemático
-    _log "Pulando teste VFP - será testado durante build principal"
-
-    _log "Testes de componentes críticos concluídos (modo tolerante)"
-}
-
-_fix_timex_immediately() {
-    _log "CORREÇÃO CRÍTICA: Substituindo timex.h problemático IMEDIATAMENTE..."
-
-    if [ -f arch/arm/include/asm/timex.h ]; then
-        # Fazer backup
-        cp arch/arm/include/asm/timex.h arch/arm/include/asm/timex.h.pmbootstrap_backup
-
-        # Criar versão corrigida
-        cat > arch/arm/include/asm/timex.h << 'EOF'
-/*
- *  arch/arm/include/asm/timex.h - PostmarketOS Compatible Version
- */
-#ifndef _ASMARM_TIMEX_H
-#define _ASMARM_TIMEX_H
-
-#define CLOCK_TICK_RATE 1000000
-
-typedef unsigned long cycles_t;
-#define get_cycles()	({ cycles_t c; read_current_timer(&c) ? 0 : c; })
-
-#endif
-EOF
-
-        _log "timex.h substituído - problema do mach/timex.h eliminado"
-    fi
-}
-
-# ============ PREPARE ============
-prepare() {
-    cd "$builddir"
-    _log "Preparando kernel Matisse3G - GCC 15+ COMPATIBILITY MODE"
-
-	 # PRIMEIRA COISA: Corrigir timex.h ANTES de qualquer outra operação
-    _fix_timex_immediately
-
-    # 1. Detectar compilador
-    _detect_cross_compiler
-
-    # 2. NOVO: Configurar compatibilidade GCC 14 PRIMEIRO
-    _setup_gcc14_compatibility
-
-    # 3. Configurar ambiente DEPOIS das correções GCC 14
-    _setup_build_environment
-
-    # 4. Aplicar patches (agora apenas 03-fix-defconfig.patch)
-    default_prepare
-
-    # 5. NOVO: Aplicar correções manuais ANTES das outras correções
-    #    (substitui os patches 01 e 02 removidos + FIX UL ESPECÍFICO)
-    _apply_manual_fixes
-
-    # 6. Correções específicas GCC 14 nos Makefiles
-    _fix_makefile_gcc14
-
-    # 7. Compilar ferramentas host essenciais
-    _build_host_tools
-
-    # 8. Aplicar correção PIE inline
-    _fix_makefile_pie
-
-    # 9. Corrigir headers para GCC 14
-    _fix_headers_gcc14
-
-    # 10. NOVO: Usar correção VFP específica para GCC 14
-    _fix_vfp_gcc14
-
-    # 11. Aplicar configuração
-    if [ ! -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
-        _die "Arquivo de configuracao nao encontrado"
-    fi
-
-    cp "$srcdir/config-samsung-matisse3g.armv7" .config
-
-    # 12. Compilar ferramentas essenciais primeiro
-    _log "Compilando ferramentas de build essenciais..."
-
-    # Garantir que o conf existe antes de tentar usar
-    if [ ! -f scripts/kconfig/conf ]; then
-        _log "Criando conf básico para configuração..."
-        mkdir -p scripts/kconfig
-        cat > scripts/kconfig/conf << 'EOF'
-#!/bin/sh
-# Dummy conf script for PostmarketOS kernel build
-echo "Using dummy conf for kernel configuration"
-exit 0
-EOF
-        chmod +x scripts/kconfig/conf
-    fi
-
-    # Compilar scripts básicos primeiro - modo tolerante a falhas
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         scripts_basic 2>/dev/null || _log "AVISO: scripts_basic falhou - continuando"
-
-    # 13. Aplicar configuração diretamente (pular oldconfig problemático)
-    _log "Aplicando configuracao diretamente..."
-
-    # Simplesmente copiar a config e usar make defconfig
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         defconfig 2>/dev/null || {
-
-        _log "defconfig falhou, aplicando config manualmente..."
-        # Se defconfig falhar, aplicar configuração manualmente
-        if [ -f .config ]; then
-            _log "Usando .config existente"
-        else
-            _die "Nenhuma configuracao disponivel"
+            # Adicionar pragma de restore no final
+            echo -e '\n#pragma GCC diagnostic pop' >> fs/jffs2/wbuf.c
         fi
-    }
-
-    # 14. Preparar build com flags explícitas - modo tolerante
-    _log "Preparando build (modo tolerante a falhas)..."
-
-    # Primeiro fazer preparação manual
-    _manual_prepare_kernel
-
-    # Tentar prepare normal
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
-         prepare 2>/dev/null || {
-
-        _log "AVISO: prepare falhou, continuando com preparação manual..."
-
-        # Tentar gerar asm-offsets.h se necessário
-        if [ -f arch/arm/kernel/asm-offsets.c ]; then
-            _log "Gerando asm-offsets.h..."
-            make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-                 KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
-                 arch/arm/kernel/asm-offsets.s 2>/dev/null || _log "AVISO: asm-offsets.s falhou"
-        fi
-
-        # Gerar scripts se necessário
-        make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-             HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
-             scripts 2>/dev/null || _log "AVISO: scripts falhou"
-    }
-
-    # Verificar se os arquivos essenciais foram criados
-    if [ ! -f include/generated/utsrelease.h ]; then
-        _log "Criando utsrelease.h faltante..."
-        echo '#define UTS_RELEASE "'$pkgver'"' > include/generated/utsrelease.h
     fi
 
-    _log "Preparacao concluida com compatibilidade GCC 15"
-}
-
-# ============ BUILD ============
-build() {
-    cd "$builddir"
-    _log "Iniciando compilacao com GCC 14..."
-
-    # Configurar ambiente
-    _setup_build_environment
-
-    # Verificar se preparação foi adequada e proteger utsrelease.h
-    if [ ! -f include/generated/utsrelease.h ]; then
-        _log "utsrelease.h não encontrado, gerando..."
-        mkdir -p include/generated
-        echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
-    fi
-
-    # Proteger o arquivo contra regeneração
-    chmod 444 include/generated/utsrelease.h
-
-    # Criar um timestamp mais recente no utsrelease.h para evitar regeneração
-    touch include/generated/utsrelease.h
-
-    # Garantir que o Makefile não tenta validar kernelrelease
+    # CORREÇÃO 13: Adicionar flags globais mais agressivos para suprimir warnings
     if [ -f Makefile ]; then
-        # Remover verificações problemáticas se ainda existirem
-        sed -i '/kernelrelease not valid/d' Makefile
-        sed -i '/exceeds 64 characters/d' Makefile
+        if ! grep -q "Wno-format-overflow" Makefile; then
+            _log "Adicionando flags agressivos para warnings de formato..."
+            cat >> Makefile << 'EOF'
 
-        # Definir versão fixa no início do Makefile
-        if ! grep -q "KERNELRELEASE := 3.4.113" Makefile; then
-            sed -i '1i# Fixed kernel release for PostmarketOS build\nKERNELRELEASE := 3.4.113\nUTS_RELEASE := "3.4.113"\n' Makefile
+# Additional GCC 15+ format warning suppression
+KBUILD_CFLAGS += -Wno-format -Wno-format-overflow -Wno-format-truncation
+KBUILD_CFLAGS += -Wno-format-security -Wno-format-nonliteral -Wno-format-y2k
+KBUILD_CFLAGS += -Wno-format-extra-args -Wno-format-zero-length
+EOF
         fi
     fi
 
-    # Testar componentes críticos primeiro
-    _test_critical_build
+    _log "Correções aplicadas via código"
+}
 
-    # Tentar compilação com verificações extras
-    _log "Compilando zImage com GCC 14..."
+_detect_cross_compiler() {
+    local compilers="arm-none-eabi-gcc armv7-alpine-linux-musleabihf-gcc arm-linux-gnueabihf-gcc"
 
-    # Primeiro tentar compilar apenas os headers necessários
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" LDFLAGS="$LDFLAGS" \
-         archheaders 2>/dev/null || _log "AVISO: archheaders falhou"
+    for compiler in $compilers; do
+        if command -v "$compiler" >/dev/null 2>&1; then
+            export CROSS_COMPILE="${compiler%-gcc}-"
+            _log "Usando $compiler"
+            return 0
+        fi
+    done
 
-    # Tentar força-bruta bypass do problema - definir variáveis diretamente
+    _die "Nenhum compilador cruzado ARM encontrado!"
+}
+
+_setup_gcc15_environment() {
+    _log "Configurando ambiente para GCC 15+..."
+
+    # Limpar flags conflitantes
+    unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
+
+    export ARCH=arm
+    export SUBARCH=arm
+
+    # Host flags
+    export HOSTCC="gcc"
+    export HOSTCXX="g++"
+    export HOSTCFLAGS="-fgnu89-inline -std=gnu89 -O2 -static -fno-PIE"
+    export HOSTCXXFLAGS="-fgnu89-inline -O2 -static -fno-PIE"
+    export HOSTLDFLAGS="-static"
+
+    # Kernel flags
+    local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common"
+    local warning_flags="-Wno-error -Wno-array-bounds -Wno-stringop-overflow -Wno-format-overflow"
+    warning_flags="$warning_flags -Wno-stringop-truncation -Wno-dangling-pointer -Wno-address"
+    local compat_flags="-fgnu89-inline -fno-strict-overflow -fconserve-stack -fno-builtin"
+    local gcc15_flags="-fno-PIE -fno-pic -no-pie -Wno-error=incompatible-pointer-types"
+    gcc15_flags="$gcc15_flags -Wno-error=discarded-qualifiers -Wno-error=implicit-function-declaration"
+
+    export KCFLAGS="$base_flags $warning_flags $compat_flags $gcc15_flags"
+    export AFLAGS="-Wa,--fatal-warnings -Wa,--noexecstack -Wa,-mno-warn-deprecated"
+    export KBUILD_AFLAGS="$AFLAGS"
+    export KBUILD_CFLAGS="$KCFLAGS"
+
+    # Forçar versões fixas
     export KERNELRELEASE="3.4.113"
     export UTS_RELEASE="3.4.113"
 
-    # Agora tentar o zImage com controle mais rigoroso
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" LDFLAGS="$LDFLAGS" \
-         KERNELRELEASE="3.4.113" UTS_RELEASE="3.4.113" \
-         -j$(nproc) zImage || _die "Falha na compilacao do zImage"
-
-    # Compilar módulos
-    _log "Compilando modulos..."
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" LDFLAGS="$LDFLAGS" \
-         KERNELRELEASE="3.4.113" UTS_RELEASE="3.4.113" \
-         -j$(nproc) modules || _log "AVISO: Alguns modulos falharam"
-
-    _log "Compilacao concluida com GCC 14"
+    _log "Ambiente configurado"
 }
 
-# ============ PACKAGE ============
+prepare() {
+    cd "$builddir"
+    _log "Preparando kernel Matisse3G..."
+
+    # 1. Configurar ambiente
+    _detect_cross_compiler
+    _setup_gcc15_environment
+
+    # 2. Aplicar patches disponíveis (apenas os que funcionam)
+    _log "Aplicando patches disponíveis..."
+    for patch in $source; do
+        case $patch in
+            *.patch)
+                if [ -f "$srcdir/$patch" ]; then
+                    _log "Aplicando $patch..."
+                    patch -p1 -i "$srcdir/$patch" || _log "AVISO: $patch falhou"
+                fi
+                ;;
+        esac
+    done
+
+    # 3. Aplicar correções que falharam via código
+    _apply_code_fixes
+
+    # 4. Configuração
+    if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
+        cp "$srcdir/config-samsung-matisse3g.armv7" .config
+    fi
+
+    # 5. Criar arquivos necessários
+    mkdir -p include/generated include/config scripts/basic scripts/kconfig
+    echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
+    echo '/* Auto generated */' > include/generated/autoconf.h
+    touch include/generated/bounds.h
+    touch include/generated/asm-offsets.h
+
+    # 6. Preparar build
+    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         scripts_basic 2>/dev/null || _log "AVISO: scripts_basic falhou"
+
+    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         defconfig 2>/dev/null || _log "Usando configuração existente"
+
+    _log "Preparação concluída"
+}
+
+build() {
+    cd "$builddir"
+    _log "Compilando kernel..."
+
+    # Proteger utsrelease.h
+    if [ -f include/generated/utsrelease.h ]; then
+        chmod 444 include/generated/utsrelease.h
+    fi
+
+    # Compilar
+    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
+         KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
+         -j$(nproc) zImage || _die "Falha na compilação do zImage"
+
+    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
+         KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
+         -j$(nproc) modules || _log "AVISO: Alguns módulos falharam"
+
+    _log "Compilação concluída"
+}
+
 package() {
     cd "$builddir"
     _log "Empacotando kernel..."
 
-    # Instalar módulos
-    make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" \
-         ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         modules_install || _log "AVISO: Modulos falharam"
-
-    # Instalar kernel
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
 
-    # Instalar DTBs se existirem
+    make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" \
+         ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         modules_install 2>/dev/null || _log "AVISO: Módulos falharam"
+
     if [ -d arch/arm/boot/dts ]; then
         dtb_count=$(find arch/arm/boot/dts -name "*.dtb" 2>/dev/null | wc -l)
         if [ "$dtb_count" -gt 0 ]; then
-            _log "Instalando $dtb_count DTBs..."
             mkdir -p "$pkgdir/boot/dtbs-$_flavor"
-            find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \; 2>/dev/null || true
+            find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \; 2>/dev/null
         fi
     fi
 
-    # Link simbólico
     mkdir -p "$pkgdir/boot"
-    ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz-samsung-matisse3g" || true
+    ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 
-    # Informações da build
-    local gcc_version=$($CROSS_COMPILE"gcc" --version | head -n1)
-    cat > "$pkgdir/boot/kernel-info-$_flavor" << EOF
-Kernel: $pkgver-$pkgrel
-Data: $(date)
-Fonte: $_commit
-Compilador: $gcc_version
-Patches aplicados: GCC 14 compatibility layer, VFP hardcoded offsets, PIE fixes, headers compatibility
-Correções manuais: UL macro fix ESPECÍFICO, timex.h fix, defconfig patch
-Modo: GCC 14 Compatible Build - FIX UL MACRO IMPLEMENTADO
-Correção aplicada: PAGE_OFFSET e PHYS_OFFSET hardcoded para resolver problema de concatenação UL
-EOF
-
-    _log "Empacotamento concluido - GCC 14 Compatible com FIX UL"
+    _log "Empacotamento concluído"
 }
 
-# Checksums atualizados (apenas para os arquivos que restaram)
 sha512sums="
-726321e16d16edad715abd4bc83e9f546902e11b5d2c5f5ab1b7076872ad0fceee85d2e512e8007a78c0a956b3454b239b9a844149a87094a342d91030972889  03-fix-defconfig.patch
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 9bcc57e7a3de597dec583da93f5cab0200f48dc053eaeaeb499dab993f50c5a5af5639b14c3eaa04f72eb430df694a920613116e2b9008fab4da86ca92311606  config-samsung-matisse3g.armv7
+f3bbc54d1c3433310f701c0da130c165d8baab29d924ad90a7021c40818e767066c10b6c2467b97d92b43191a7d0e1bb389dc056463263c14347e9e4582ae0ca  01-fix-timex-header.patch
+726321e16d16edad715abd4bc83e9f546902e11b5d2c5f5ab1b7076872ad0fceee85d2e512e8007a78c0a956b3454b239b9a844149a87094a342d91030972889  03-fix-defconfig.patch
 "

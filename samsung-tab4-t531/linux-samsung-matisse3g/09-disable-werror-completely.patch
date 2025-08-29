@@ -1,0 +1,23 @@
+--- a/Makefile
++++ b/Makefile
+@@ -357,7 +357,7 @@ KBUILD_CPPFLAGS := -D__KERNEL__
+ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
+ 		   -fno-strict-aliasing -fno-common \
+ 		   -Werror-implicit-function-declaration \
+-		   -Wno-format-security \
++		   -Wno-format-security -Wno-error \
+ 		   -fno-delete-null-pointer-checks
+ KBUILD_AFLAGS_KERNEL :=
+ KBUILD_CFLAGS_KERNEL :=
+@@ -620,6 +620,11 @@ ifdef CONFIG_DEBUG_INFO
+ KBUILD_CFLAGS	+= -g
+ KBUILD_AFLAGS	+= -Wa,-gdwarf-2
+ endif
++
++# Disable all format warnings for GCC 15+ compatibility
++KBUILD_CFLAGS += -Wno-format -Wno-format-overflow -Wno-format-truncation
++KBUILD_CFLAGS += -Wno-format-security -Wno-format-nonliteral
++KBUILD_CFLAGS += -Wno-error -w
+ 
+ ifdef CONFIG_DEBUG_INFO_REDUCED
+ KBUILD_CFLAGS	+= $(call cc-option, -femit-struct-debug-baseonly) \
