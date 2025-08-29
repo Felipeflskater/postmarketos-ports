@@ -1,0 +1,74 @@
+--- a/fs/jffs2/erase.c
++++ b/fs/jffs2/erase.c
+@@ -354,7 +354,7 @@ static int jffs2_block_check_erase(struct jffs2_sb_info *c, struct jffs2_eraseb
+ 		if (retlen < c->sector_size) {
+ 			/* Don't muck about if it won't let us point to the whole erase sector */
+-			jffs2_dbg(1, "MTD point returned len too short: 0x%zx\n",
++			jffs2_dbg(1, "MTD point returned len too short: 0x%x\n",
+-				  retlen);
++				  (unsigned int)retlen);
+ 			mtd_unpoint(c->mtd, jeb->offset, retlen);
+ 			goto do_flash_read;
+ 		}
+@@ -399,7 +399,7 @@ static int jffs2_block_check_erase(struct jffs2_sb_info *c, struct jffs2_eraseb
+ 		retlen = c->sector_size;
+ 		ret = mtd_read(c->mtd, jeb->offset, c->sector_size, &retlen, ebuf);
+ 		if (ret) {
+-			pr_warn("Read of newly-erased block at 0x%08x failed: %d. Putting on bad_list\n",
++			pr_warn("Read of newly-erased block at 0x%08x failed: %d. Putting on bad_list\n", 
+ 				jeb->offset, ret);
+ 			ret = -EIO;
+ 			goto fail;
+@@ -407,7 +407,7 @@ static int jffs2_block_check_erase(struct jffs2_sb_info *c, struct jffs2_eraseb
+ 		}
+ 		if (retlen != c->sector_size) {
+-			pr_warn("Short read from newly-erased block at 0x%08x. Wanted %d, got %zd\n",
++			pr_warn("Short read from newly-erased block at 0x%08x. Wanted %d, got %u\n",
+-				jeb->offset, c->sector_size, retlen);
++				jeb->offset, c->sector_size, (unsigned int)retlen);
+ 			ret = -EIO;
+ 			goto fail;
+ 		}
+@@ -468,8 +468,8 @@ static int jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseb
+ 		if (jffs2_write_nand_cleanmarker(c, jeb))
+ 			goto filebad;
+ 	} else {
+-		struct kvec vecs[1];
+-		struct jffs2_unknown_node marker = {
++		struct kvec vecs[1]; 
++		struct jffs2_unknown_node marker = { 
+ 			.magic =	cpu_to_je16(JFFS2_MAGIC_BITMASK),
+ 			.nodetype =	cpu_to_je16(JFFS2_NODETYPE_CLEANMARKER),
+ 			.totlen =	cpu_to_je32(c->cleanmarker_size)
+@@ -481,7 +481,7 @@ static int jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseb
+ 		ret = jffs2_flash_direct_writev(c, vecs, 1, jeb->offset, &retlen);
+ 
+ 		if (ret || retlen != c->cleanmarker_size) {
+-			if (ret)
++			if (ret) 
+ 				pr_warn("Write clean marker to block at 0x%08x failed: %d\n",
+ 				       jeb->offset, ret);
+ 			else
+@@ -489,7 +489,7 @@ static int jffs2_mark_erased_block(struct jffs2_sb_info *c, struct jffs2_eraseb
+ 
+ 			if (retlen != c->cleanmarker_size) {
+-				pr_warn("Short write to newly-erased block at 0x%08x: Wanted %zd, got %zd\n",
++				pr_warn("Short write to newly-erased block at 0x%08x: Wanted %u, got %u\n",
+-				       jeb->offset, c->cleanmarker_size, retlen);
++				       jeb->offset, (unsigned int)c->cleanmarker_size, (unsigned int)retlen);
+ 
+ 			ret = -EIO;
+ 			goto filebad;
+--- a/fs/nfsd/nfscache.c
++++ b/fs/nfsd/nfscache.c
+@@ -313,7 +313,7 @@ nfsd_cache_append(struct svc_rqst *rqstp, struct kvec *data)
+ 	struct kvec	*vec = &rqstp->rq_res.head[0];
+ 
+ 	if (vec->iov_len + data->iov_len > PAGE_SIZE) {
+-		printk(KERN_WARNING "nfsd: cached reply too large (%Zd).\n",
++		printk(KERN_WARNING "nfsd: cached reply too large (%u).\n",
+-				data->iov_len);
++				(unsigned int)data->iov_len);
+ 		return 0;
+ 	}
+ 	/* Copy reply data into the buffer and bump the buffer size. */

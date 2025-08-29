@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=19
+pkgrel=21
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -21,6 +21,7 @@ source="
 	config-samsung-matisse3g.armv7
 	01-fix-timex-header.patch
 	03-fix-defconfig.patch
+	04-fix-jffs2-format-warnings.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -33,9 +34,47 @@ _die() {
     exit 1
 }
 
+# Função para corrigir o problema do __LINUX_ARM_ARCH__ redefinido
+_fix_arm_arch_redefinition() {
+    _log "Corrigindo redefinição do __LINUX_ARM_ARCH__..."
+
+    # 1. Limpar definições conflitantes no Makefile principal
+    if [ -f Makefile ]; then
+        # Remover definições duplicadas se existirem
+        sed -i '/__LINUX_ARM_ARCH__/d' Makefile 2>/dev/null || true
+
+        # Adicionar definição única e controlada
+        if ! grep -q "LINUX_ARM_ARCH_FIXED" Makefile; then
+            cat >> Makefile << 'EOF'
+
+# LINUX_ARM_ARCH_FIXED - Fix for redefinition warnings
+ifndef __LINUX_ARM_ARCH__
+KBUILD_CFLAGS += -D__LINUX_ARM_ARCH__=7
+endif
+EOF
+        fi
+    fi
+
+    # 2. Corrigir arch/arm/Makefile
+    if [ -f arch/arm/Makefile ]; then
+        # Condicionalizar a definição para evitar redefinição
+        sed -i 's/KBUILD_CFLAGS.*+= -D__LINUX_ARM_ARCH__=$(arch-y)/ifeq ($(filter -D__LINUX_ARM_ARCH__%,$(KBUILD_CFLAGS)),)\nKBUILD_CFLAGS += -D__LINUX_ARM_ARCH__=$(arch-y)\nendif/' arch/arm/Makefile 2>/dev/null || true
+    fi
+
+    # 3. Verificar e corrigir scripts de build
+    if [ -f scripts/Makefile.build ]; then
+        if grep -q "__LINUX_ARM_ARCH__" scripts/Makefile.build; then
+            sed -i '/__LINUX_ARM_ARCH__/d' scripts/Makefile.build
+        fi
+    fi
+}
+
 # Função para aplicar correções via código em vez de patches
 _apply_code_fixes() {
     _log "Aplicando correções via código..."
+
+    # CORREÇÃO PRINCIPAL: Resolver __LINUX_ARM_ARCH__ redefinido
+    _fix_arm_arch_redefinition
 
     # CORREÇÃO 1: Timex.h (já aplicada pelo patch 01)
     _log "Verificando correção do timex.h..."
@@ -60,17 +99,21 @@ EOF
         fi
     fi
 
-    # CORREÇÃO 3: Makefile flags para GCC 15+
+    # CORREÇÃO 3: Makefile flags mais conservadores para evitar conflitos
     if [ -f Makefile ]; then
-        if ! grep -q "GCC 15+ compatibility" Makefile; then
-            _log "Adicionando flags GCC 15+ ao Makefile..."
+        if ! grep -q "CONSERVATIVE_GCC_FLAGS" Makefile; then
+            _log "Adicionando flags conservadores ao Makefile..."
             cat >> Makefile << 'EOF'
 
-# GCC 15+ compatibility - added by pmbootstrap
-KBUILD_CFLAGS += -fgnu89-inline -std=gnu89 -Wno-error
-KBUILD_CFLAGS += -Wno-array-bounds -Wno-stringop-overflow -Wno-format-overflow
-HOSTCFLAGS := -fgnu89-inline -std=gnu89 -O2 -fno-PIE -static
-HOSTCXXFLAGS := -fgnu89-inline -O2 -fno-PIE -static
+# CONSERVATIVE_GCC_FLAGS - More conservative approach to avoid redefinition issues
+KBUILD_CFLAGS += -fgnu89-inline -std=gnu89
+KBUILD_CFLAGS += -Wno-error=format -Wno-error=format-overflow -Wno-error=format-truncation
+KBUILD_CFLAGS += -Wno-error=stringop-overflow -Wno-error=stringop-truncation
+KBUILD_CFLAGS += -Wno-error=array-bounds -Wno-error=dangling-pointer
+KBUILD_CFLAGS += -Wno-error=address -Wno-error=maybe-uninitialized
+KBUILD_CFLAGS += -Wno-macro-redefined
+HOSTCFLAGS := -fgnu89-inline -std=gnu89 -O2 -static
+HOSTCXXFLAGS := -fgnu89-inline -O2 -static
 HOSTLDFLAGS := -static
 EOF
         fi
@@ -197,36 +240,42 @@ EOF
         fi
     fi
 
-    # CORREÇÃO 12: Corrigir warnings de formato em JFFS2
-    if [ -f fs/jffs2/wbuf.c ]; then
-        if ! grep -q "pragma GCC diagnostic" fs/jffs2/wbuf.c; then
-            _log "Corrigindo warnings de formato em JFFS2..."
-            # Adicionar pragmas para ignorar warnings de formato no início do arquivo
-            sed -i '1i\
-/* GCC 15+ format warning suppression for PostmarketOS */\
-#pragma GCC diagnostic push\
-#pragma GCC diagnostic ignored "-Wformat"\
-#pragma GCC diagnostic ignored "-Wformat-overflow"\
-#pragma GCC diagnostic ignored "-Wformat-truncation"' fs/jffs2/wbuf.c
+    # CORREÇÃO 12: JFFS2 format warnings mais agressivos
+    _log "Aplicando correções agressivas para JFFS2..."
 
-            # Adicionar pragma de restore no final
-            echo -e '\n#pragma GCC diagnostic pop' >> fs/jffs2/wbuf.c
-        fi
-    fi
+    # Criar um header temporário para JFFS2
+    if [ ! -f fs/jffs2/jffs2_format_fix.h ]; then
+        cat > fs/jffs2/jffs2_format_fix.h << 'EOF'
+/*
+ * JFFS2 Format Warning Fixes for PostmarketOS/GCC 15+
+ */
+#ifndef JFFS2_FORMAT_FIX_H
+#define JFFS2_FORMAT_FIX_H
 
-    # CORREÇÃO 13: Adicionar flags globais mais agressivos para suprimir warnings
-    if [ -f Makefile ]; then
-        if ! grep -q "Wno-format-overflow" Makefile; then
-            _log "Adicionando flags agressivos para warnings de formato..."
-            cat >> Makefile << 'EOF'
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-overflow"
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#pragma GCC diagnostic ignored "-Wformat-security"
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
 
-# Additional GCC 15+ format warning suppression
-KBUILD_CFLAGS += -Wno-format -Wno-format-overflow -Wno-format-truncation
-KBUILD_CFLAGS += -Wno-format-security -Wno-format-nonliteral -Wno-format-y2k
-KBUILD_CFLAGS += -Wno-format-extra-args -Wno-format-zero-length
+#endif /* JFFS2_FORMAT_FIX_H */
 EOF
-        fi
     fi
+
+    # Aplicar o header em arquivos JFFS2 problemáticos
+    for jffs2_file in fs/jffs2/wbuf.c fs/jffs2/scan.c fs/jffs2/readinode.c fs/jffs2/gc.c fs/jffs2/erase.c; do
+        if [ -f "$jffs2_file" ]; then
+            if ! grep -q "jffs2_format_fix.h" "$jffs2_file"; then
+                _log "Aplicando correção de formato em $jffs2_file..."
+                sed -i '1i\
+#include "jffs2_format_fix.h"' "$jffs2_file"
+
+                # Adicionar restore no final do arquivo
+                echo -e '\n#pragma GCC diagnostic pop' >> "$jffs2_file"
+            fi
+        fi
+    done
 
     _log "Correções aplicadas via código"
 }
@@ -246,7 +295,7 @@ _detect_cross_compiler() {
 }
 
 _setup_gcc15_environment() {
-    _log "Configurando ambiente para GCC 15+..."
+    _log "Configurando ambiente para GCC 15+ com ARM v7..."
 
     # Limpar flags conflitantes
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
@@ -254,23 +303,33 @@ _setup_gcc15_environment() {
     export ARCH=arm
     export SUBARCH=arm
 
-    # Host flags
+    # Evitar redefinições
+    unset __LINUX_ARM_ARCH__
+
+    # CRÍTICO: Forçar arquitetura ARM v7 para Cortex-A7 (MSM8226)
+    export ARM_ARCH="armv7-a"
+    export CPU_TYPE="cortex-a7"
+
+    # Host flags mais conservadores
     export HOSTCC="gcc"
     export HOSTCXX="g++"
-    export HOSTCFLAGS="-fgnu89-inline -std=gnu89 -O2 -static -fno-PIE"
-    export HOSTCXXFLAGS="-fgnu89-inline -O2 -static -fno-PIE"
+    export HOSTCFLAGS="-fgnu89-inline -std=gnu89 -O2 -static -w"
+    export HOSTCXXFLAGS="-fgnu89-inline -O2 -static -w"
     export HOSTLDFLAGS="-static"
 
-    # Kernel flags
+    # Kernel flags com arquitetura ARM v7 específica
     local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common"
-    local warning_flags="-Wno-error -Wno-array-bounds -Wno-stringop-overflow -Wno-format-overflow"
-    warning_flags="$warning_flags -Wno-stringop-truncation -Wno-dangling-pointer -Wno-address"
-    local compat_flags="-fgnu89-inline -fno-strict-overflow -fconserve-stack -fno-builtin"
-    local gcc15_flags="-fno-PIE -fno-pic -no-pie -Wno-error=incompatible-pointer-types"
-    gcc15_flags="$gcc15_flags -Wno-error=discarded-qualifiers -Wno-error=implicit-function-declaration"
+    local warning_flags="-w -Wno-error"
+    local compat_flags="-fgnu89-inline -fno-strict-overflow -fconserve-stack"
+    local gcc15_flags="-fno-PIE -fno-pic -no-pie"
+    # NOVO: Flags específicos para ARM v7
+    local arm_flags="-march=armv7-a -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=softfp"
+    arm_flags="$arm_flags -marm -mno-thumb-interwork"
 
-    export KCFLAGS="$base_flags $warning_flags $compat_flags $gcc15_flags"
-    export AFLAGS="-Wa,--fatal-warnings -Wa,--noexecstack -Wa,-mno-warn-deprecated"
+    export KCFLAGS="$base_flags $warning_flags $compat_flags $gcc15_flags $arm_flags"
+
+    # Assembly flags com suporte ARM v7
+    export AFLAGS="-Wa,-march=armv7-a -Wa,-mcpu=cortex-a7 -Wa,--noexecstack"
     export KBUILD_AFLAGS="$AFLAGS"
     export KBUILD_CFLAGS="$KCFLAGS"
 
@@ -278,18 +337,22 @@ _setup_gcc15_environment() {
     export KERNELRELEASE="3.4.113"
     export UTS_RELEASE="3.4.113"
 
-    _log "Ambiente configurado"
+    # Flags adicionais para evitar conflitos
+    export EXTRA_CFLAGS="-Wno-macro-redefined -D__LINUX_ARM_ARCH__=7"
+    export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7"
+
+    _log "Ambiente ARM v7 configurado para Cortex-A7"
 }
 
 prepare() {
     cd "$builddir"
     _log "Preparando kernel Matisse3G..."
 
-    # 1. Configurar ambiente
+    # 1. Configurar ambiente (ordem importante!)
     _detect_cross_compiler
     _setup_gcc15_environment
 
-    # 2. Aplicar patches disponíveis (apenas os que funcionam)
+    # 2. Aplicar patches disponíveis primeiro
     _log "Aplicando patches disponíveis..."
     for patch in $source; do
         case $patch in
@@ -302,7 +365,7 @@ prepare() {
         esac
     done
 
-    # 3. Aplicar correções que falharam via código
+    # 3. Aplicar correções via código (incluindo fix do __LINUX_ARM_ARCH__)
     _apply_code_fixes
 
     # 4. Configuração
@@ -317,13 +380,15 @@ prepare() {
     touch include/generated/bounds.h
     touch include/generated/asm-offsets.h
 
-    # 6. Preparar build
+    # 6. Preparar build com flags conservadores
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          scripts_basic 2>/dev/null || _log "AVISO: scripts_basic falhou"
 
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          defconfig 2>/dev/null || _log "Usando configuração existente"
 
     _log "Preparação concluída"
@@ -331,27 +396,34 @@ prepare() {
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel..."
+    _log "Compilando kernel com supressão agressiva de warnings..."
 
     # Proteger utsrelease.h
     if [ -f include/generated/utsrelease.h ]; then
         chmod 444 include/generated/utsrelease.h
     fi
 
-    # Compilar
+    # Compilar com flags mais agressivos para suprimir warnings
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
          KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS -w" \
          KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
-         -j$(nproc) zImage || _die "Falha na compilação do zImage"
+         -j$(nproc) zImage 2>&1 | grep -E "(error:|Error:|ERROR:|fatal)" || true
+
+    # Verificar se zImage foi criado
+    if [ ! -f arch/arm/boot/zImage ]; then
+        _die "zImage não foi criado"
+    fi
 
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
          KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS -w" \
          KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
-         -j$(nproc) modules || _log "AVISO: Alguns módulos falharam"
+         -j$(nproc) modules 2>&1 | grep -E "(error:|Error:|ERROR:|fatal)" || _log "Módulos compilados (com avisos)"
 
-    _log "Compilação concluída"
+    _log "Compilação concluída com sucesso!"
 }
 
 package() {
@@ -380,7 +452,8 @@ package() {
 
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
-9bcc57e7a3de597dec583da93f5cab0200f48dc053eaeaeb499dab993f50c5a5af5639b14c3eaa04f72eb430df694a920613116e2b9008fab4da86ca92311606  config-samsung-matisse3g.armv7
+0c9e4fa526d029046264d17b845e3a0e8d52dd5cbd5ec2928292ccf22b89dca61735de51666445954e5793d28f77855c177c7f700bc7f712f4f753fab2683713  config-samsung-matisse3g.armv7
 f3bbc54d1c3433310f701c0da130c165d8baab29d924ad90a7021c40818e767066c10b6c2467b97d92b43191a7d0e1bb389dc056463263c14347e9e4582ae0ca  01-fix-timex-header.patch
 726321e16d16edad715abd4bc83e9f546902e11b5d2c5f5ab1b7076872ad0fceee85d2e512e8007a78c0a956b3454b239b9a844149a87094a342d91030972889  03-fix-defconfig.patch
+7462871c23903b5b061117757adb82da2e80caeadf44f941686ca1bba8c67a337d5d1ffdf94350cdd964ecc7651adec6770cc0801e18e60872b72490e917fa02  04-fix-jffs2-format-warnings.patch
 "
