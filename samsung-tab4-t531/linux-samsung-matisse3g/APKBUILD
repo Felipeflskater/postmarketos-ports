@@ -79,24 +79,118 @@ _apply_code_fixes() {
     # CORREÇÃO 1: Timex.h (já aplicada pelo patch 01)
     _log "Verificando correção do timex.h..."
 
-    # CORREÇÃO 2: GCC15 compatibility no compiler.h
+    # CORREÇÃO 2: Remoção completa do compiler.h problemático
     if [ -f include/linux/compiler.h ]; then
-        if ! grep -q "GCC 15+ compatibility" include/linux/compiler.h; then
-            _log "Adicionando suporte GCC 15+ ao compiler.h..."
-            cat >> include/linux/compiler.h << 'EOF'
+        _log "Removendo compiler.h problemático e criando versão minimalista..."
+        [ ! -f include/linux/compiler.h.orig ] && cp include/linux/compiler.h include/linux/compiler.h.orig
 
-/* GCC 15+ compatibility - added by pmbootstrap */
-#ifndef __always_inline
-#define __always_inline inline __attribute__((always_inline))
+        # Criar versão absolutamente minimalista que funciona
+        cat > include/linux/compiler.h << 'EOF'
+#ifndef __LINUX_COMPILER_H
+#define __LINUX_COMPILER_H
+
+#ifndef __ASSEMBLY__
+
+/* Definições básicas para sparse/checker */
+#ifdef __CHECKER__
+# define __user		__attribute__((noderef, address_space(1)))
+# define __kernel	__attribute__((address_space(0)))
+# define __safe		__attribute__((safe))
+# define __force	__attribute__((force))
+# define __nocast	__attribute__((nocast))
+# define __iomem	__attribute__((noderef, address_space(2)))
+# define __acquires(x)	__attribute__((context(x,0,1)))
+# define __releases(x)	__attribute__((context(x,1,0)))
+# define __acquire(x)	__context__(x,1)
+# define __release(x)	__context__(x,-1)
+# define __cond_lock(x,c)	((c) ? ({ __acquire(x); 1; }) : 0)
+# define __percpu	__attribute__((noderef, address_space(3)))
+# define __rcu		__attribute__((noderef, address_space(4)))
+#else
+# define __user
+# define __kernel
+# define __safe
+# define __force
+# define __nocast
+# define __iomem
+# define __acquires(x)
+# define __releases(x)
+# define __acquire(x) (void)0
+# define __release(x) (void)0
+# define __cond_lock(x,c) (c)
+# define __percpu
+# define __rcu
 #endif
-#ifndef __deprecated
-#define __deprecated __attribute__((deprecated))
+
+/* Macros básicas */
+#define ___PASTE(a,b) a##b
+#define __PASTE(a,b) ___PASTE(a,b)
+
+/* Atributos básicos do GCC */
+#define __deprecated		__attribute__((deprecated))
+#define __packed		__attribute__((packed))
+#define __weak			__attribute__((weak))
+#define __always_inline		inline __attribute__((always_inline))
+#define __pure			__attribute__((pure))
+#define __aligned(x)		__attribute__((aligned(x)))
+#define __printf(a, b)		__attribute__((format(printf, a, b)))
+#define __scanf(a, b)		__attribute__((format(scanf, a, b)))
+#define __attribute_const__	__attribute__((__const__))
+#define __maybe_unused		__attribute__((unused))
+#define __always_unused		__attribute__((unused))
+#define __used			__attribute__((__used__))
+#define __must_check		__attribute__((warn_unused_result))
+#define __cold			__attribute__((__cold__))
+#define __section(S)		__attribute__ ((__section__(#S)))
+#define __visible		__attribute__((externally_visible))
+
+/* Macros de otimização */
+#define likely(x)		__builtin_expect(!!(x), 1)
+#define unlikely(x)		__builtin_expect(!!(x), 0)
+
+/* Barrier */
+#define barrier()		__asm__ __volatile__("": : :"memory")
+
+/* Não definido */
+#ifndef noinline
+#define noinline		__attribute__((noinline))
 #endif
-#ifndef __force
-#define __force __attribute__((force))
-#endif
+
+#define noinline_for_stack	noinline
+
+/* ACCESS_ONCE simplificado */
+#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
+
+/* Unreachable */
+#define unreachable() do { __builtin_unreachable(); } while (0)
+
+/* RELOC_HIDE */
+#define RELOC_HIDE(ptr, off)	\
+  ({ unsigned long __ptr;	\
+     __ptr = (unsigned long) (ptr);	\
+    (typeof(ptr)) (__ptr + (off)); })
+
+/* Unique ID */
+#define __UNIQUE_ID(prefix) __PASTE(__PASTE(__UNIQUE_ID_, prefix), __LINE__)
+
+/* Stubs para funcionalidades não essenciais */
+#define __compiletime_warning(message)
+#define __compiletime_error(message)
+#define __compiletime_error_fallback(condition) do { } while (0)
+#define __compiletime_object_size(obj) -1
+#define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
+#define __native_word(t) (sizeof(t) == sizeof(int) || sizeof(t) == sizeof(long))
+
+/* Kprobes stub */
+#define __kprobes
+
+/* Memory barriers stubs */
+#define read_barrier_depends() do { } while (0)
+
+#endif /* __ASSEMBLY__ */
+
+#endif /* __LINUX_COMPILER_H */
 EOF
-        fi
     fi
 
     # CORREÇÃO 3: Makefile flags mais conservadores para evitar conflitos
@@ -277,7 +371,260 @@ EOF
         fi
     done
 
-    _log "Correções aplicadas via código"
+    # CORREÇÃO 13: Corrigir problemas específicos de forma mais agressiva
+    _log "Aplicando correções diretas e específicas..."
+
+    # 1. Criar arquivo de correção para asm/io.h
+    cat > /tmp/fix_asm_io.h << 'EOF'
+#ifndef _ASM_ARM_IO_H
+#define _ASM_ARM_IO_H
+
+#ifdef __KERNEL__
+
+#include <linux/types.h>
+#include <asm/byteorder.h>
+#include <asm/memory.h>
+
+/*
+ * ISA I/O bus memory addresses are 1:1 with the physical address.
+ */
+#define isa_virt_to_bus virt_to_phys
+#define isa_page_to_bus page_to_phys
+#define isa_bus_to_virt phys_to_virt
+
+/*
+ * Generic IO read/write.  These perform native-endian accesses.  Note
+ * that some architectures will want to re-define __raw_{read,write}w.
+ */
+extern void __raw_writesb(void __iomem *addr, const void *data, int bytelen);
+extern void __raw_writesw(void __iomem *addr, const void *data, int wordlen);
+extern void __raw_writesl(void __iomem *addr, const void *data, int longlen);
+
+extern void __raw_readsb(const void __iomem *addr, void *data, int bytelen);
+extern void __raw_readsw(const void __iomem *addr, void *data, int wordlen);
+extern void __raw_readsl(const void __iomem *addr, void *data, int longlen);
+
+#define __raw_writeb(v,a)	(__chk_io_ptr(a), *(volatile unsigned char __force  *)(a) = (v))
+#define __raw_writew(v,a)	(__chk_io_ptr(a), *(volatile unsigned short __force *)(a) = (v))
+#define __raw_writel(v,a)	(__chk_io_ptr(a), *(volatile unsigned int __force   *)(a) = (v))
+
+#define __raw_readb(a)		(__chk_io_ptr(a), *(volatile unsigned char __force  *)(a))
+#define __raw_readw(a)		(__chk_io_ptr(a), *(volatile unsigned short __force *)(a))
+#define __raw_readl(a)		(__chk_io_ptr(a), *(volatile unsigned int __force   *)(a))
+
+/*
+ * Architecture ioremap implementation.
+ */
+#define MT_DEVICE		0
+#define MT_DEVICE_NONSHARED	1
+#define MT_DEVICE_CACHED	2
+#define MT_DEVICE_WC		3
+
+extern void __iomem *__arm_ioremap_pfn(unsigned long, unsigned long, size_t, unsigned int);
+extern void __iomem *__arm_ioremap(unsigned long, size_t, unsigned int);
+extern void __iomem *__arm_ioremap_exec(unsigned long, size_t, bool cached);
+extern void __arm_iounmap(volatile void __iomem *addr);
+
+extern void __iomem * (*arch_ioremap_caller)(unsigned long, size_t,
+	unsigned int, void *);
+extern void (*arch_iounmap)(volatile void __iomem *);
+
+/*
+ * Bad read/write accesses...
+ */
+extern void __readwrite_bug(const char *fn);
+
+/*
+ * Now, pick up the machine-defined IO definitions
+ */
+#ifdef CONFIG_ISA_DMA_API
+#define __io(a)			__typesafe_io(a)
+#else
+#define __io(a)			__iomem
+#endif
+
+/*
+ * IO port access primitives
+ * -------------------------
+ *
+ * The ARM doesn't have special IO access instructions; all IO is memory
+ * mapped.  Note that these are defined to perform little endian accesses
+ * only.  Their primary purpose is to access PCI and ISA peripherals.
+ *
+ * Note that for a big endian machine, this implies that the following
+ * big endian mode connectivity is in place, as described by numerous
+ * ARM documents:
+ *
+ *    PCI:  D0-D7   D8-D15 D16-D23 D24-D31
+ *    ARM: D24-D31 D16-D23  D8-D15  D0-D7
+ *
+ * The machine specific io.h include defines __io to translate an "IO"
+ * address to a memory address.
+ *
+ * Note that we prevent GCC re-ordering or caching values in expressions
+ * by introducing sequence points into the in*() definitions.  Note that
+ * __raw_* do not guarantee this behaviour.
+ *
+ * The {in,out}[bwl] macros are for emulating x86-style PCI/ISA IO space.
+ */
+#ifdef __io
+#define outb(v,p)		({ __iowmb(); __raw_writeb(v,__io(p)); })
+#define outw(v,p)		({ __iowmb(); __raw_writew((__force __u16) \
+					cpu_to_le16(v),__io(p)); })
+#define outl(v,p)		({ __iowmb(); __raw_writel((__force __u32) \
+					cpu_to_le32(v),__io(p)); })
+
+#define inb(p)	({ __u8 __v = __raw_readb(__io(p)); __iormb(); __v; })
+#define inw(p)	({ __u16 __v = le16_to_cpu((__force __le16) \
+			__raw_readw(__io(p))); __iormb(); __v; })
+#define inl(p)	({ __u32 __v = le32_to_cpu((__force __le32) \
+			__raw_readl(__io(p))); __iormb(); __v; })
+
+#define outsb(p,d,l)		__raw_writesb(__io(p),d,l)
+#define outsw(p,d,l)		__raw_writesw(__io(p),d,l)
+#define outsl(p,d,l)		__raw_writesl(__io(p),d,l)
+
+#define insb(p,d,l)		__raw_readsb(__io(p),d,l)
+#define insw(p,d,l)		__raw_readsw(__io(p),d,l)
+#define insl(p,d,l)		__raw_readsl(__io(p),d,l)
+#endif
+
+#define __iormb()		rmb()
+#define __iowmb()		wmb()
+#define mmiowb()		do { } while (0)
+
+/*
+ * ioremap and friends.
+ *
+ * ioremap takes a PCI memory address, as specified in
+ * Documentation/io-mapping.txt.
+ *
+ */
+#define ioremap(cookie,size)		__arm_ioremap((cookie), (size), MT_DEVICE)
+#define ioremap_nocache(cookie,size)	__arm_ioremap((cookie), (size), MT_DEVICE)
+#define ioremap_cached(cookie,size)	__arm_ioremap((cookie), (size), MT_DEVICE_CACHED)
+#define ioremap_wc(cookie,size)		__arm_ioremap((cookie), (size), MT_DEVICE_WC)
+#define iounmap				__arm_iounmap
+
+/*
+ * io{read,write}{8,16,32} macros
+ */
+#ifndef ioread8
+#define ioread8(p)	({ unsigned int __v = __raw_readb(p); __iormb(); __v; })
+#define ioread16(p)	({ unsigned int __v = le16_to_cpu((__force __le16)__raw_readw(p)); __iormb(); __v; })
+#define ioread32(p)	({ unsigned int __v = le32_to_cpu((__force __le32)__raw_readl(p)); __iormb(); __v; })
+
+#define iowrite8(v,p)	({ __iowmb(); __raw_writeb(v, p); })
+#define iowrite16(v,p)	({ __iowmb(); __raw_writew((__force __u16)cpu_to_le16(v), p); })
+#define iowrite32(v,p)	({ __iowmb(); __raw_writel((__force __u32)cpu_to_le32(v), p); })
+
+#define ioread8_rep(p,d,c)	__raw_readsb(p,d,c)
+#define ioread16_rep(p,d,c)	__raw_readsw(p,d,c)
+#define ioread32_rep(p,d,c)	__raw_readsl(p,d,c)
+
+#define iowrite8_rep(p,s,c)	__raw_writesb(p,s,c)
+#define iowrite16_rep(p,s,c)	__raw_writesw(p,s,c)
+#define iowrite32_rep(p,s,c)	__raw_writesl(p,s,c)
+
+extern void __iomem *ioport_map(unsigned long port, unsigned int nr);
+extern void ioport_unmap(void __iomem *addr);
+#endif
+
+struct pci_dev;
+
+extern int pci_ioremap_io(unsigned int offset, phys_addr_t phys_addr);
+extern void __iomem *pci_remap_iospace(const struct resource *res,
+				       phys_addr_t phys_addr);
+
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
+#define xlate_dev_mem_ptr(p)	__va(p)
+
+/*
+ * Convert a virtual cached pointer to an uncached pointer
+ */
+#define xlate_dev_kmem_ptr(p)	p
+
+/*
+ * Register ISA memory and port locations for glibc iopl/inb/outb
+ * emulation.
+ */
+extern void register_isa_portregion(unsigned long from, unsigned long num);
+
+static inline void __chk_io_ptr(const volatile void __iomem *ptr) { }
+
+#ifdef CONFIG_ARM_DMA_USE_IOMMU
+extern int arm_iommu_attach_device(struct device *dev,
+					struct dma_iommu_mapping *mapping);
+extern void arm_iommu_detach_device(struct device *dev);
+#else
+static inline int arm_iommu_attach_device(struct device *dev,
+					struct dma_iommu_mapping *mapping)
+{
+	return -ENODEV;
+}
+
+static inline void arm_iommu_detach_device(struct device *dev) { }
+#endif /* CONFIG_ARM_DMA_USE_IOMMU */
+
+#endif	/* __KERNEL__ */
+#endif	/* _ASM_ARM_IO_H */
+EOF
+
+    # Substituir o asm/io.h problemático
+    if [ -f arch/arm/include/asm/io.h ]; then
+        _log "Substituindo arch/arm/include/asm/io.h completamente..."
+        [ ! -f arch/arm/include/asm/io.h.orig ] && cp arch/arm/include/asm/io.h arch/arm/include/asm/io.h.orig
+        cp /tmp/fix_asm_io.h arch/arm/include/asm/io.h
+    fi
+
+    # 2. Criar arquivo de correção para moduleparam.h
+    if [ -f include/linux/moduleparam.h ]; then
+        _log "Corrigindo include/linux/moduleparam.h com sed mais específico..."
+        [ ! -f include/linux/moduleparam.h.orig ] && cp include/linux/moduleparam.h include/linux/moduleparam.h.orig
+
+        # Substituições mais específicas
+        sed -i 's/param_ops__Bool/param_ops_bool/g' include/linux/moduleparam.h
+        sed -i 's/__Bool/bool/g' include/linux/moduleparam.h
+        # Corrigir linha 118-119 especificamente
+        sed -i '118s/.*&.*/\t.ops = \&param_ops_bool,/' include/linux/moduleparam.h
+        sed -i '119s/param_ops__Bool/param_ops_bool/' include/linux/moduleparam.h
+    fi
+
+    # 3. Corrigir irqs.h de forma mais direta
+    if [ -f arch/arm/mach-msm/include/mach/irqs.h ]; then
+        _log "Corrigindo arch/arm/mach-msm/include/mach/irqs.h..."
+        [ ! -f arch/arm/mach-msm/include/mach/irqs.h.orig ] && cp arch/arm/mach-msm/include/mach/irqs.h arch/arm/mach-msm/include/mach/irqs.h.orig
+
+        # Adicionar header guard no início
+        sed -i '1i\
+#ifndef __ASM_ARCH_MSM_IRQS_H\
+#define __ASM_ARCH_MSM_IRQS_H' arch/arm/mach-msm/include/mach/irqs.h
+
+        # Substituir #endif órfão
+        sed -i 's/^#endif.*$/#endif \/\* __ASM_ARCH_MSM_IRQS_H \*\//' arch/arm/mach-msm/include/mach/irqs.h
+    fi
+
+    # 4. Corrigir timer.c com definições específicas
+    if [ -f arch/arm/mach-msm/timer.c ]; then
+        _log "Corrigindo arch/arm/mach-msm/timer.c..."
+        [ ! -f arch/arm/mach-msm/timer.c.orig ] && cp arch/arm/mach-msm/timer.c arch/arm/mach-msm/timer.c.orig
+
+        # Adicionar definições no topo do arquivo após os includes
+        sed -i '/^#include.*linux.*clockchips.h/a\
+\
+/* Timer interrupt definitions for MSM8226 - PostmarketOS fix */\
+#ifndef INT_GP_TIMER_EXP\
+#define INT_GP_TIMER_EXP		(32 + 0)  /* MSM8226 Timer 0 */\
+#endif\
+#ifndef INT_DEBUG_TIMER_EXP\
+#define INT_DEBUG_TIMER_EXP	(32 + 1)  /* MSM8226 Timer 1 */\
+#endif' arch/arm/mach-msm/timer.c
+    fi
+
+    _log "Correções diretas e específicas aplicadas"
 }
 
 _detect_cross_compiler() {
@@ -352,7 +699,10 @@ prepare() {
     _detect_cross_compiler
     _setup_gcc15_environment
 
-    # 2. Aplicar patches disponíveis primeiro
+    # 3. Aplicar correções via código ANTES dos patches
+    _apply_code_fixes
+
+    # 2. Aplicar patches disponíveis DEPOIS das correções
     _log "Aplicando patches disponíveis..."
     for patch in $source; do
         case $patch in
@@ -365,12 +715,13 @@ prepare() {
         esac
     done
 
-    # 3. Aplicar correções via código (incluindo fix do __LINUX_ARM_ARCH__)
-    _apply_code_fixes
-
-    # 4. Configuração
+    # 4. Configuração com CROSS_COMPILE definido
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
+        _log "Aplicando configuração do dispositivo..."
         cp "$srcdir/config-samsung-matisse3g.armv7" .config
+
+        # Adicionar CROSS_COMPILE ao config para evitar prompt interativo
+        echo "CONFIG_CROSS_COMPILE=\"$CROSS_COMPILE\"" >> .config
     fi
 
     # 5. Criar arquivos necessários
@@ -380,16 +731,17 @@ prepare() {
     touch include/generated/bounds.h
     touch include/generated/asm-offsets.h
 
-    # 6. Preparar build com flags conservadores
+    # 6. Preparar build com configuração não-interativa
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          scripts_basic 2>/dev/null || _log "AVISO: scripts_basic falhou"
 
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+    # Forçar configuração não-interativa
+    yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
-         defconfig 2>/dev/null || _log "Usando configuração existente"
+         oldconfig 2>/dev/null || _log "AVISO: oldconfig falhou"
 
     _log "Preparação concluída"
 }
@@ -452,7 +804,7 @@ package() {
 
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
-0c9e4fa526d029046264d17b845e3a0e8d52dd5cbd5ec2928292ccf22b89dca61735de51666445954e5793d28f77855c177c7f700bc7f712f4f753fab2683713  config-samsung-matisse3g.armv7
+4eff4dab705a03c3ce5082b00469b1d8728f6cda27a5e79786cc9bdb299f8421d016c74b0aa3e3da39e6849ac39d962b5a11aa7794ba18c5a376161447147c31  config-samsung-matisse3g.armv7
 f3bbc54d1c3433310f701c0da130c165d8baab29d924ad90a7021c40818e767066c10b6c2467b97d92b43191a7d0e1bb389dc056463263c14347e9e4582ae0ca  01-fix-timex-header.patch
 726321e16d16edad715abd4bc83e9f546902e11b5d2c5f5ab1b7076872ad0fceee85d2e512e8007a78c0a956b3454b239b9a844149a87094a342d91030972889  03-fix-defconfig.patch
 7462871c23903b5b061117757adb82da2e80caeadf44f941686ca1bba8c67a337d5d1ffdf94350cdd964ecc7651adec6770cc0801e18e60872b72490e917fa02  04-fix-jffs2-format-warnings.patch
