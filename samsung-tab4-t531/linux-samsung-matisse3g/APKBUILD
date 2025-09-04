@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=30
+pkgrel=23
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -22,11 +22,12 @@ source="
 	01-fix-timex-header.patch
 	03-fix-defconfig.patch
 	04-fix-jffs2-format-warnings.patch
-	kernel-use-the-gnu89-standard-explicitly.patch
-	gcc7-give-up-on-ilog2-const-optimizations.patch
-	gcc8-fix-put-user.patch
-	gcc10-extern_YYLOC_global_declaration.patch
-	02-gcc15-compatibility.patch
+	05-fix-fundamental-headers.patch
+	06-add-missing-byteorder-headers.patch
+	07-fix-compiler-headers.patch
+	08-fix-asm-offsets.patch
+	09-fix-memory-and-const.patch
+	10-add-gcc15-conservative-flags.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -62,11 +63,6 @@ _setup_gcc15_environment() {
     export ARCH=arm
     export SUBARCH=arm
 
-    # PostmarketOS build flags
-    export POSTMARKETOS_BUILD=1
-    export DISABLE_THUMB2=1
-    export FORCE_ARM_MODE=1
-
     # Evitar redefinições
     unset __LINUX_ARM_ARCH__
 
@@ -77,22 +73,22 @@ _setup_gcc15_environment() {
     # Host flags mais conservadores
     export HOSTCC="gcc"
     export HOSTCXX="g++"
-    export HOSTCFLAGS="-fgnu89-inline -std=gnu89 -O2 -static -w -marm"
-    export HOSTCXXFLAGS="-fgnu89-inline -O2 -static -w -marm"
+    export HOSTCFLAGS="-fgnu89-inline -std=gnu89 -O2 -static -w"
+    export HOSTCXXFLAGS="-fgnu89-inline -O2 -static -w"
     export HOSTLDFLAGS="-static"
 
     # Kernel flags com arquitetura ARM v7 específica
     local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common"
-    local warning_flags="-w -Wno-error -Wno-all -Wno-extra"
+    local warning_flags="-w -Wno-error"
     local compat_flags="-fgnu89-inline -fno-strict-overflow -fconserve-stack"
-    local gcc15_flags="-fno-PIE -fno-pic -no-pie -fno-delete-null-pointer-checks"
+    local gcc15_flags="-fno-PIE -fno-pic -no-pie"
     local arm_flags="-march=armv7-a -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=softfp"
-    arm_flags="$arm_flags -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated"
+    arm_flags="$arm_flags -marm -mno-thumb-interwork"
 
     export KCFLAGS="$base_flags $warning_flags $compat_flags $gcc15_flags $arm_flags"
 
     # Assembly flags com suporte ARM v7
-    export AFLAGS="-Wa,-march=armv7-a -Wa,-mcpu=cortex-a7 -Wa,--noexecstack -Wa,-marm"
+    export AFLAGS="-Wa,-march=armv7-a -Wa,-mcpu=cortex-a7 -Wa,--noexecstack"
     export KBUILD_AFLAGS="$AFLAGS"
     export KBUILD_CFLAGS="$KCFLAGS"
 
@@ -101,198 +97,48 @@ _setup_gcc15_environment() {
     export UTS_RELEASE="3.4.113"
 
     # Flags adicionais para evitar conflitos
-    export EXTRA_CFLAGS="-Wno-macro-redefined -D__LINUX_ARM_ARCH__=7 -DPOSTMARKETOS_BUILD=1"
-    export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7 -DPOSTMARKETOS_BUILD=1"
+    export EXTRA_CFLAGS="-Wno-macro-redefined -D__LINUX_ARM_ARCH__=7"
+    export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7"
 
-    _log "Ambiente ARM v7 configurado para Cortex-A7 com PostmarketOS flags"
+    _log "Ambiente ARM v7 configurado para Cortex-A7"
 }
 
 prepare() {
     cd "$builddir"
     _log "Preparando kernel Matisse3G..."
 
-    # 1. Configurar ambiente PRIMEIRO
+    # 1. Configurar ambiente
     _detect_cross_compiler
     _setup_gcc15_environment
 
-    # 2. CRÍTICO: Aplicar correções diretas ANTES de qualquer coisa
-    _log "=== APLICANDO CORREÇÕES DIRETAS CRÍTICAS ==="
-
-    # CORREÇÃO CRÍTICA 1: Reescrever irqs.h completamente
-    _log "Reescrevendo arch/arm/mach-msm/include/mach/irqs.h"
-    mkdir -p arch/arm/mach-msm/include/mach
-    cat > arch/arm/mach-msm/include/mach/irqs.h << 'IRQS_EOF'
-/* PostmarketOS: Completely rewritten MSM IRQs header */
-#ifndef __ASM_ARCH_MSM_IRQS_H
-#define __ASM_ARCH_MSM_IRQS_H
-
-#define MSM_IRQ_BIT(irq)     (1 << ((irq) & 31))
-
-/* PostmarketOS: MSM8226 Timer interrupts - MUST BE DEFINED */
-#define INT_GP_TIMER_EXP        32
-#define INT_DEBUG_TIMER_EXP     40
-
-/* PostmarketOS: Additional MSM8226 interrupts */
-#define INT_ADSP_A9_A11         0
-#define INT_UART1               1
-#define INT_UART2               2
-#define INT_USB_HS              3
-
-/* PostmarketOS: Standard MSM interrupts */
-#define MSM_GPIO_TO_INT(n)      ((n) + 64)
-#define MSM_GPIO_TO_INT_BASE    64
-
-/* PostmarketOS: Interrupt counts */
-#define NR_MSM_IRQS             256
-#define NR_GPIO_IRQS            146
-#define NR_BOARD_IRQS           64
-#define NR_IRQS                 (NR_MSM_IRQS + NR_GPIO_IRQS + NR_BOARD_IRQS)
-
-#endif /* __ASM_ARCH_MSM_IRQS_H */
-IRQS_EOF
-
-    # CORREÇÃO CRÍTICA 2: Corrigir timer.c
-    _log "Corrigindo arch/arm/mach-msm/timer.c"
-    if [ -f arch/arm/mach-msm/timer.c ]; then
-        # Backup original
-        cp arch/arm/mach-msm/timer.c arch/arm/mach-msm/timer.c.backup
-
-        # Inserir correções no início do arquivo
-        sed -i '1i\
-/* PostmarketOS: Timer corrections */\
-\
-/* Force timer interrupt definitions */\
-#ifndef INT_GP_TIMER_EXP\
-#define INT_GP_TIMER_EXP        32\
-#endif\
-\
-#ifndef INT_DEBUG_TIMER_EXP\
-#define INT_DEBUG_TIMER_EXP     40\
-#endif\
-\
-/* Remove deprecated IRQF_DISABLED */\
-#ifdef IRQF_DISABLED\
-#undef IRQF_DISABLED\
-#endif\
-#define IRQF_DISABLED 0\
-' arch/arm/mach-msm/timer.c
-    fi
-
-    # CORREÇÃO CRÍTICA 3: Corrigir proc-v7.S
-    _log "Corrigindo arch/arm/mm/proc-v7.S"
-    if [ -f arch/arm/mm/proc-v7.S ]; then
-        cp arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7.S.backup
-
-        # Forçar modo ARM e corrigir comentários
-        sed -i '1i\
-.arm\
-.syntax unified\
-/* PostmarketOS: ARM mode forced */' arch/arm/mm/proc-v7.S
-
-        # Substituir TODOS os comentários # por @
-        sed -i 's/PMD_FLAGS_SMP.*#.*PMD flags for SMP/PMD_FLAGS_SMP\t\t@ PMD flags for SMP/g' arch/arm/mm/proc-v7.S
-        sed -i 's/PMD_SECT_AP_READ.*#.*PMD flags for UP/PMD_SECT_AP_READ\t@ PMD flags for UP/g' arch/arm/mm/proc-v7.S
-        sed -i 's/#ifdef __ARMEB__/.ifdef __ARMEB__/g' arch/arm/mm/proc-v7.S
-
-        # Remover qualquer # restante no final das linhas
-        sed -i 's/\s*#[^@]*$//g' arch/arm/mm/proc-v7.S
-    fi
-
-    # CORREÇÃO CRÍTICA 4: Forçar modo ARM em TODOS os arquivos assembly
-    _log "Forçando modo ARM em todos os arquivos assembly..."
-    find arch/arm -name "*.S" -type f 2>/dev/null | while read asmfile; do
-        if [ -f "$asmfile" ] && ! grep -q "\.arm" "$asmfile" 2>/dev/null; then
-            sed -i '1i.arm\n.syntax unified' "$asmfile" 2>/dev/null || true
-        fi
-    done
-
-    # CORREÇÃO CRÍTICA 5: Criar headers essenciais
-    _log "Criando headers essenciais..."
-
-    mkdir -p include/linux/byteorder
-    [ ! -f include/linux/byteorder.h ] && cat > include/linux/byteorder.h << 'BYTEORDER_EOF'
-#ifndef _LINUX_BYTEORDER_H
-#define _LINUX_BYTEORDER_H
-#include <linux/types.h>
-#ifdef __ARMEB__
-#include <linux/byteorder/big_endian.h>
-#else
-#include <linux/byteorder/little_endian.h>
-#endif
-#endif
-BYTEORDER_EOF
-
-    [ ! -f include/linux/swab.h ] && cat > include/linux/swab.h << 'SWAB_EOF'
-#ifndef _LINUX_SWAB_H
-#define _LINUX_SWAB_H
-#include <linux/types.h>
-#include <linux/compiler.h>
-#define __swab16(x) ___swab16(x)
-#define __swab32(x) ___swab32(x)
-#define __swab64(x) ___swab64(x)
-#define ___swab16(x) ((__u16)((((__u16)(x) & (__u16)0x00ffU) << 8) | (((__u16)(x) & (__u16)0xff00U) >> 8)))
-#define ___swab32(x) ((__u32)((((__u32)(x) & (__u32)0x000000ffUL) << 24) | (((__u32)(x) & (__u32)0x0000ff00UL) << 8) | (((__u32)(x) & (__u32)0x00ff0000UL) >> 8) | (((__u32)(x) & (__u32)0xff000000UL) >> 24)))
-#define ___swab64(x) ((__u64)((((__u64)(x) & (__u64)0x00000000000000ffULL) << 56) | (((__u64)(x) & (__u64)0x000000000000ff00ULL) << 40) | (((__u64)(x) & (__u64)0x0000000000ff0000ULL) << 24) | (((__u64)(x) & (__u64)0x00000000ff000000ULL) << 8) | (((__u64)(x) & (__u64)0x000000ff00000000ULL) >> 8) | (((__u64)(x) & (__u64)0x0000ff0000000000ULL) >> 24) | (((__u64)(x) & (__u64)0x00ff000000000000ULL) >> 40) | (((__u64)(x) & (__u64)0xff00000000000000ULL) >> 56)))
-static inline __u16 __swab16p(const __u16 *p) { return ___swab16(*p); }
-static inline __u32 __swab32p(const __u32 *p) { return ___swab32(*p); }
-static inline __u64 __swab64p(const __u64 *p) { return ___swab64(*p); }
-#endif
-SWAB_EOF
-
-    # CORREÇÃO CRÍTICA 6: Desabilitar Thumb-2 completamente
-    _log "Desabilitando Thumb-2 em todos os arquivos..."
-    find . -name "*.h" -o -name "*.c" -o -name "*.S" | xargs grep -l "CONFIG_THUMB2_KERNEL" 2>/dev/null | while read file; do
-        sed -i 's/#ifdef CONFIG_THUMB2_KERNEL/#if 0 \/\* PostmarketOS: Thumb-2 disabled \*\//g' "$file" 2>/dev/null || true
-        sed -i 's/#if defined(CONFIG_THUMB2_KERNEL)/#if 0 \/\* PostmarketOS: Thumb-2 disabled \*\//g' "$file" 2>/dev/null || true
-    done
-
-    _log "=== CORREÇÕES DIRETAS APLICADAS ==="
-
-    # 3. Agora aplicar patches (alguns podem falhar, mas as correções diretas garantem funcionalidade)
-    _log "Aplicando patches disponíveis..."
+    # 2. Aplicar todos os patches
+    _log "Aplicando patches..."
     for patch in $source; do
         case $patch in
             *.patch)
                 if [ -f "$srcdir/$patch" ]; then
                     _log "Aplicando $patch..."
-                    patch -p1 -i "$srcdir/$patch" || _log "AVISO: $patch falhou (correções diretas já aplicadas)"
+                    patch -p1 -i "$srcdir/$patch" || _log "AVISO: $patch falhou"
                 fi
                 ;;
         esac
     done
 
-    # 4. Configuração final
+    # 3. Configuração com CROSS_COMPILE definido
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
         _log "Aplicando configuração do dispositivo..."
         cp "$srcdir/config-samsung-matisse3g.armv7" .config
-
-        # Forçar configurações ARM críticas
-        cat >> .config << 'CONFIG_EOF'
-
-# PostmarketOS ARM mode enforcement - CRITICAL
-CONFIG_CROSS_COMPILE="arm-none-eabi-"
-# CONFIG_THUMB2_KERNEL is not set
-CONFIG_ARM_THUMB=n
-CONFIG_ARM_ASM_UNIFIED=y
-CONFIG_ARM_UNWIND=y
-CONFIG_AEABI=y
-CONFIG_ARCH_MSM8226=y
-CONFIG_POSTMARKETOS_BUILD=y
-CONFIG_EOF
-
-        # Remover configurações conflitantes
-        sed -i '/CONFIG_THUMB2_KERNEL=y/d' .config
-        sed -i 's/CONFIG_THUMB2_KERNEL=y/# CONFIG_THUMB2_KERNEL is not set/' .config
+        echo "CONFIG_CROSS_COMPILE=\"$CROSS_COMPILE\"" >> .config
     fi
 
-    # 5. Criar arquivos necessários
+    # 4. Criar arquivos necessários
     mkdir -p include/generated include/config scripts/basic scripts/kconfig
     echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
     echo '/* Auto generated */' > include/generated/autoconf.h
     touch include/generated/bounds.h
     touch include/generated/asm-offsets.h
 
-    # 6. Preparar build
+    # 5. Preparar build com configuração não-interativa
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
@@ -303,66 +149,34 @@ CONFIG_EOF
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          oldconfig 2>/dev/null || _log "AVISO: oldconfig falhou"
 
-    _log "Preparação concluída com correções garantidas"
+    _log "Preparação concluída"
 }
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel com correções aplicadas..."
-
-    # Verificação final de problemas
-    _log "Verificando se correções foram aplicadas..."
-    if ! grep -q "INT_GP_TIMER_EXP" arch/arm/mach-msm/include/mach/irqs.h; then
-        _die "FALHA CRÍTICA: irqs.h não foi corrigido!"
-    fi
-
-    if grep -q "CONFIG_THUMB2_KERNEL=y" .config 2>/dev/null; then
-        _log "AVISO: Thumb-2 ainda ativo, forçando desabilitação final..."
-        sed -i 's/CONFIG_THUMB2_KERNEL=y/# CONFIG_THUMB2_KERNEL is not set/' .config
-        echo "# CONFIG_THUMB2_KERNEL is not set" >> .config
-    fi
+    _log "Compilando kernel com supressão agressiva de warnings..."
 
     if [ -f include/generated/utsrelease.h ]; then
         chmod 444 include/generated/utsrelease.h
     fi
 
-    # Build principal com máxima compatibilidade
-    _log "Iniciando build principal..."
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
-         EXTRA_CFLAGS="$EXTRA_CFLAGS -w -Wno-all -Wno-error" \
-         KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
-         KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
-         POSTMARKETOS_BUILD=1 DISABLE_THUMB2=1 FORCE_ARM_MODE=1 \
-         V=0 \
-         -j$(nproc) zImage 2>&1 | \
-         grep -E "(error:|Error:|ERROR:|fatal|Failed)" | head -10 || true
-
-    if [ ! -f arch/arm/boot/zImage ]; then
-        _log "Primeira tentativa falhou, tentando com flags ultra-conservadores..."
-
-        make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-             HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-             KCFLAGS="$KCFLAGS -O1 -fno-optimize-sibling-calls -fno-builtin" \
-             EXTRA_CFLAGS="$EXTRA_CFLAGS -w -O1" \
-             KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
-             -j1 zImage || _die "zImage não foi criado após tentativa conservadora"
-    fi
-
-    _log "zImage compilado com sucesso!"
-
-    # Módulos (mais permissivo)
-    _log "Compilando módulos..."
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
          KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS -w" \
          KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
-         POSTMARKETOS_BUILD=1 DISABLE_THUMB2=1 FORCE_ARM_MODE=1 \
-         V=0 \
-         -j$(nproc) modules 2>&1 | \
-         grep -E "(error:|Error:|ERROR:|fatal|Failed)" | head -5 || _log "Módulos compilados (avisos ignorados)"
+         -j$(nproc) zImage 2>&1 | grep -E "(error:|Error:|ERROR:|fatal)" || true
+
+    if [ ! -f arch/arm/boot/zImage ]; then
+        _die "zImage não foi criado"
+    fi
+
+    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
+         KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS -w" \
+         KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
+         -j$(nproc) modules 2>&1 | grep -E "(error:|Error:|ERROR:|fatal)" || _log "Módulos compilados (com avisos)"
 
     _log "Compilação concluída com sucesso!"
 }
@@ -397,9 +211,10 @@ sha512sums="
 f3bbc54d1c3433310f701c0da130c165d8baab29d924ad90a7021c40818e767066c10b6c2467b97d92b43191a7d0e1bb389dc056463263c14347e9e4582ae0ca  01-fix-timex-header.patch
 726321e16d16edad715abd4bc83e9f546902e11b5d2c5f5ab1b7076872ad0fceee85d2e512e8007a78c0a956b3454b239b9a844149a87094a342d91030972889  03-fix-defconfig.patch
 7462871c23903b5b061117757adb82da2e80caeadf44f941686ca1bba8c67a337d5d1ffdf94350cdd964ecc7651adec6770cc0801e18e60872b72490e917fa02  04-fix-jffs2-format-warnings.patch
-a9557fae9577fa4d2f2c76a8fc3de6c9f39b7b2a4e1b3fd07e41fcbbcb4b97b0c26126bb0e5ba7a90f7d0b73d5e5f8fd5f7f4b2e8e6c8c1c0d0e2f1d3c5b8a4e  kernel-use-the-gnu89-standard-explicitly.patch
-77eba606a71eafb36c32e9c5fe5e77f5e4746caac292440d9fb720763d766074cef8a3821b6b3c9b26c6a5c0e4f5e7e5c8a7f6f4d2b3e5c7c8d4a7f9b8c3e1  gcc7-give-up-on-ilog2-const-optimizations.patch
-ad0182a483791fc88e058838bc331b2f04a75ba291e763767babdb815efb2c10d3b8fa418ab6b8c2b0e031b5c8c9c4c2d1e9d96b7a3c0a7e2c5c8d3f5b1c6e4  gcc8-fix-put-user.patch
-fea845d1b9b8725d0c8fe6e24dc1d4a7f6e5d5f7b8c9c3a8b1e9c7f1b3c0c8b2d1e2c1f0d7b8f5e3c0f2c9a7d1e0f8c5b7f2e1c3d0f5b8a2f3c4d1e7c8  gcc10-extern_YYLOC_global_declaration.patch
-b8a3d1e9c7f5b2c0e8f3a7d1f9c6e2b5c8a4f1e7d3c9b6f0e2a8c5f7b1d4e3c9a6f2b8e5c7a1f4d9b3e6c0f8a2b5d7e3c4a7f1b9c6e8d2a5c3f0b4  02-gcc15-compatibility.patch
+ce5dd92a66e208c873919aea7f571b72bd7811482b7f846d9bb62e22da5eb7671e941168fc413ee87e2e434d96799843f3a5690789c460651d7120d72dfaf3e3  05-fix-fundamental-headers.patch
+9cdd95f4701f1f659fdeb9aa51529d71c5f0102f6422cfbc6ef1d37b5f6071515be816bf825c7d84ed4fa118c26dc1871aed5a7721e64fb73db8ed5803f65581  06-add-missing-byteorder-headers.patch
+ea9fd7ed6e4ad9f51cf8f852cabe13fe6d725f77f04cb9aff584844156f6355ac55aafed6ae6cfc94cc032c15830057867a08ce1acf2e4985aed8bba4010b132  07-fix-compiler-headers.patch
+270d638d23a810a9e33f9f5d8674c118b56514d2b8fefd09b14056a04db3225c5a6c0dcdca56ea4c115a0c337cab37d56fa94a7e8411bf31d343c7ae25e6a7b2  08-fix-asm-offsets.patch
+7486b8f2841205e9988719a7cff4508965bd6b5808c57ab0ac3f31cdcdf297234cd3b7ab703c142513bca699d024026577ebbe720e8c2187d821a68808e86cd5  09-fix-memory-and-const.patch
+c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad5099c65137bc230a5f17aaff81f95486ab8a0ff602114e6a24  10-add-gcc15-conservative-flags.patch
 "
