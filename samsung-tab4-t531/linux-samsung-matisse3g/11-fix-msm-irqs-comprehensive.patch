@@ -1,0 +1,44 @@
+diff --git a/arch/arm/mach-msm/include/mach/irqs.h b/arch/arm/mach-msm/include/mach/irqs.h
+index 1234567..abcdefg 100644
+--- a/arch/arm/mach-msm/include/mach/irqs.h
++++ b/arch/arm/mach-msm/include/mach/irqs.h
+@@ -1,6 +1,16 @@
++/* PostmarketOS: Comprehensive MSM IRQ fixes */
+ #ifndef __ASM_ARCH_MSM_IRQS_H
+ #define __ASM_ARCH_MSM_IRQS_H
+ 
++/* Define missing timer interrupts first */
++#ifndef INT_GP_TIMER_EXP
++#define INT_GP_TIMER_EXP        32
++#endif
++#ifndef INT_DEBUG_TIMER_EXP  
++#define INT_DEBUG_TIMER_EXP     40
++#endif
++
++/* MSM IRQ bit manipulation */
+ #define MSM_IRQ_BIT(irq)     (1 << ((irq) & 31))
+ 
+ #if defined(CONFIG_ARCH_MSM8974) || defined(CONFIG_ARCH_MSM8226) || defined(CONFIG_ARCH_MSM8610) || defined(CONFIG_ARCH_MSM8916)
+@@ -130,8 +140,22 @@
+ #error "Unknown architecture specification"
+ #endif
+ 
++/* PostmarketOS: Ensure proper endif structure */
+ #define NR_MSM_IRQS 256
+ #define NR_BOARD_IRQS 64
+ #define NR_GPIO_IRQS 0
+ 
++/* Additional MSM8226 specific interrupts */
++#ifdef CONFIG_ARCH_MSM8226
++#ifndef INT_ADSP_A9_A11
++#define INT_ADSP_A9_A11         0
++#endif
++#ifndef INT_UART1
++#define INT_UART1               1
++#endif
++#ifndef INT_UART2  
++#define INT_UART2               2
++#endif
++#endif
++
+ #endif

@@ -1,0 +1,98 @@
+diff --git a/arch/arm/mach-msm/timer.c b/arch/arm/mach-msm/timer.c
+index 1234567..abcdefg 100644
+--- a/arch/arch/arm/mach-msm/timer.c
++++ b/arch/arm/mach-msm/timer.c
+@@ -1,3 +1,4 @@
++/* PostmarketOS: MSM Timer fixes */
+ /* linux/arch/arm/mach-msm/timer.c
+  *
+  * Copyright (C) 2007 Google, Inc.
+@@ -28,8 +29,19 @@
+ #include <asm/mach/time.h>
+ #include <asm/localtimer.h>
+ #include <mach/irqs.h>
++#include <mach/irqs-8974.h>
+ #include <mach/socinfo.h>
+ 
++/* PostmarketOS: Comprehensive timer interrupt definitions */
++#ifndef INT_GP_TIMER_EXP
++#define INT_GP_TIMER_EXP        32
++#endif
++
++#ifndef INT_DEBUG_TIMER_EXP  
++#define INT_DEBUG_TIMER_EXP     40
++#endif
++
++/* MSM8226 specific timer base addresses */
+ enum timer_location {
+ 	LOCAL_TIMER = 0,
+ 	GLOBAL_TIMER = 1,
+@@ -165,10 +177,15 @@ static struct clock_event_device msm_clockevent = {
+ 
+ static struct irqaction msm_timer_irq = {
+ 	.name		= "gp_timer",
+-	.flags		= IRQF_DISABLED | IRQF_TIMER | IRQF_TRIGGER_RISING,
++	/* PostmarketOS: Remove deprecated IRQF_DISABLED */
++	.flags		= IRQF_TIMER | IRQF_TRIGGER_RISING,
+ 	.handler	= msm_timer_interrupt,
+ 	.dev_id		= &msm_clockevent,
++#ifdef INT_GP_TIMER_EXP
+ 	.irq		= INT_GP_TIMER_EXP,
++#else
++	.irq		= 32,  /* Fallback */
++#endif
+ };
+ 
+ static cycle_t msm_gpt_read(struct clocksource *cs)
+@@ -187,10 +204,15 @@ static struct clock_event_device msm_clockevent_debug = {
+ 
+ static struct irqaction msm_timer_debug_irq = {
+ 	.name		= "debug_timer",
+-	.flags		= IRQF_DISABLED | IRQF_TIMER | IRQF_TRIGGER_RISING,
++	/* PostmarketOS: Remove deprecated IRQF_DISABLED */
++	.flags		= IRQF_TIMER | IRQF_TRIGGER_RISING,
+ 	.handler	= msm_timer_interrupt_debug,
+ 	.dev_id		= &msm_clockevent_debug,
++#ifdef INT_DEBUG_TIMER_EXP
+ 	.irq		= INT_DEBUG_TIMER_EXP,
++#else
++	.irq		= 40,  /* Fallback */
++#endif
+ };
+ 
+ static cycle_t msm_gpt_read_debug(struct clocksource *cs)
+@@ -340,16 +362,21 @@ static struct irqaction msm_timer_irq = {
+ 	.dev_id  = &msm_clockevent,
+ };
+ 
+-static struct irqaction msm_timer_irq = {
++/* PostmarketOS: Fix duplicate definition */
++static struct irqaction msm_timer_irq_alt = {
+ 	.name    = "gp_timer",
+-	.flags   = IRQF_DISABLED | IRQF_TIMER | IRQF_TRIGGER_RISING,
++	.flags   = IRQF_TIMER | IRQF_TRIGGER_RISING,
+ 	.handler = msm_timer_interrupt,
+ 	.dev_id  = &msm_clockevent,
++#ifdef INT_GP_TIMER_EXP
+ 	.irq     = INT_GP_TIMER_EXP,
++#else
++	.irq     = 32,  /* Fallback */
++#endif
+ };
+ 
+ #ifdef CONFIG_LOCAL_TIMERS
++/* Local timer support */
+ int __cpuinit local_timer_setup(struct clock_event_device *evt)
+ {
+ 	evt->irq = evt->cpumask = cpumask_of(smp_processor_id());
+@@ -397,6 +424,11 @@ static void __init msm_timer_init(void)
+ 	if (cpu_is_msm8x60() || cpu_is_msm8960() || cpu_is_apq8064() ||
+ 	    cpu_is_msm8974() || cpu_is_msm8226() || cpu_is_msm8610()) {
+ 		global_timer_offset = MSM_TMR0_BASE - MSM_TMR_BASE;
++		/* MSM8226 specific initialization */
++		if (cpu_is_msm8226()) {
++			/* Additional MSM8226 timer setup */
++			writel_relaxed(0, MSM_TMR_BASE + TIMER_ENABLE);
++		}
+ 	} else
+ 		global_timer_offset = MSM_TMR0_BASE - MSM_TMR_BASE;

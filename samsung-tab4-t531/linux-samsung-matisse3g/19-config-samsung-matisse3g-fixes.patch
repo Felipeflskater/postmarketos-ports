@@ -1,0 +1,53 @@
+--- /dev/null
++++ b/config-samsung-matisse3g-overrides.config
+@@ -0,0 +1,50 @@
++# PostmarketOS: Configuration overrides for Samsung Matisse3G
++# This file contains critical settings to ensure ARM mode compilation
++
++# CRITICAL: Disable Thumb-2 completely
++# CONFIG_THUMB2_KERNEL is not set
++CONFIG_ARM_THUMB=n
++
++# Force ARM mode compilation
++CONFIG_ARM_ASM_UNIFIED=y
++CONFIG_ARM_UNWIND=y
++CONFIG_AEABI=y
++
++# MSM8226 Architecture
++CONFIG_ARCH_MSM=y
++CONFIG_ARCH_MSM8226=y
++CONFIG_MSM_SOC_REV_A=y
++
++# ARM v7 Cortex-A7 specific
++CONFIG_CPU_V7=y
++CONFIG_CPU_32v7=y
++CONFIG_CPU_ABRT_EV7=y
++CONFIG_CPU_PABRT_V7=y
++CONFIG_CPU_CACHE_V7=y
++CONFIG_CPU_CACHE_VIPT=y
++CONFIG_CPU_COPY_V6=y
++CONFIG_CPU_TLB_V7=y
++CONFIG_CPU_HAS_ASID=y
++CONFIG_CPU_CP15=y
++CONFIG_CPU_CP15_MMU=y
++
++# Memory management
++CONFIG_ARM_L1_CACHE_SHIFT=6
++CONFIG_HIGHMEM=y
++CONFIG_HAVE_ARCH_PFN_VALID=y
++
++# Interrupt handling
++CONFIG_GENERIC_HARDIRQS=y
++CONFIG_GENERIC_IRQ_PROBE=y
++CONFIG_GENERIC_IRQ_SHOW=y
++CONFIG_HARDIRQS_SW_RESEND=y
++
++# Timer
++CONFIG_GENERIC_CLOCKEVENTS=y
++CONFIG_GENERIC_CLOCKEVENTS_BUILD=y
++
++# Prevent any Thumb-2 related configurations
++CONFIG_ARM_MODE_FORCED=y
++
++# Ensure proper assembly syntax
++CONFIG_ARM_ASM_UNIFIED=y

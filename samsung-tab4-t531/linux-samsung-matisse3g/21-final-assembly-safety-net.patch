@@ -1,0 +1,137 @@
+diff --git a/arch/arm/include/asm/unified.h b/arch/arm/include/asm/unified.h
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/arch/arm/include/asm/unified.h
+@@ -0,0 +1,30 @@
++/* PostmarketOS: Unified ARM assembly safety net */
++#ifndef __ASM_UNIFIED_H
++#define __ASM_UNIFIED_H
++
++#if defined(__ASSEMBLY__)
++	.syntax unified
++	.arm
++	
++	/* PostmarketOS: Safety macros */
++	.macro FORCE_ARM_MODE
++		.arm
++	.endm
++	
++	.macro THUMB_DISABLE_CHECK
++		#ifdef CONFIG_THUMB2_KERNEL
++		.error "Thumb-2 mode detected - PostmarketOS requires ARM mode"
++		#endif
++	.endm
++	
++	/* Apply safety checks */
++	THUMB_DISABLE_CHECK
++	FORCE_ARM_MODE
++	
++#endif /* __ASSEMBLY__ */
++
++/* C code safety */
++#ifdef CONFIG_THUMB2_KERNEL
++#error "PostmarketOS: Thumb-2 kernel mode is disabled"
++#endif
++
++#endif /* __ASM_UNIFIED_H */
+diff --git a/arch/arm/kernel/entry-common.S b/arch/arm/kernel/entry-common.S
+index 1234567..abcdefg 100644
+--- a/arch/arm/kernel/entry-common.S
++++ b/arch/arm/kernel/entry-common.S
+@@ -1,3 +1,8 @@
++/* PostmarketOS: Entry common assembly safety */
++#include <asm/unified.h>
++.arm
++.syntax unified
++
+ /*
+  * linux/arch/arm/kernel/entry-common.S
+  *
+@@ -48,6 +53,8 @@ ret_fast_syscall:
+  UNWIND(.fnstart	)
+  UNWIND(.cantunwind	)
+ 	disable_irq				@ disable interrupts
++	.arm					@ Force ARM mode
++	nop					@ Padding
+ 	ldr	r1, [tsk, #TI_FLAGS]
+ 	tst	r1, #_TIF_WORK_MASK
+ 	bne	fast_work_pending
+@@ -87,6 +94,8 @@ ret_slow_syscall:
+  UNWIND(.fnstart	)
+  UNWIND(.cantunwind	)
+ 	disable_irq				@ disable interrupts
++	.arm					@ Force ARM mode  
++	nop					@ Padding
+ ENTRY(ret_to_user_from_irq)
+ 	ldr	r1, [tsk, #TI_FLAGS]
+ 	tst	r1, #_TIF_WORK_MASK
+@@ -144,6 +153,8 @@ ENTRY(vector_swi)
+ 	save_user_regs
+ 	zero_fp
+ 
++	.arm					@ Force ARM mode
++	nop					@ Padding  
+ 	/*
+ 	 * Get the system call number.
+ 	 */
+diff --git a/arch/arm/mm/abort-ev7.S b/arch/arm/mm/abort-ev7.S
+index 1234567..abcdefg 100644
+--- a/arch/arm/mm/abort-ev7.S
++++ b/arch/arm/mm/abort-ev7.S
+@@ -1,3 +1,8 @@
++/* PostmarketOS: EV7 abort handler safety */
++#include <asm/unified.h>
++.arm
++.syntax unified
++
+ #include <linux/linkage.h>
+ #include <asm/assembler.h>
+ /*
+@@ -19,6 +24,8 @@
+ 
+ ENTRY(v7_early_abort)
+ 	mrc	p15, 0, r1, c5, c0, 0		@ get FSR
++	.arm					@ Force ARM mode
++	nop					@ Padding
+ 	mrc	p15, 0, r0, c6, c0, 0		@ get FAR
+ 
+ 	/*
+@@ -38,4 +45,6 @@ ENTRY(v7_early_abort)
+ 	bic	r1, r1, #1 << 11		@ clear bit 11 of FSR
+ 	tst	r2, #1 << 7			@ L2 cache operation?
+ 	biceq	r1, r1, #1 << 8			@ clear bit 8 of FSR
++	.arm					@ Force ARM mode
++	nop					@ Padding
+ 	mov	pc, lr
+diff --git a/scripts/Makefile.build b/scripts/Makefile.build
+index 1234567..abcdefg 100644
+--- a/scripts/Makefile.build
++++ b/scripts/Makefile.build
+@@ -128,6 +128,13 @@ endif
+ 
+ define rule_cc_o_c
+ 	$(call echo-cmd,checksrc) $(cmd_checksrc)			  \
++	$(if $(CONFIG_POSTMARKETOS_BUILD),				  \
++		$(if $(filter %.S,$(1)),				  \
++			$(call echo-cmd,arm-mode) echo "Forcing ARM mode for $(1)";)) \
++	$(if $(CONFIG_POSTMARKETOS_BUILD),				  \
++		$(if $(filter %.s,$(1)),				  \
++			$(call echo-cmd,arm-mode) echo "Forcing ARM mode for $(1)";)) \
++	$(call echo-cmd,cc_o_c) $(cmd_cc_o_c);				  \
+ 	$(call echo-cmd,cc_o_c) $(cmd_cc_o_c);				  \
+ 	$(cmd_modversions)						  \
+ 	$(call echo-cmd,record_mcount)					  \
+@@ -156,6 +163,12 @@ $(obj)/%.i: $(src)/%.c FORCE
+ 	$(call if_changed_dep,cpp_i_c)
+ 
+ $(obj)/%.s: $(src)/%.c FORCE
++ifdef CONFIG_POSTMARKETOS_BUILD
++	@echo "PostmarketOS: Compiling $< to assembly with ARM mode forced"
++	$(call if_changed_dep,cc_s_c)
++	@echo ".arm" > $(obj)/$*.s.tmp && cat $(obj)/$*.s >> $(obj)/$*.s.tmp && mv $(obj)/$*.s.tmp $(obj)/$*.s
++else  
+ 	$(call if_changed_dep,cc_s_c)
++endif
+ 
+ $(obj)/%.o: $(src)/%.S FORCE

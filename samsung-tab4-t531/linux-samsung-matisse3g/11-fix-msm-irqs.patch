@@ -1,0 +1,22 @@
+diff --git a/arch/arm/mach-msm/include/mach/irqs.h b/arch/arm/mach-msm/include/mach/irqs.h
+index 1234567..abcdefg 100644
+--- a/arch/arm/mach-msm/include/mach/irqs.h
++++ b/arch/arm/mach-msm/include/mach/irqs.h
+@@ -20,6 +20,10 @@
+ #define MSM_IRQ_BIT(irq)     (1 << ((irq) & 31))
+ 
+ #if defined(CONFIG_ARCH_MSM8974) || defined(CONFIG_ARCH_MSM8226) || defined(CONFIG_ARCH_MSM8610) || defined(CONFIG_ARCH_MSM8916)
++
++/* PostmarketOS: Define missing timer interrupts for MSM8226 */
++#define INT_GP_TIMER_EXP        32
++#define INT_DEBUG_TIMER_EXP     40
+ 
+ #include <mach/irqs-8974.h>
+ 
+@@ -133,5 +137,4 @@
+ 
+ #define NR_MSM_IRQS 256
+ #define NR_BOARD_IRQS 64
+-#define NR_GPIO_IRQS 0
+-#endif
++#define NR_GPIO_IRQS 0

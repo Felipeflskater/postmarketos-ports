@@ -1,0 +1,55 @@
+diff --git a/arch/arm/configs/msm8226_defconfig b/arch/arm/configs/msm8226_defconfig
+index 1234567..abcdefg 100644
+--- a/arch/arm/configs/msm8226_defconfig
++++ b/arch/arm/configs/msm8226_defconfig
+@@ -50,7 +50,10 @@ CONFIG_AEABI=y
+ CONFIG_HIGHMEM=y
+ CONFIG_VMALLOC_RESERVE=0x19000000
+ CONFIG_CP_ACCESS=y
+-# CONFIG_THUMB2_KERNEL is not set
++# PostmarketOS: Force disable Thumb-2 completely
++# CONFIG_THUMB2_KERNEL is not set
++CONFIG_ARM_THUMB=n
++CONFIG_THUMB2_KERNEL=n
+ CONFIG_ZBOOT_ROM_TEXT=0x0
+ CONFIG_ZBOOT_ROM_BSS=0x0
+ CONFIG_ARM_APPENDED_DTB=y
+@@ -350,6 +353,12 @@ CONFIG_CRYPTO_DEV_QCEDEV=y
+ CONFIG_CRYPTO_DEV_OTA_CRYPTO=y
+ CONFIG_CRYPTO_DEV_QCRYPTO=y
+ 
++# PostmarketOS: Additional ARM mode enforcement
++CONFIG_ARM_ASM_UNIFIED=y
++CONFIG_ARM_UNWIND=y
++# Ensure no Thumb-2 related options
++# CONFIG_THUMB2_AVOID_R_ARM_THM_JUMP11 is not set
++
+ #
+ # Library routines
+ #
+diff --git a/arch/arm/configs/matisse_defconfig b/arch/arm/configs/matisse_defconfig
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/arch/arm/configs/matisse_defconfig
+@@ -0,0 +1,20 @@
++# PostmarketOS: Matisse-specific defconfig overrides
++
++# Force ARM mode compilation
++CONFIG_ARM_THUMB=n
++CONFIG_THUMB2_KERNEL=n
++# CONFIG_THUMB2_KERNEL is not set
++# CONFIG_THUMB2_AVOID_R_ARM_THM_JUMP11 is not set
++
++# ARM assembly unified syntax
++CONFIG_ARM_ASM_UNIFIED=y
++CONFIG_ARM_UNWIND=y
++CONFIG_AEABI=y
++
++# MSM8226 specific settings
++CONFIG_ARCH_MSM8226=y
++CONFIG_MSM_KRAIT_TBB_ABORT_HANDLER=y
++CONFIG_MSM_CACHE_ERP=y
++CONFIG_MSM_L1_ERR_PANIC=y
++CONFIG_MSM_L1_RECOV_ERR_PANIC=y
++CONFIG_MSM_L2_ERP_PANIC_ON_UE=y

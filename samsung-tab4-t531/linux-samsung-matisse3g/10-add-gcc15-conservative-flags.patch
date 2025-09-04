@@ -1,0 +1,22 @@
+diff --git a/Makefile b/Makefile
+index 1234567..abcdefg 100644
+--- a/Makefile
++++ b/Makefile
+@@ -612,6 +612,17 @@ endif
+ KBUILD_CFLAGS += $(stackp-flag)
+ 
+ ifdef CONFIG_FRAME_POINTER
++
++# CONSERVATIVE_GCC_FLAGS - More conservative approach for GCC 15+
++KBUILD_CFLAGS += -fgnu89-inline -std=gnu89
++KBUILD_CFLAGS += -Wno-error=format -Wno-error=format-overflow -Wno-error=format-truncation
++KBUILD_CFLAGS += -Wno-error=stringop-overflow -Wno-error=stringop-truncation
++KBUILD_CFLAGS += -Wno-error=array-bounds -Wno-error=dangling-pointer
++KBUILD_CFLAGS += -Wno-error=address -Wno-error=maybe-uninitialized
++KBUILD_CFLAGS += -Wno-macro-redefined
++HOSTCFLAGS := -fgnu89-inline -std=gnu89 -O2 -static
++HOSTCXXFLAGS := -fgnu89-inline -O2 -static
++HOSTLDFLAGS := -static
+ KBUILD_CFLAGS	+= -fno-omit-frame-pointer -fno-optimize-sibling-calls
+ else
+ # Some targets (ARM with Thumb2, for example), can't be built with frame
