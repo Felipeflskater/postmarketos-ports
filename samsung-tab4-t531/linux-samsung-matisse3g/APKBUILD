@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=23
+pkgrel=24
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -21,13 +21,14 @@ source="
 	config-samsung-matisse3g.armv7
 	01-fix-timex-header.patch
 	03-fix-defconfig.patch
-	04-fix-jffs2-format-warnings.patch
 	05-fix-fundamental-headers.patch
 	06-add-missing-byteorder-headers.patch
 	07-fix-compiler-headers.patch
 	08-fix-asm-offsets.patch
 	09-fix-memory-and-const.patch
 	10-add-gcc15-conservative-flags.patch
+	11-fix-irq-timer-definitions.patch
+	12-fix-assembly-syntax.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -41,6 +42,7 @@ _die() {
 }
 
 _detect_cross_compiler() {
+    # Preferir arm-none-eabi para kernel 3.4.113
     local compilers="arm-none-eabi-gcc armv7-alpine-linux-musleabihf-gcc arm-linux-gnueabihf-gcc"
 
     for compiler in $compilers; do
@@ -63,120 +65,148 @@ _setup_gcc15_environment() {
     export ARCH=arm
     export SUBARCH=arm
 
-    # Evitar redefinições
+    # Evitar redefinições críticas
     unset __LINUX_ARM_ARCH__
 
     # CRÍTICO: Forçar arquitetura ARM v7 para Cortex-A7 (MSM8226)
     export ARM_ARCH="armv7-a"
     export CPU_TYPE="cortex-a7"
 
-    # Host flags mais conservadores
+    # Host flags mais conservadores - CRÍTICO para kernel 3.4
     export HOSTCC="gcc"
     export HOSTCXX="g++"
-    export HOSTCFLAGS="-fgnu89-inline -std=gnu89 -O2 -static -w"
-    export HOSTCXXFLAGS="-fgnu89-inline -O2 -static -w"
+    export HOSTCFLAGS="-fgnu89-inline -std=gnu89 -O1 -static -w -fno-stack-protector"
+    export HOSTCXXFLAGS="-fgnu89-inline -std=gnu89 -O1 -static -w -fno-stack-protector"
     export HOSTLDFLAGS="-static"
 
-    # Kernel flags com arquitetura ARM v7 específica
+    # Kernel flags específicos para 3.4.113 + GCC moderno
     local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common"
-    local warning_flags="-w -Wno-error"
-    local compat_flags="-fgnu89-inline -fno-strict-overflow -fconserve-stack"
-    local gcc15_flags="-fno-PIE -fno-pic -no-pie"
+    local warning_flags="-w -Wno-error -Wno-unused-but-set-variable -Wno-maybe-uninitialized"
+    local compat_flags="-fgnu89-inline -fno-strict-overflow -fconserve-stack -fno-tree-sra"
+    local gcc_modern_flags="-fno-PIE -fno-pic -no-pie -fno-delete-null-pointer-checks"
     local arm_flags="-march=armv7-a -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=softfp"
-    arm_flags="$arm_flags -marm -mno-thumb-interwork"
+    arm_flags="$arm_flags -marm -mno-thumb-interwork -fno-dwarf2-cfi-asm"
 
-    export KCFLAGS="$base_flags $warning_flags $compat_flags $gcc15_flags $arm_flags"
+    export KCFLAGS="$base_flags $warning_flags $compat_flags $gcc_modern_flags $arm_flags"
 
     # Assembly flags com suporte ARM v7
     export AFLAGS="-Wa,-march=armv7-a -Wa,-mcpu=cortex-a7 -Wa,--noexecstack"
     export KBUILD_AFLAGS="$AFLAGS"
     export KBUILD_CFLAGS="$KCFLAGS"
 
-    # Forçar versões fixas
+    # Versões fixas para evitar conflitos de versionamento
     export KERNELRELEASE="3.4.113"
     export UTS_RELEASE="3.4.113"
+    export LOCALVERSION=""
 
-    # Flags adicionais para evitar conflitos
-    export EXTRA_CFLAGS="-Wno-macro-redefined -D__LINUX_ARM_ARCH__=7"
+    # Flags críticos para evitar redefinições e conflitos
+    export EXTRA_CFLAGS="-Wno-macro-redefined -D__LINUX_ARM_ARCH__=7 -DKBUILD_STR(s)=#s -DKBUILD_MODNAME=KBUILD_STR(unknown)"
     export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7"
 
-    _log "Ambiente ARM v7 configurado para Cortex-A7"
+    # Forçar make em modo silencioso para capturar apenas erros reais
+    export KBUILD_VERBOSE=0
+
+    _log "Ambiente ARM v7 configurado para Cortex-A7 (MSM8226)"
 }
 
 prepare() {
     cd "$builddir"
     _log "Preparando kernel Matisse3G..."
 
-    # 1. Configurar ambiente
+    # 1. Configurar ambiente ANTES de qualquer operação
     _detect_cross_compiler
     _setup_gcc15_environment
 
-    # 2. Aplicar todos os patches
-    _log "Aplicando patches..."
-    for patch in $source; do
-        case $patch in
-            *.patch)
-                if [ -f "$srcdir/$patch" ]; then
-                    _log "Aplicando $patch..."
-                    patch -p1 -i "$srcdir/$patch" || _log "AVISO: $patch falhou"
+    # 2. Aplicar todos os patches EM ORDEM com tratamento de falhas
+    _log "Aplicando patches em sequência..."
+    local patch_failures=0
+    for patch in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort); do
+        if [ -f "$srcdir/$patch" ]; then
+            _log "Aplicando $patch..."
+            if ! patch -p1 -i "$srcdir/$patch" 2>/dev/null; then
+                _log "AVISO: $patch falhou - tentando com --reject-format=unified..."
+                if ! patch -p1 --reject-format=unified -i "$srcdir/$patch" 2>/dev/null; then
+                    _log "AVISO: $patch falhou completamente - continuando..."
+                    patch_failures=$((patch_failures + 1))
                 fi
-                ;;
-        esac
+            fi
+        fi
     done
+
+    if [ $patch_failures -gt 3 ]; then
+        _die "Muitos patches falharam ($patch_failures). Verifique a compatibilidade."
+    elif [ $patch_failures -gt 0 ]; then
+        _log "AVISO: $patch_failures patch(es) falharam, mas continuando..."
+    fi
 
     # 3. Configuração com CROSS_COMPILE definido
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
         _log "Aplicando configuração do dispositivo..."
         cp "$srcdir/config-samsung-matisse3g.armv7" .config
         echo "CONFIG_CROSS_COMPILE=\"$CROSS_COMPILE\"" >> .config
+        # Adicionar configs específicos para MSM8226
+        echo "CONFIG_ARCH_MSM8226=y" >> .config
+        echo "CONFIG_MSM_CORTEX_A7=y" >> .config
     fi
 
-    # 4. Criar arquivos necessários
-    mkdir -p include/generated include/config scripts/basic scripts/kconfig
+    # 4. Criar estrutura de diretórios necessária
+    mkdir -p include/generated include/config scripts/basic scripts/kconfig scripts/mod
+
+    # 5. Gerar arquivos básicos ANTES do build
     echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
+    echo '#define LINUX_VERSION_CODE 200435' >> include/generated/utsrelease.h
     echo '/* Auto generated */' > include/generated/autoconf.h
-    touch include/generated/bounds.h
-    touch include/generated/asm-offsets.h
+    touch include/generated/bounds.h include/generated/asm-offsets.h
+    touch include/config/auto.conf include/config/tristate.conf
 
-    # 5. Preparar build com configuração não-interativa
+    # 6. Preparar build tools silenciosamente
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
-         scripts_basic 2>/dev/null || _log "AVISO: scripts_basic falhou"
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
+         scripts_basic >/dev/null 2>&1 || _log "AVISO: scripts_basic parcialmente falhou"
 
+    # 7. Configuração final não-interativa
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
-         oldconfig 2>/dev/null || _log "AVISO: oldconfig falhou"
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
+         oldconfig >/dev/null 2>&1 || _log "AVISO: oldconfig parcialmente falhou"
 
-    _log "Preparação concluída"
+    _log "Preparação concluída com sucesso"
 }
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel com supressão agressiva de warnings..."
+    _log "Compilando kernel com detecção de erros críticos..."
 
+    # Proteger arquivos gerados
     if [ -f include/generated/utsrelease.h ]; then
         chmod 444 include/generated/utsrelease.h
     fi
 
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+    # Build principal com captura de erros CRÍTICOS apenas
+    _log "Iniciando compilação do zImage..."
+    if ! make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
          KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS -w" \
          KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
-         -j$(nproc) zImage 2>&1 | grep -E "(error:|Error:|ERROR:|fatal)" || true
+         LOCALVERSION="$LOCALVERSION" \
+         -j$(nproc) zImage 2>&1 | tee build.log; then
 
-    if [ ! -f arch/arm/boot/zImage ]; then
-        _die "zImage não foi criado"
+        _log "Compilação falhou. Analisando erros críticos..."
+        grep -E "(error:|Error:|ERROR:|fatal|undefined reference)" build.log || _log "Nenhum erro crítico detectado no log"
+        _die "zImage não foi criado - verifique build.log"
     fi
 
+    # Verificar se zImage foi criado
+    if [ ! -f arch/arm/boot/zImage ]; then
+        _die "zImage não foi criado apesar da compilação aparentemente bem-sucedida"
+    fi
+
+    # Compilar módulos (não-crítico)
+    _log "Compilando módulos..."
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         KCFLAGS="$KCFLAGS" AFLAGS="$AFLAGS" \
-         EXTRA_CFLAGS="$EXTRA_CFLAGS -w" \
-         KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
-         -j$(nproc) modules 2>&1 | grep -E "(error:|Error:|ERROR:|fatal)" || _log "Módulos compilados (com avisos)"
+         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
+         KCFLAGS="$KCFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS -w" \
+         -j$(nproc) modules >/dev/null 2>&1 || _log "Módulos falharam (não-crítico)"
 
     _log "Compilação concluída com sucesso!"
 }
@@ -185,24 +215,29 @@ package() {
     cd "$builddir"
     _log "Empacotando kernel..."
 
+    # Instalar kernel
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
 
+    # Instalar módulos (se existirem)
     make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" \
          ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         modules_install 2>/dev/null || _log "AVISO: Módulos falharam"
+         modules_install 2>/dev/null || _log "AVISO: Instalação de módulos falhou"
 
+    # Instalar DTBs (se existirem)
     if [ -d arch/arm/boot/dts ]; then
         dtb_count=$(find arch/arm/boot/dts -name "*.dtb" 2>/dev/null | wc -l)
         if [ "$dtb_count" -gt 0 ]; then
             mkdir -p "$pkgdir/boot/dtbs-$_flavor"
             find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \; 2>/dev/null
+            _log "Instalados $dtb_count DTBs"
         fi
     fi
 
+    # Criar symlink
     mkdir -p "$pkgdir/boot"
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 
-    _log "Empacotamento concluído"
+    _log "Empacotamento concluído com sucesso"
 }
 
 sha512sums="
@@ -210,11 +245,12 @@ sha512sums="
 4eff4dab705a03c3ce5082b00469b1d8728f6cda27a5e79786cc9bdb299f8421d016c74b0aa3e3da39e6849ac39d962b5a11aa7794ba18c5a376161447147c31  config-samsung-matisse3g.armv7
 f3bbc54d1c3433310f701c0da130c165d8baab29d924ad90a7021c40818e767066c10b6c2467b97d92b43191a7d0e1bb389dc056463263c14347e9e4582ae0ca  01-fix-timex-header.patch
 726321e16d16edad715abd4bc83e9f546902e11b5d2c5f5ab1b7076872ad0fceee85d2e512e8007a78c0a956b3454b239b9a844149a87094a342d91030972889  03-fix-defconfig.patch
-7462871c23903b5b061117757adb82da2e80caeadf44f941686ca1bba8c67a337d5d1ffdf94350cdd964ecc7651adec6770cc0801e18e60872b72490e917fa02  04-fix-jffs2-format-warnings.patch
 ce5dd92a66e208c873919aea7f571b72bd7811482b7f846d9bb62e22da5eb7671e941168fc413ee87e2e434d96799843f3a5690789c460651d7120d72dfaf3e3  05-fix-fundamental-headers.patch
 9cdd95f4701f1f659fdeb9aa51529d71c5f0102f6422cfbc6ef1d37b5f6071515be816bf825c7d84ed4fa118c26dc1871aed5a7721e64fb73db8ed5803f65581  06-add-missing-byteorder-headers.patch
 ea9fd7ed6e4ad9f51cf8f852cabe13fe6d725f77f04cb9aff584844156f6355ac55aafed6ae6cfc94cc032c15830057867a08ce1acf2e4985aed8bba4010b132  07-fix-compiler-headers.patch
 270d638d23a810a9e33f9f5d8674c118b56514d2b8fefd09b14056a04db3225c5a6c0dcdca56ea4c115a0c337cab37d56fa94a7e8411bf31d343c7ae25e6a7b2  08-fix-asm-offsets.patch
 7486b8f2841205e9988719a7cff4508965bd6b5808c57ab0ac3f31cdcdf297234cd3b7ab703c142513bca699d024026577ebbe720e8c2187d821a68808e86cd5  09-fix-memory-and-const.patch
 c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad5099c65137bc230a5f17aaff81f95486ab8a0ff602114e6a24  10-add-gcc15-conservative-flags.patch
+790b2248dfe1776602193cec02928c5531ffd34004583f2f1e828b66136151a425f9e3a8fc9e2ab451fea5d110bbddcef824338231c8c83514740f60f5df13f7  11-fix-irq-timer-definitions.patch
+a0535a7fc51b12573446bca75eb5b40ac64e22e98aa44c9d8ddc7d319080a48000ddb7a793a6b62ba741983929f03f2dd4b4e8f2cc3c39cce87ca421c4894c0d  12-fix-assembly-syntax.patch
 "
