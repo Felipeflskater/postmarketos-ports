@@ -1,0 +1,15 @@
+--- a/arch/arm/mm/proc-v7.S
++++ b/arch/arm/mm/proc-v7.S
+@@ -343,8 +343,8 @@
+ 	.long	HWCAP_SWP | HWCAP_HALF | HWCAP_THUMB | HWCAP_FAST_MULT | \
+ 		HWCAP_EDSP | HWCAP_TLS | HWCAP_VFP | HWCAP_VFPv3 | \
+ 		HWCAP_VFPv4 | HWCAP_IDIVA | HWCAP_IDIVT | HWCAP_LPAE
+-	.long	PMD_TYPE_SECT | \
+-		PMD_SECT_AP_WRITE | \
+-		PMD_SECT_AP_READ | \
+-		PMD_SECT_AF #| \
++	.long	PMD_TYPE_SECT | \
++		PMD_SECT_AP_WRITE | \
++		PMD_SECT_AP_READ | \
++		PMD_SECT_AF | \
+ 		PMD_FLAGS_SMP
