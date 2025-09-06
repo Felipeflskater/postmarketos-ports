@@ -1,29 +1,17 @@
 --- a/arch/arm/mm/proc-v7.S
 +++ b/arch/arm/mm/proc-v7.S
-@@ -343,7 +343,7 @@ __v7_ca15mp_proc_info:
- 	.long	PMD_TYPE_SECT | \
- 		PMD_SECT_AP_WRITE | \
- 		PMD_SECT_AP_READ | \
+@@ -340,10 +340,10 @@
+ 	.long	HWCAP_SWP | HWCAP_HALF | HWCAP_THUMB | HWCAP_FAST_MULT | \
+ 		HWCAP_EDSP | HWCAP_TLS | HWCAP_VFP | HWCAP_VFPv3 | \
+ 		HWCAP_VFPv4 | HWCAP_IDIVA | HWCAP_IDIVT | HWCAP_LPAE
+-	.long	PMD_TYPE_SECT | \
+-		PMD_SECT_AP_WRITE | \
+-		PMD_SECT_AP_READ | \
 -		PMD_SECT_AF #| \
++	.long	PMD_TYPE_SECT | \
++		PMD_SECT_AP_WRITE | \
++		PMD_SECT_AP_READ | \
 +		PMD_SECT_AF | \
  		PMD_FLAGS_SMP
  	.long   PMD_TYPE_SECT | \
  		PMD_SECT_XN | \
-@@ -351,4 +351,34 @@ __v7_ca15mp_proc_info:
- 		PMD_SECT_AP_READ
- 	W(b)	__v7_ca15mp_setup
- 	.long	cpu_arch_name
- 	.long	cpu_elf_name
-+
-+--- a/arch/arm/kernel/entry-armv.S
-+++ b/arch/arm/kernel/entry-armv.S
-@@ -1234,6 +1234,9 @@ vector_addrexcptn:
- 	.globl	vector_fiq
- 	.align	5
- vector_fiq:
-+#ifdef CONFIG_FIQ_DEBUGGER
-+	subs	pc, lr, #4
-+#else
- 	disable_fiq
- 	subs	pc, lr, #4
-+#endif
