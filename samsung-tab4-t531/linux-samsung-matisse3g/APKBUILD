@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=28
+pkgrel=32
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -25,7 +25,6 @@ source="
 	06-add-missing-byteorder-headers.patch
 	07-fix-compiler-headers.patch
 	10-add-gcc15-conservative-flags.patch
-	11-fix-irq-timer-definitions-v2.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -53,9 +52,11 @@ _detect_cross_compiler() {
 }
 
 _setup_gcc15_environment() {
-    _log "Configurando ambiente para GCC 15+ com ARM v7..."
+    _log "Configurando ambiente limpo para GCC + ARM v7..."
 
-    unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS
+    # Limpar TODAS as variáveis conflitantes
+    unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS
+
     export ARCH=arm
     export SUBARCH=arm
     unset __LINUX_ARM_ARCH__
@@ -63,63 +64,79 @@ _setup_gcc15_environment() {
     export ARM_ARCH="armv7-a"
     export CPU_TYPE="cortex-a7"
 
+    # Host flags limpos
     export HOSTCC="gcc"
     export HOSTCXX="g++"
-    export HOSTCFLAGS="-fgnu89-inline -std=gnu89 -O1 -static -w -fno-stack-protector"
-    export HOSTCXXFLAGS="-fgnu89-inline -std=gnu89 -O1 -static -w -fno-stack-protector"
-    export HOSTLDFLAGS="-static"
+    export HOSTCFLAGS="-std=gnu89 -O1 -w"
+    export HOSTCXXFLAGS="-std=gnu89 -O1 -w"
+    export HOSTLDFLAGS=""
 
-    local base_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing -fno-common"
-    local warning_flags="-w -Wno-error -Wno-unused-but-set-variable -Wno-maybe-uninitialized"
-    local compat_flags="-fgnu89-inline -fno-strict-overflow -fconserve-stack -fno-tree-sra"
-    local gcc_modern_flags="-fno-PIE -fno-pic -no-pie -fno-delete-null-pointer-checks"
-    local arm_flags="-march=armv7-a -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=softfp"
-    arm_flags="$arm_flags -marm -mno-thumb-interwork -fno-dwarf2-cfi-asm"
-
-    export KCFLAGS="$base_flags $warning_flags $compat_flags $gcc_modern_flags $arm_flags"
-    export AFLAGS="-Wa,-march=armv7-a -Wa,-mcpu=cortex-a7 -Wa,--noexecstack"
-    export KBUILD_AFLAGS="$AFLAGS"
-    export KBUILD_CFLAGS="$KCFLAGS"
-
+    # Versões fixas
     export KERNELRELEASE="3.4.113"
     export UTS_RELEASE="3.4.113"
     export LOCALVERSION=""
 
-    export EXTRA_CFLAGS="-Wno-macro-redefined -D__LINUX_ARM_ARCH__=7 -DKBUILD_STR(s)=#s -DKBUILD_MODNAME=KBUILD_STR(unknown)"
-    export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7"
+    # NÃO EXPORTAR KCFLAGS - deixar o kernel usar suas próprias configurações
     export KBUILD_VERBOSE=0
 
-    _log "Ambiente ARM v7 configurado para Cortex-A7 (MSM8226)"
+    _log "Ambiente limpo configurado para Cortex-A7 (MSM8226)"
 }
 
 _manual_fixes() {
     _log "Aplicando correções manuais críticas..."
 
-    # Fix 1: Adicionar definições de timer que estão faltando
+    # Fix 1: Corrigir irqs.h - diagnóstico e correção
     if [ -f "arch/arm/mach-msm/include/mach/irqs.h" ]; then
-        _log "Adicionando definições de INT_GP_TIMER_EXP e INT_DEBUG_TIMER_EXP..."
-        if ! grep -q "INT_GP_TIMER_EXP" arch/arm/mach-msm/include/mach/irqs.h; then
-            cat >> arch/arm/mach-msm/include/mach/irqs.h << 'EOF'
+        _log "Analisando irqs.h..."
 
-/* Fix missing timer interrupt definitions for MSM8226 */
-#ifndef INT_GP_TIMER_EXP
-#define INT_GP_TIMER_EXP    (NR_MSM_IRQS + 1)
-#endif
+        # Mostrar linhas problemáticas
+        grep -n "#endif" arch/arm/mach-msm/include/mach/irqs.h | tail -3 || true
 
-#ifndef INT_DEBUG_TIMER_EXP
-#define INT_DEBUG_TIMER_EXP (NR_MSM_IRQS + 2)
-#endif
-EOF
+        # Estratégia: remover linha 136 se contém apenas #endif
+        if [ "$(sed -n '136p' arch/arm/mach-msm/include/mach/irqs.h | xargs)" = "#endif" ]; then
+            _log "Removendo #endif problemático da linha 136"
+            sed -i '136d' arch/arm/mach-msm/include/mach/irqs.h
         fi
+
+        # Garantir que há um #endif no final
+        if ! tail -1 arch/arm/mach-msm/include/mach/irqs.h | grep -q "#endif"; then
+            echo "#endif" >> arch/arm/mach-msm/include/mach/irqs.h
+            _log "#endif adicionado ao final do irqs.h"
+        fi
+
+        _log "irqs.h processado"
     fi
 
-    # Fix 2: Corrigir sintaxe assembly problemática em proc-v7.S
+    # Fix 2: Corrigir proc-v7.S - diagnóstico e correção
     if [ -f "arch/arm/mm/proc-v7.S" ]; then
-        _log "Corrigindo sintaxe assembly em proc-v7.S..."
-        sed -i 's/PMD_SECT_AF #|/PMD_SECT_AF |/g' arch/arm/mm/proc-v7.S
+        _log "Analisando proc-v7.S..."
+
+        # Mostrar linha problemática
+        sed -n '346p' arch/arm/mm/proc-v7.S || true
+
+        # Corrigir linha 346 especificamente se contém o padrão problemático
+        if sed -n '346p' arch/arm/mm/proc-v7.S | grep -q "#"; then
+            _log "Corrigindo linha 346 em proc-v7.S"
+            sed -i '346s/PMD_SECT_AF #|.*/PMD_SECT_AF | \\/' arch/arm/mm/proc-v7.S
+        fi
+
+        _log "proc-v7.S processado"
     fi
 
-    _log "Correções manuais aplicadas"
+    # Fix 3: Adicionar definições de timer se não existirem
+    if [ -f "arch/arm/mach-msm/include/mach/irqs.h" ] && ! grep -q "INT_GP_TIMER_EXP" arch/arm/mach-msm/include/mach/irqs.h; then
+        _log "Adicionando definições de timer..."
+        sed -i '$i /* Timer interrupt definitions for MSM8226 */' arch/arm/mach-msm/include/mach/irqs.h
+        sed -i '$i #ifndef INT_GP_TIMER_EXP' arch/arm/mach-msm/include/mach/irqs.h
+        sed -i '$i #define INT_GP_TIMER_EXP (NR_MSM_IRQS + 1)' arch/arm/mach-msm/include/mach/irqs.h
+        sed -i '$i #endif' arch/arm/mach-msm/include/mach/irqs.h
+        sed -i '$i #ifndef INT_DEBUG_TIMER_EXP' arch/arm/mach-msm/include/mach/irqs.h
+        sed -i '$i #define INT_DEBUG_TIMER_EXP (NR_MSM_IRQS + 2)' arch/arm/mach-msm/include/mach/irqs.h
+        sed -i '$i #endif' arch/arm/mach-msm/include/mach/irqs.h
+        _log "Definições de timer adicionadas"
+    fi
+
+    _log "Correções manuais aplicadas com sucesso"
 }
 
 prepare() {
@@ -129,7 +146,7 @@ prepare() {
     _detect_cross_compiler
     _setup_gcc15_environment
 
-    # Aplicar patches não-críticos com tolerância total a falhas
+    # Aplicar patches opcionais com tolerância total a falhas
     _log "Aplicando patches opcionais..."
     for patch in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort); do
         if [ -f "$srcdir/$patch" ]; then
@@ -138,7 +155,7 @@ prepare() {
         fi
     done
 
-    # Aplicar correções manuais críticas
+    # CRÍTICO: Aplicar correções manuais APÓS os patches
     _manual_fixes
 
     # Configuração
@@ -172,47 +189,50 @@ prepare() {
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel com configuração simplificada..."
+    _log "Compilando kernel com ambiente limpo..."
 
     if [ -f include/generated/utsrelease.h ]; then
         chmod 444 include/generated/utsrelease.h
     fi
 
-    # Compilação com flags mais simples para evitar problemas de shell
-    _log "Iniciando compilação do zImage..."
+    # CRÍTICO: Limpar completamente qualquer resíduo de variáveis problemáticas
+    _log "Limpando ambiente de compilação..."
+    for var in KCFLAGS KBUILD_CFLAGS EXTRA_CFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CPPFLAGS; do
+        unset $var
+        export -n $var 2>/dev/null || true
+    done
 
-    # Usar variáveis de ambiente mais limpas
-    export CC="$CROSS_COMPILE"gcc
-    export AR="$CROSS_COMPILE"ar
-    export LD="$CROSS_COMPILE"ld
-    export STRIP="$CROSS_COMPILE"strip
-    export OBJCOPY="$CROSS_COMPILE"objcopy
-    export OBJDUMP="$CROSS_COMPILE"objdump
+    _log "Iniciando compilação do zImage com ambiente limpo..."
 
-    # Flags básicas sem caracteres problemáticos
-    export CFLAGS_KERNEL="-std=gnu89 -fno-stack-protector -w -march=armv7-a -mcpu=cortex-a7"
-
-    if ! make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-         CFLAGS_KERNEL="$CFLAGS_KERNEL" \
-         KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" \
+    # Compilação com ambiente isolado
+    if ! env -i \
+         PATH="$PATH" \
+         ARCH=arm \
+         CROSS_COMPILE="$CROSS_COMPILE" \
+         HOSTCC="$HOSTCC" \
+         HOSTCFLAGS="$HOSTCFLAGS" \
+         KERNELRELEASE="$KERNELRELEASE" \
+         UTS_RELEASE="$UTS_RELEASE" \
          LOCALVERSION="$LOCALVERSION" \
-         -j$(nproc) zImage 2>&1 | tee build.log; then
+         make V=0 -j$(nproc) zImage 2>&1 | tee build.log; then
 
         _log "Compilação falhou. Analisando erros críticos..."
-        grep -E "(error:|Error:|ERROR:|fatal|undefined reference)" build.log | head -20 || _log "Nenhum erro crítico detectado no log"
-        _die "zImage não foi criado - verifique build.log"
+        grep -E "(error:|Error:|ERROR:|fatal|undefined reference)" build.log | head -10 || _log "Nenhum erro crítico detectado no log"
+        _die "Compilação falhou - verifique build.log"
     fi
 
     if [ ! -f arch/arm/boot/zImage ]; then
-        _die "zImage não foi criado apesar da compilação aparentemente bem-sucedida"
+        _die "zImage não foi criado"
     fi
 
     _log "Compilando módulos..."
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
-         CFLAGS_KERNEL="$CFLAGS_KERNEL" \
-         -j$(nproc) modules >/dev/null 2>&1 || _log "Módulos falharam (não-crítico)"
+    env -i \
+         PATH="$PATH" \
+         ARCH=arm \
+         CROSS_COMPILE="$CROSS_COMPILE" \
+         HOSTCC="$HOSTCC" \
+         HOSTCFLAGS="$HOSTCFLAGS" \
+         make V=0 -j$(nproc) modules >/dev/null 2>&1 || _log "Módulos falharam (não-crítico)"
 
     _log "Compilação concluída com sucesso!"
 }
@@ -251,5 +271,4 @@ ce5dd92a66e208c873919aea7f571b72bd7811482b7f846d9bb62e22da5eb7671e941168fc413ee8
 9cdd95f4701f1f659fdeb9aa51529d71c5f0102f6422cfbc6ef1d37b5f6071515be816bf825c7d84ed4fa118c26dc1871aed5a7721e64fb73db8ed5803f65581  06-add-missing-byteorder-headers.patch
 ea9fd7ed6e4ad9f51cf8f852cabe13fe6d725f77f04cb9aff584844156f6355ac55aafed6ae6cfc94cc032c15830057867a08ce1acf2e4985aed8bba4010b132  07-fix-compiler-headers.patch
 c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad5099c65137bc230a5f17aaff81f95486ab8a0ff602114e6a24  10-add-gcc15-conservative-flags.patch
-7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
 "
