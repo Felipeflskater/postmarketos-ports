@@ -1,0 +1,15 @@
+--- a/include/linux/stddef.h
++++ b/include/linux/stddef.h
+@@ -14,8 +14,12 @@ enum {
+ 	false	= 0,
+ 	true	= 1
+ };
++
++#undef false
++#undef true
+ 
+ #define false __kernel_false
+ #define true  __kernel_true
+ 
+ #undef offsetof
+ #ifdef __compiler_offsetof
