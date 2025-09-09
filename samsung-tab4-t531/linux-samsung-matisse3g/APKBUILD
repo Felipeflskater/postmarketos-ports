@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=37
+pkgrel=38
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -21,10 +21,15 @@ source="
 	config-samsung-matisse3g.armv7
 	01-fix-timex-header.patch
 	03-fix-defconfig.patch
+	04-fix-jffs2-format-warnings.patch
 	05-fix-fundamental-headers.patch
 	06-add-missing-byteorder-headers.patch
 	07-fix-compiler-headers.patch
+	08-fix-asm-offsets-simple.patch
+	09-fix-memory-and-const.patch
 	10-add-gcc15-conservative-flags.patch
+	11-fix-irq-timer-definitions-v2.patch
+	12-fix-proc-v7-assembly.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -134,6 +139,20 @@ _manual_fixes() {
         sed -i '$i #define INT_DEBUG_TIMER_EXP (NR_MSM_IRQS + 2)' arch/arm/mach-msm/include/mach/irqs.h
         sed -i '$i #endif' arch/arm/mach-msm/include/mach/irqs.h
         _log "Definições de timer adicionadas"
+    fi
+
+    # Fix 4: Prevenir problemas de assembly com .err
+    local compiler_gcc_h="include/linux/compiler-gcc.h"
+    if [ -f "$compiler_gcc_h" ]; then
+        _log "Corrigindo compiler-gcc.h para prevenir .err..."
+        # Adicionar proteção de assembly
+        if ! grep -q "__ASSEMBLY__" "$compiler_gcc_h"; then
+            sed -i '/^#define __used/i\
+#ifndef __ASSEMBLY__' "$compiler_gcc_h"
+            sed -i '/^#define __used.*$/a\
+#endif' "$compiler_gcc_h"
+        fi
+        _log "compiler-gcc.h processado"
     fi
 
     _log "Correções manuais aplicadas com sucesso"
@@ -267,8 +286,13 @@ sha512sums="
 4eff4dab705a03c3ce5082b00469b1d8728f6cda27a5e79786cc9bdb299f8421d016c74b0aa3e3da39e6849ac39d962b5a11aa7794ba18c5a376161447147c31  config-samsung-matisse3g.armv7
 f3bbc54d1c3433310f701c0da130c165d8baab29d924ad90a7021c40818e767066c10b6c2467b97d92b43191a7d0e1bb389dc056463263c14347e9e4582ae0ca  01-fix-timex-header.patch
 726321e16d16edad715abd4bc83e9f546902e11b5d2c5f5ab1b7076872ad0fceee85d2e512e8007a78c0a956b3454b239b9a844149a87094a342d91030972889  03-fix-defconfig.patch
+7462871c23903b5b061117757adb82da2e80caeadf44f941686ca1bba8c67a337d5d1ffdf94350cdd964ecc7651adec6770cc0801e18e60872b72490e917fa02  04-fix-jffs2-format-warnings.patch
 ce5dd92a66e208c873919aea7f571b72bd7811482b7f846d9bb62e22da5eb7671e941168fc413ee87e2e434d96799843f3a5690789c460651d7120d72dfaf3e3  05-fix-fundamental-headers.patch
 9cdd95f4701f1f659fdeb9aa51529d71c5f0102f6422cfbc6ef1d37b5f6071515be816bf825c7d84ed4fa118c26dc1871aed5a7721e64fb73db8ed5803f65581  06-add-missing-byteorder-headers.patch
 ea9fd7ed6e4ad9f51cf8f852cabe13fe6d725f77f04cb9aff584844156f6355ac55aafed6ae6cfc94cc032c15830057867a08ce1acf2e4985aed8bba4010b132  07-fix-compiler-headers.patch
+c0567e7c8f8458663296a6bdddac021dd8417055f2f17fa96c13ce39cf6502fffa23897eecac9911fce515f4f7f716d0ff394334fe6a36036c67832c378e0f43  08-fix-asm-offsets-simple.patch
+7486b8f2841205e9988719a7cff4508965bd6b5808c57ab0ac3f31cdcdf297234cd3b7ab703c142513bca699d024026577ebbe720e8c2187d821a68808e86cd5  09-fix-memory-and-const.patch
 c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad5099c65137bc230a5f17aaff81f95486ab8a0ff602114e6a24  10-add-gcc15-conservative-flags.patch
+7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
+235a13b089f624f65cf3533c8480fad10bc76bb322a2cdae93ca68115e3eb52a58a97b3dd2ee89cceb79185451d3a8599562d6188c2d172479e2a43846c51bdf  12-fix-proc-v7-assembly.patch
 "
