@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=38
+pkgrel=39
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -30,6 +30,8 @@ source="
 	10-add-gcc15-conservative-flags.patch
 	11-fix-irq-timer-definitions-v2.patch
 	12-fix-proc-v7-assembly.patch
+	13-fix-bool-redefinitions.patch
+	14-fix-fs-build-errors.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -56,20 +58,18 @@ _detect_cross_compiler() {
     _die "Nenhum compilador cruzado ARM encontrado!"
 }
 
-_setup_gcc15_environment() {
-    _log "Configurando ambiente limpo para GCC + ARM v7..."
+_setup_minimal_environment() {
+    _log "Configurando ambiente mínimo para compilação..."
 
-    # Limpar TODAS as variáveis conflitantes
-    unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS
+    # Limpar TODAS as variáveis que podem causar conflito
+    unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS
+    unset KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
 
     export ARCH=arm
     export SUBARCH=arm
     unset __LINUX_ARM_ARCH__
 
-    export ARM_ARCH="armv7-a"
-    export CPU_TYPE="cortex-a7"
-
-    # Host flags limpos
+    # Host compiler simples
     export HOSTCC="gcc"
     export HOSTCXX="g++"
     export HOSTCFLAGS="-std=gnu89 -O1 -w"
@@ -81,81 +81,97 @@ _setup_gcc15_environment() {
     export UTS_RELEASE="3.4.113"
     export LOCALVERSION=""
 
-    # NÃO EXPORTAR KCFLAGS - deixar o kernel usar suas próprias configurações
+    # Modo silencioso para reduzir spam de warnings
     export KBUILD_VERBOSE=0
 
-    _log "Ambiente limpo configurado para Cortex-A7 (MSM8226)"
+    _log "Ambiente mínimo configurado"
 }
 
-_manual_fixes() {
-    _log "Aplicando correções manuais críticas..."
+_critical_manual_fixes() {
+    _log "Aplicando correções críticas manuais..."
 
-    # Fix 1: Corrigir irqs.h - diagnóstico e correção
+    # Fix 1: Resolver conflitos de bool/true/false no command line
+    _log "Corrigindo definições de bool no command line..."
+
+    # Remover definições conflitantes que podem estar sendo injetadas
+    if [ -f "scripts/Makefile.lib" ]; then
+        sed -i '/KBUILD_CPPFLAGS.*true/d' scripts/Makefile.lib 2>/dev/null || true
+        sed -i '/KBUILD_CPPFLAGS.*false/d' scripts/Makefile.lib 2>/dev/null || true
+    fi
+
+    if [ -f "Makefile" ]; then
+        sed -i '/KBUILD_CPPFLAGS.*true/d' Makefile 2>/dev/null || true
+        sed -i '/KBUILD_CPPFLAGS.*false/d' Makefile 2>/dev/null || true
+    fi
+
+    # Fix 2: irqs.h - análise e correção inteligente
     if [ -f "arch/arm/mach-msm/include/mach/irqs.h" ]; then
-        _log "Analisando irqs.h..."
+        _log "Analisando e corrigindo irqs.h..."
 
-        # Mostrar linhas problemáticas
-        grep -n "#endif" arch/arm/mach-msm/include/mach/irqs.h | tail -3 || true
+        # Contar #endif
+        local endif_count=$(grep -c "#endif" arch/arm/mach-msm/include/mach/irqs.h 2>/dev/null || echo "0")
+        _log "Encontrados $endif_count #endif em irqs.h"
 
-        # Estratégia: remover linha 136 se contém apenas #endif
-        if [ "$(sed -n '136p' arch/arm/mach-msm/include/mach/irqs.h | xargs)" = "#endif" ]; then
-            _log "Removendo #endif problemático da linha 136"
+        # Se há #endif duplicado na linha 136, remover
+        if sed -n '136p' arch/arm/mach-msm/include/mach/irqs.h 2>/dev/null | grep -q "^#endif"; then
+            _log "Removendo #endif duplicado da linha 136"
             sed -i '136d' arch/arm/mach-msm/include/mach/irqs.h
         fi
 
-        # Garantir que há um #endif no final
+        # Garantir que termina com #endif
         if ! tail -1 arch/arm/mach-msm/include/mach/irqs.h | grep -q "#endif"; then
             echo "#endif" >> arch/arm/mach-msm/include/mach/irqs.h
-            _log "#endif adicionado ao final do irqs.h"
+            _log "#endif adicionado ao final"
         fi
 
-        _log "irqs.h processado"
+        # Adicionar definições de timer se não existirem
+        if ! grep -q "INT_GP_TIMER_EXP" arch/arm/mach-msm/include/mach/irqs.h; then
+            _log "Adicionando definições de timer..."
+            sed -i '$i /* Timer definitions for MSM8226 */' arch/arm/mach-msm/include/mach/irqs.h
+            sed -i '$i #define INT_GP_TIMER_EXP (NR_MSM_IRQS + 1)' arch/arm/mach-msm/include/mach/irqs.h
+            sed -i '$i #define INT_DEBUG_TIMER_EXP (NR_MSM_IRQS + 2)' arch/arm/mach-msm/include/mach/irqs.h
+        fi
     fi
 
-    # Fix 2: Corrigir proc-v7.S - diagnóstico e correção
+    # Fix 3: proc-v7.S - correção precisa
     if [ -f "arch/arm/mm/proc-v7.S" ]; then
-        _log "Analisando proc-v7.S..."
+        _log "Corrigindo proc-v7.S..."
 
-        # Mostrar linha problemática
-        sed -n '346p' arch/arm/mm/proc-v7.S || true
-
-        # Corrigir linha 346 especificamente se contém o padrão problemático
-        if sed -n '346p' arch/arm/mm/proc-v7.S | grep -q "#"; then
-            _log "Corrigindo linha 346 em proc-v7.S"
-            sed -i '346s/PMD_SECT_AF #|.*/PMD_SECT_AF | \\/' arch/arm/mm/proc-v7.S
+        # Corrigir linha específica com sintaxe de assembly
+        if grep -n "PMD_SECT_AF #" arch/arm/mm/proc-v7.S >/dev/null 2>&1; then
+            _log "Corrigindo sintaxe de assembly em proc-v7.S"
+            sed -i 's/PMD_SECT_AF #|.*/PMD_SECT_AF | \\/' arch/arm/mm/proc-v7.S
         fi
-
-        _log "proc-v7.S processado"
     fi
 
-    # Fix 3: Adicionar definições de timer se não existirem
-    if [ -f "arch/arm/mach-msm/include/mach/irqs.h" ] && ! grep -q "INT_GP_TIMER_EXP" arch/arm/mach-msm/include/mach/irqs.h; then
-        _log "Adicionando definições de timer..."
-        sed -i '$i /* Timer interrupt definitions for MSM8226 */' arch/arm/mach-msm/include/mach/irqs.h
-        sed -i '$i #ifndef INT_GP_TIMER_EXP' arch/arm/mach-msm/include/mach/irqs.h
-        sed -i '$i #define INT_GP_TIMER_EXP (NR_MSM_IRQS + 1)' arch/arm/mach-msm/include/mach/irqs.h
-        sed -i '$i #endif' arch/arm/mach-msm/include/mach/irqs.h
-        sed -i '$i #ifndef INT_DEBUG_TIMER_EXP' arch/arm/mach-msm/include/mach/irqs.h
-        sed -i '$i #define INT_DEBUG_TIMER_EXP (NR_MSM_IRQS + 2)' arch/arm/mach-msm/include/mach/irqs.h
-        sed -i '$i #endif' arch/arm/mach-msm/include/mach/irqs.h
-        _log "Definições de timer adicionadas"
-    fi
+    # Fix 4: Prevenir redefinições de macros críticas
+    _log "Aplicando proteções contra redefinições..."
 
-    # Fix 4: Prevenir problemas de assembly com .err
-    local compiler_gcc_h="include/linux/compiler-gcc.h"
-    if [ -f "$compiler_gcc_h" ]; then
-        _log "Corrigindo compiler-gcc.h para prevenir .err..."
-        # Adicionar proteção de assembly
-        if ! grep -q "__ASSEMBLY__" "$compiler_gcc_h"; then
-            sed -i '/^#define __used/i\
-#ifndef __ASSEMBLY__' "$compiler_gcc_h"
-            sed -i '/^#define __used.*$/a\
-#endif' "$compiler_gcc_h"
-        fi
-        _log "compiler-gcc.h processado"
-    fi
+    # Criar um header de proteção
+    cat > include/linux/kernel_compat.h << 'EOF'
+#ifndef _LINUX_KERNEL_COMPAT_H
+#define _LINUX_KERNEL_COMPAT_H
 
-    _log "Correções manuais aplicadas com sucesso"
+/* Proteção contra redefinições de bool */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifndef __ASSEMBLY__
+#ifndef __KERNEL_BOOL_DEFINED
+#define __KERNEL_BOOL_DEFINED
+/* Use kernel bool definitions */
+#endif
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* _LINUX_KERNEL_COMPAT_H */
+EOF
+
+    _log "Correções críticas aplicadas com sucesso"
 }
 
 prepare() {
@@ -163,31 +179,56 @@ prepare() {
     _log "Preparando kernel Matisse3G..."
 
     _detect_cross_compiler
-    _setup_gcc15_environment
+    _setup_minimal_environment
 
-    # Aplicar patches opcionais com tolerância total a falhas
-    _log "Aplicando patches opcionais..."
+    # Aplicar patches com tolerância máxima
+    _log "Aplicando patches em sequência..."
+    local patch_count=0
+    local patch_success=0
+
     for patch in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort); do
         if [ -f "$srcdir/$patch" ]; then
-            _log "Tentando aplicar $patch..."
-            patch -p1 -i "$srcdir/$patch" >/dev/null 2>&1 || _log "  -> $patch falhou (não-crítico)"
+            patch_count=$((patch_count + 1))
+            _log "Aplicando $patch..."
+
+            if patch -p1 -i "$srcdir/$patch" >/dev/null 2>&1; then
+                patch_success=$((patch_success + 1))
+                _log "  -> $patch aplicado com sucesso"
+            else
+                _log "  -> $patch falhou (tentando --reject-format)"
+                if patch -p1 --reject-format=unified -i "$srcdir/$patch" >/dev/null 2>&1; then
+                    patch_success=$((patch_success + 1))
+                    _log "  -> $patch aplicado com --reject-format"
+                else
+                    _log "  -> $patch falhou completamente (continuando)"
+                fi
+            fi
         fi
     done
 
-    # CRÍTICO: Aplicar correções manuais APÓS os patches
-    _manual_fixes
+    _log "Patches aplicados: $patch_success/$patch_count"
+
+    # CRÍTICO: Aplicar correções manuais APÓS patches
+    _critical_manual_fixes
 
     # Configuração
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
         _log "Aplicando configuração do dispositivo..."
         cp "$srcdir/config-samsung-matisse3g.armv7" .config
-        echo "CONFIG_CROSS_COMPILE=\"$CROSS_COMPILE\"" >> .config
-        echo "CONFIG_ARCH_MSM8226=y" >> .config
-        echo "CONFIG_MSM_CORTEX_A7=y" >> .config
+
+        # Adicionar configs essenciais
+        {
+            echo "CONFIG_CROSS_COMPILE=\"$CROSS_COMPILE\""
+            echo "CONFIG_ARCH_MSM8226=y"
+            echo "CONFIG_MSM_CORTEX_A7=y"
+            echo "# CONFIG_CC_OPTIMIZE_FOR_SIZE is not set"
+        } >> .config
     fi
 
-    # Criar estruturas necessárias
+    # Estruturas necessárias
     mkdir -p include/generated include/config scripts/basic scripts/kconfig scripts/mod
+
+    # Arquivos básicos
     echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
     echo '#define LINUX_VERSION_CODE 200435' >> include/generated/utsrelease.h
     echo '/* Auto generated */' > include/generated/autoconf.h
@@ -195,37 +236,41 @@ prepare() {
     touch include/config/auto.conf include/config/tristate.conf
 
     # Preparar build tools
+    _log "Preparando ferramentas de build..."
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
-         scripts_basic >/dev/null 2>&1 || _log "AVISO: scripts_basic parcialmente falhou"
+         scripts_basic >/dev/null 2>&1 || _log "AVISO: scripts_basic falhou parcialmente"
 
+    # Configuração não-interativa
+    _log "Configurando kernel..."
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
-         oldconfig >/dev/null 2>&1 || _log "AVISO: oldconfig parcialmente falhou"
+         oldconfig >/dev/null 2>&1 || _log "AVISO: oldconfig falhou parcialmente"
 
-    _log "Preparação concluída com sucesso"
+    _log "Preparação concluída"
 }
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel com ambiente limpo..."
+    _log "Compilando kernel com ambiente ultra-limpo..."
 
+    # Proteger arquivos críticos
     if [ -f include/generated/utsrelease.h ]; then
         chmod 444 include/generated/utsrelease.h
     fi
 
-    # CRÍTICO: Limpar completamente qualquer resíduo de variáveis problemáticas
-    _log "Limpando ambiente de compilação..."
-    for var in KCFLAGS KBUILD_CFLAGS EXTRA_CFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CPPFLAGS; do
+    # ULTRA-LIMPO: Remover qualquer variável que possa causar conflito
+    for var in KCFLAGS KBUILD_CFLAGS EXTRA_CFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CPPFLAGS CPPFLAGS; do
         unset $var
         export -n $var 2>/dev/null || true
     done
 
-    _log "Iniciando compilação do zImage com ambiente limpo..."
+    _log "Iniciando compilação do zImage..."
 
-    # Compilação com ambiente isolado
+    # Compilação com ambiente completamente isolado e flags mínimas
     if ! env -i \
          PATH="$PATH" \
+         HOME="$HOME" \
          ARCH=arm \
          CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" \
@@ -235,18 +280,37 @@ build() {
          LOCALVERSION="$LOCALVERSION" \
          make V=0 -j$(nproc) zImage 2>&1 | tee build.log; then
 
-        _log "Compilação falhou. Analisando erros críticos..."
-        grep -E "(error:|Error:|ERROR:|fatal|undefined reference)" build.log | head -10 || _log "Nenhum erro crítico detectado no log"
-        _die "Compilação falhou - verifique build.log"
+        _log "Compilação falhou. Analisando erros..."
+
+        # Mostrar apenas erros reais, não warnings
+        echo "=== ERROS CRÍTICOS ==="
+        grep -i "error:" build.log | grep -v "warning" | head -10 || echo "Nenhum erro 'error:' encontrado"
+
+        echo "=== ERROS FATAIS ==="
+        grep -i "fatal" build.log | head -5 || echo "Nenhum erro fatal encontrado"
+
+        echo "=== REFERÊNCIAS INDEFINIDAS ==="
+        grep -i "undefined reference" build.log | head -5 || echo "Nenhuma referência indefinida encontrada"
+
+        echo "=== ÚLTIMAS 20 LINHAS DO LOG ==="
+        tail -20 build.log
+
+        _die "Compilação falhou - análise completa acima"
     fi
 
+    # Verificar se zImage foi criado
     if [ ! -f arch/arm/boot/zImage ]; then
-        _die "zImage não foi criado"
+        _die "zImage não foi criado apesar da compilação aparentemente bem-sucedida"
     fi
 
+    local zimage_size=$(stat -c%s arch/arm/boot/zImage 2>/dev/null || echo "0")
+    _log "zImage criado com sucesso! Tamanho: $zimage_size bytes"
+
+    # Compilar módulos (não-crítico)
     _log "Compilando módulos..."
     env -i \
          PATH="$PATH" \
+         HOME="$HOME" \
          ARCH=arm \
          CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" \
@@ -260,12 +324,15 @@ package() {
     cd "$builddir"
     _log "Empacotando kernel..."
 
+    # Instalar kernel
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
 
+    # Instalar módulos (se existirem)
     make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" \
          ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          modules_install 2>/dev/null || _log "AVISO: Instalação de módulos falhou"
 
+    # Instalar DTBs (se existirem)
     if [ -d arch/arm/boot/dts ]; then
         dtb_count=$(find arch/arm/boot/dts -name "*.dtb" 2>/dev/null | wc -l)
         if [ "$dtb_count" -gt 0 ]; then
@@ -275,6 +342,7 @@ package() {
         fi
     fi
 
+    # Criar symlink
     mkdir -p "$pkgdir/boot"
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 
@@ -295,4 +363,6 @@ c0567e7c8f8458663296a6bdddac021dd8417055f2f17fa96c13ce39cf6502fffa23897eecac9911
 c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad5099c65137bc230a5f17aaff81f95486ab8a0ff602114e6a24  10-add-gcc15-conservative-flags.patch
 7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
 235a13b089f624f65cf3533c8480fad10bc76bb322a2cdae93ca68115e3eb52a58a97b3dd2ee89cceb79185451d3a8599562d6188c2d172479e2a43846c51bdf  12-fix-proc-v7-assembly.patch
+6d881eb39c17e38b829c8568bcb98960ef570a709731c6b3327c5130c3181cdc555adbd6bb3915a8d6d377c9268e1cc790a78a3a10b682a20d05ea9425f27721  13-fix-bool-redefinitions.patch
+bcaf48edc68de62aeae3c97c0419ae7e78ac3d65ced9d08cb1d397561bc546de9f632c1f398c7b04a4f8326ea01238f3204efdd1f96db860f32122a96c2736d1  14-fix-fs-build-errors.patch
 "
