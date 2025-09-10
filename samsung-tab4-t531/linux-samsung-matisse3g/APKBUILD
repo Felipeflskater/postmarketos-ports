@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=40
+pkgrel=42
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -59,26 +59,24 @@ _detect_cross_compiler() {
     _die "Nenhum compilador cruzado ARM encontrado!"
 }
 
-_setup_ultra_clean_environment() {
-    _log "Configurando ambiente ultra-limpo para compilação..."
+_setup_anti_macro_environment() {
+    _log "Configurando ambiente anti-redefinição SEM wrapper..."
 
-    # CRÍTICO: Limpar TODAS as variáveis que podem injetar macros
+    # Limpar TODAS as variáveis que podem injetar macros
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS
     unset KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
     unset KBUILD_SUBDIR_CCFLAGS KBUILD_SUBDIR_ASFLAGS
-
-    # Limpar possíveis definições de GCC que podem estar no ambiente
     unset GCC_SPECS SPECS
 
     export ARCH=arm
     export SUBARCH=arm
     unset __LINUX_ARM_ARCH__
 
-    # Host compiler com flags que explicitamente NÃO definem bool/true/false
+    # Host compiler simples
     export HOSTCC="gcc"
     export HOSTCXX="g++"
-    export HOSTCFLAGS="-std=gnu89 -O1 -w -fno-builtin -U__STDC_VERSION__"
-    export HOSTCXXFLAGS="-std=gnu89 -O1 -w -fno-builtin -U__STDC_VERSION__"
+    export HOSTCFLAGS="-std=gnu89 -O1 -w -fno-builtin"
+    export HOSTCXXFLAGS="-std=gnu89 -O1 -w -fno-builtin"
     export HOSTLDFLAGS=""
 
     # Versões fixas
@@ -86,63 +84,70 @@ _setup_ultra_clean_environment() {
     export UTS_RELEASE="3.4.113"
     export LOCALVERSION=""
 
-    # Modo silencioso
-    export KBUILD_VERBOSE=0
+    # Modo verboso para debug
+    export KBUILD_VERBOSE=1
 
-    # CRÍTICO: Definir explicitamente que NÃO queremos auto-definições
-    export KBUILD_CFLAGS_KERNEL="-Utrue -Ufalse -Ubool"
-    export KBUILD_CFLAGS_MODULE="-Utrue -Ufalse -Ubool"
+    # NOVA ABORDAGEM: Flags diretas anti-redefinição
+    export KBUILD_CFLAGS="-Utrue -Ufalse -Ubool -w"
+    export KBUILD_AFLAGS="-Utrue -Ufalse -Ubool"
+    export EXTRA_CFLAGS="-Utrue -Ufalse -Ubool -w"
+    export KBUILD_CPPFLAGS="-Utrue -Ufalse -Ubool"
 
-    _log "Ambiente ultra-limpo configurado (sem auto-definições de macros)"
+    _log "Ambiente anti-redefinição configurado (abordagem direta)"
 }
 
-_nuclear_macro_fixes() {
-    _log "Aplicando correções nucleares para redefinições de macros..."
+_direct_makefile_patches() {
+    _log "Aplicando patches diretos nos Makefiles..."
 
-    # Fix 1: Encontrar e neutralizar TODAS as fontes de definições automáticas
-    _log "Neutralizando definições automáticas de GCC..."
+    # Patch 1: Makefile principal - adicionar undefinições em LINUXINCLUDE
+    if [ -f "Makefile" ]; then
+        _log "Patcheando Makefile principal..."
 
-    # Procurar por specs files que podem estar injetando definições
-    if [ -n "$($CROSS_COMPILE""gcc -dumpspecs 2>/dev/null | grep -i 'true\|false\|bool')" ]; then
-        _log "AVISO: GCC specs contém definições de bool - será neutralizado na compilação"
+        # Backup do Makefile original
+        cp Makefile Makefile.backup
+
+        # Adicionar -Utrue -Ufalse -Ubool em LINUXINCLUDE
+        sed -i 's|^LINUXINCLUDE.*include.*kconfig.h|& -Utrue -Ufalse -Ubool|' Makefile
+
+        # Adicionar nas flags de kernel
+        sed -i '/^KBUILD_CFLAGS.*fconserve-stack/s|$| -Utrue -Ufalse -Ubool|' Makefile
+
+        _log "Makefile principal patcheado"
     fi
 
-    # Fix 2: Criar um wrapper de GCC que remove definições problemáticas
-    _log "Criando wrapper de GCC anti-redefinição..."
+    # Patch 2: scripts/Makefile.build - flags de compilação
+    if [ -f "scripts/Makefile.build" ]; then
+        _log "Patcheando scripts/Makefile.build..."
 
-    cat > scripts/gcc-wrapper.sh << 'EOF'
-#!/bin/bash
-# Wrapper para neutralizar definições automáticas de bool/true/false
+        # Backup
+        cp scripts/Makefile.build scripts/Makefile.build.backup
 
-# Remover qualquer definição de bool/true/false dos argumentos
-ARGS=()
-for arg in "$@"; do
-    case "$arg" in
-        -Dtrue=*|-Dfalse=*|-Dbool=*)
-            # Ignorar essas definições
-            ;;
-        *true*|*false*|*bool*)
-            # Se contém essas palavras mas não é uma definição, manter
-            if [[ ! "$arg" =~ ^-D ]]; then
-                ARGS+=("$arg")
-            fi
-            ;;
-        *)
-            ARGS+=("$arg")
-            ;;
-    esac
-done
+        # Adicionar undefinições em c_flags
+        sed -i '/^c_flags.*kconfig.h/s|$| -Utrue -Ufalse -Ubool \\|' scripts/Makefile.build
 
-# Adicionar nossas próprias undefinições
-ARGS+=("-Utrue" "-Ufalse" "-Ubool")
+        _log "scripts/Makefile.build patcheado"
+    fi
 
-# Executar o GCC real
-exec "$REAL_GCC" "${ARGS[@]}"
-EOF
+    # Patch 3: scripts/Makefile.lib - flags adicionais
+    if [ -f "scripts/Makefile.lib" ]; then
+        _log "Patcheando scripts/Makefile.lib..."
 
-    chmod +x scripts/gcc-wrapper.sh
+        # Backup
+        cp scripts/Makefile.lib scripts/Makefile.lib.backup
 
-    # Fix 3: irqs.h - análise e correção inteligente (mantido)
+        # Adicionar nas flags originais
+        sed -i '/^orig_c_flags.*CFLAGS_.*\.o/s|$| -Utrue -Ufalse -Ubool|' scripts/Makefile.lib
+
+        _log "scripts/Makefile.lib patcheado"
+    fi
+
+    _log "Patches diretos nos Makefiles aplicados com sucesso"
+}
+
+_critical_manual_fixes() {
+    _log "Aplicando correções críticas manuais..."
+
+    # Fix 1: irqs.h (mantido da versão anterior)
     if [ -f "arch/arm/mach-msm/include/mach/irqs.h" ]; then
         _log "Analisando e corrigindo irqs.h..."
 
@@ -167,7 +172,7 @@ EOF
         fi
     fi
 
-    # Fix 4: proc-v7.S (mantido)
+    # Fix 2: proc-v7.S (mantido)
     if [ -f "arch/arm/mm/proc-v7.S" ]; then
         _log "Corrigindo proc-v7.S..."
         if grep -n "PMD_SECT_AF #" arch/arm/mm/proc-v7.S >/dev/null 2>&1; then
@@ -176,14 +181,16 @@ EOF
         fi
     fi
 
-    # Fix 5: Criar header de emergência
-    _log "Criando header de emergência anti-redefinição..."
+    # Fix 3: Criar header de emergência ainda mais agressivo
+    _log "Criando header de emergência super-agressivo..."
 
     cat > include/linux/emergency_macro_fix.h << 'EOF'
 #ifndef _EMERGENCY_MACRO_FIX_H
 #define _EMERGENCY_MACRO_FIX_H
 
-/* EMERGÊNCIA: Forçar undefinição agressiva */
+/* SUPER EMERGÊNCIA: Neutralizar qualquer definição de bool/true/false */
+
+/* Primeiro, forçar undefinição completa */
 #ifdef true
 #undef true
 #endif
@@ -194,33 +201,34 @@ EOF
 #undef bool
 #endif
 
-/* Redefinir com valores kernel */
+/* Segundo, redefinir com segurança apenas se necessário */
 #ifndef __ASSEMBLY__
+#ifndef __kernel_false
 #define __kernel_false 0
+#endif
+#ifndef __kernel_true
 #define __kernel_true 1
+#endif
+
+/* Usar typedef apenas se _Bool estiver disponível */
+#ifdef _Bool
 typedef _Bool __kernel_bool_t;
 #endif
+
+#endif /* !__ASSEMBLY__ */
 
 #endif /* _EMERGENCY_MACRO_FIX_H */
 EOF
 
-    # Fix 6: Modificar Makefiles para incluir o header de emergência
-    if [ -f "scripts/Makefile.build" ]; then
-        if ! grep -q "emergency_macro_fix.h" scripts/Makefile.build; then
-            sed -i '/include.*kconfig.h/a\\t\t -include $(srctree)/include/linux/emergency_macro_fix.h \\' scripts/Makefile.build
-            _log "Header de emergência adicionado ao Makefile.build"
-        fi
-    fi
-
-    _log "Correções nucleares aplicadas com sucesso"
+    _log "Correções críticas aplicadas com sucesso"
 }
 
 prepare() {
     cd "$builddir"
-    _log "Preparando kernel Matisse3G com proteção nuclear contra redefinições..."
+    _log "Preparando kernel Matisse3G com abordagem direta anti-redefinição..."
 
     _detect_cross_compiler
-    _setup_ultra_clean_environment
+    _setup_anti_macro_environment
 
     # Aplicar patches com tolerância máxima
     _log "Aplicando patches em sequência..."
@@ -249,8 +257,9 @@ prepare() {
 
     _log "Patches aplicados: $patch_success/$patch_count"
 
-    # CRÍTICO: Aplicar correções nucleares APÓS patches
-    _nuclear_macro_fixes
+    # CRÍTICO: Aplicar correções diretas APÓS patches
+    _critical_manual_fixes
+    _direct_makefile_patches
 
     # Configuração
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
@@ -280,12 +289,16 @@ prepare() {
     _log "Preparando ferramentas de build..."
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
+         KBUILD_CFLAGS="$KBUILD_CFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          scripts_basic >/dev/null 2>&1 || _log "AVISO: scripts_basic falhou parcialmente"
 
     # Configuração não-interativa
     _log "Configurando kernel..."
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
+         KBUILD_CFLAGS="$KBUILD_CFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          oldconfig >/dev/null 2>&1 || _log "AVISO: oldconfig falhou parcialmente"
 
     _log "Preparação concluída"
@@ -293,48 +306,47 @@ prepare() {
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel com proteção nuclear contra redefinições..."
+    _log "Compilando kernel com abordagem direta anti-redefinição..."
 
     # Proteger arquivos críticos
     if [ -f include/generated/utsrelease.h ]; then
         chmod 444 include/generated/utsrelease.h
     fi
 
-    # Setup do wrapper de GCC
-    local real_gcc="$CROSS_COMPILE""gcc"
-    export REAL_GCC="$real_gcc"
+    _log "Iniciando compilação SEM wrapper (abordagem direta)..."
 
-    _log "Iniciando compilação com wrapper anti-redefinição..."
-
-    # Compilação com ambiente completamente isolado e wrapper anti-redefinição
+    # Compilação com flags diretas anti-redefinição
     if ! env -i \
          PATH="$PATH" \
          HOME="$HOME" \
          ARCH=arm \
-         CROSS_COMPILE="$builddir/scripts/gcc-wrapper.sh " \
-         REAL_GCC="$real_gcc" \
+         CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" \
          HOSTCFLAGS="$HOSTCFLAGS" \
+         HOSTLDFLAGS="$HOSTLDFLAGS" \
          KERNELRELEASE="$KERNELRELEASE" \
          UTS_RELEASE="$UTS_RELEASE" \
          LOCALVERSION="$LOCALVERSION" \
-         KBUILD_CFLAGS_KERNEL="$KBUILD_CFLAGS_KERNEL" \
-         KBUILD_CFLAGS_MODULE="$KBUILD_CFLAGS_MODULE" \
-         make V=1 -j$(nproc) zImage 2>&1 | tee build.log; then
+         KBUILD_VERBOSE="$KBUILD_VERBOSE" \
+         KBUILD_CFLAGS="$KBUILD_CFLAGS" \
+         KBUILD_AFLAGS="$KBUILD_AFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
+         KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
+         make -j$(nproc) zImage 2>&1 | tee build.log; then
 
         _log "Compilação falhou. Analisando erros..."
 
         echo "=== REDEFINIÇÕES DE MACROS ==="
         grep -i "redefined" build.log | head -10 || echo "Nenhuma redefinição encontrada"
 
+        echo "=== PROBLEMAS COM 'true/false' ==="
+        grep -i "true.*redefined\|false.*redefined" build.log | head -5 || echo "Nenhum problema com true/false"
+
+        echo "=== ERROS DE ARQUIVO NÃO ENCONTRADO ==="
+        grep -i "No such file" build.log | head -10 || echo "Nenhum erro de arquivo não encontrado"
+
         echo "=== ERROS CRÍTICOS ==="
         grep -i "error:" build.log | grep -v "warning" | head -10 || echo "Nenhum erro 'error:' encontrado"
-
-        echo "=== ERROS FATAIS ==="
-        grep -i "fatal" build.log | head -5 || echo "Nenhum erro fatal encontrado"
-
-        echo "=== REFERÊNCIAS INDEFINIDAS ==="
-        grep -i "undefined reference" build.log | head -5 || echo "Nenhuma referência indefinida encontrada"
 
         echo "=== ÚLTIMAS 20 LINHAS DO LOG ==="
         tail -20 build.log
@@ -356,10 +368,11 @@ build() {
          PATH="$PATH" \
          HOME="$HOME" \
          ARCH=arm \
-         CROSS_COMPILE="$builddir/scripts/gcc-wrapper.sh " \
-         REAL_GCC="$real_gcc" \
+         CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" \
          HOSTCFLAGS="$HOSTCFLAGS" \
+         KBUILD_CFLAGS="$KBUILD_CFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          make V=0 -j$(nproc) modules >/dev/null 2>&1 || _log "Módulos falharam (não-crítico)"
 
     _log "Compilação concluída com sucesso!"
