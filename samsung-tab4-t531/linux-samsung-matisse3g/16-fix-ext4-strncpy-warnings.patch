@@ -1,0 +1,24 @@
+--- a/fs/ext4/super.c
++++ b/fs/ext4/super.c
+@@ -426,7 +426,8 @@ static void __save_error_info(struct super_block *sb, const char *func,
+ 	struct ext4_super_block *es = EXT4_SB(sb)->s_es;
+ 
+ 	EXT4_SB(sb)->s_mount_state |= EXT4_ERROR_FS;
+-	strncpy(es->s_last_error_func, func, sizeof(es->s_last_error_func));
++	strncpy(es->s_last_error_func, func, sizeof(es->s_last_error_func) - 1);
++	es->s_last_error_func[sizeof(es->s_last_error_func) - 1] = '\0';
+ 	es->s_last_error_line = cpu_to_le32(line);
+ 	if (!es->s_first_error_time) {
+ 		es->s_first_error_time = es->s_last_error_time =
+@@ -430,8 +431,9 @@ static void __save_error_info(struct super_block *sb, const char *func,
+ 		es->s_first_error_line = cpu_to_le32(line);
+ 		es->s_first_error_ino = es->s_last_error_ino;
+ 		es->s_first_error_block = es->s_last_error_block;
+-		strncpy(es->s_first_error_func, func,
+-			sizeof(es->s_first_error_func));
++		strncpy(es->s_first_error_func, func,
++			sizeof(es->s_first_error_func) - 1);
++		es->s_first_error_func[sizeof(es->s_first_error_func) - 1] = '\0';
+ 	}
+ 	/*
+ 	 * Start the daily error reporting function if it hasn't been
