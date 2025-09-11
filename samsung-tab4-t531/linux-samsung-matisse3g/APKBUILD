@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=42
+pkgrel=43
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -33,6 +33,7 @@ source="
 	13-fix-bool-redefinitions.patch
 	14-fix-fs-build-errors.patch
 	15-ultimate-macro-redefinition-fix.patch
+	16-fix-ext4-strncpy-warnings.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -424,4 +425,5 @@ c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad50
 6d881eb39c17e38b829c8568bcb98960ef570a709731c6b3327c5130c3181cdc555adbd6bb3915a8d6d377c9268e1cc790a78a3a10b682a20d05ea9425f27721  13-fix-bool-redefinitions.patch
 bcaf48edc68de62aeae3c97c0419ae7e78ac3d65ced9d08cb1d397561bc546de9f632c1f398c7b04a4f8326ea01238f3204efdd1f96db860f32122a96c2736d1  14-fix-fs-build-errors.patch
 b31c13237d0f45bc9649be5915d0d37a9d40d3063d53f49b874481cb517d1bb5038af5071470f43ce07b160dcc2df60a65344bc49f9131ccaddab0dc4d55cdce  15-ultimate-macro-redefinition-fix.patch
+068a2b50a9125c8cc23897910edffa3b08fdab5e082679e90937b9f984da8fb3b99d9a415fac9314cfeba85e9729bc0405875627a3b01aa36dfbe2a7f8821de2  16-fix-ext4-strncpy-warnings.patch
 "
