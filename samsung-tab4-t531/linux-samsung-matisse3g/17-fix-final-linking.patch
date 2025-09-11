@@ -1,0 +1,95 @@
+--- a/include/linux/const.h
++++ b/include/linux/const.h
+@@ -13,7 +13,9 @@
+ #define _AT(T,X)	((T)(X))
+ #endif
+ 
++#ifndef _AC
+ #define _AC(X,Y)	X
++#endif
+ 
+ #define _BITUL(x)	(_AC(1,UL) << (x))
+ #define _BITULL(x)	(_AC(1,ULL) << (x))
+@@ -23,7 +25,9 @@
+ #define __AC(X,Y)	(X##Y)
+ #define _AT(T,X)	((T)(X))
+ 
++#ifndef _AC
+ #define _AC(X,Y)	__AC(X,Y)
++#endif
+ 
+ #define _BITUL(x)	(_AC(1,UL) << (x))
+ #define _BITULL(x)	(_AC(1,ULL) << (x))
+--- a/Makefile
++++ b/Makefile
+@@ -809,6 +809,10 @@ PHONY += vmlinux-dirs
+ vmlinux-dirs: $(vmlinux-dirs)
+ 
+ vmlinux: $(vmlinux-dirs) $(vmlinux-alldirs) $(vmlinux-lds) $(vmlinux-init) $(vmlinux-main)
++	@echo "  LD      $@"
++	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modpost vmlinux-modpost
++	$(call cmd,vmlinux__)
++
++$(vmlinux-dirs): $(vmlinux-lds) $(vmlinux-init) $(vmlinux-main)
+ 	$(call vmlinux-modpost)
+ 	$(call if_changed,vmlinux__)
+ 	$(Q)rm -f .old_version
+@@ -831,8 +835,10 @@ endif
+ # The actual objects are generated when descending, 
+ # make sure no implicit rule kicks in
+ $(sort $(vmlinux-init) $(vmlinux-main) $(vmlinux-lds)): $(SUBDIRS) ;
++$(sort $(vmlinux-init) $(vmlinux-main) $(vmlinux-lds)): $(vmlinux-dirs) ;
+ 
+ # Handle descending into subdirectories listed in $(vmlinux-dirs)
++# Ensure proper dependencies for linking
+ PHONY += $(vmlinux-dirs)
+ $(vmlinux-dirs): prepare scripts
+ 	$(Q)$(MAKE) $(build)=$@
+@@ -1128,6 +1134,12 @@ prepare: prepare0
+ # Leave this as default for faster 'make all'
+ zImage: vmlinux
+ 	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
++	@if [ ! -f $(boot)/$@ ]; then \
++		echo "Error: zImage not found at $(boot)/$@"; \
++		echo "Checking boot directory contents:"; \
++		ls -la $(boot)/ 2>/dev/null || echo "Boot directory not found"; \
++		exit 1; \
++	fi
+ 
+ zinstall install: vmlinux
+ 	$(Q)$(MAKE) $(build)=$(boot) $@
+--- a/arch/arm/boot/Makefile
++++ b/arch/arm/boot/Makefile
+@@ -82,6 +82,10 @@ fi
+ $(obj)/uImage: $(obj)/zImage FORCE
+ 	$(call if_changed,uimage)
+ 
++# Ensure zImage target exists and is properly built
++$(obj)/zImage: $(obj)/compressed/vmlinux FORCE
++	$(call if_changed,objcopy)
++
+ # bootpImage and bootpImage targets are kept for backward compatibility
+ bootpImage uboot.bin: $(obj)/bootp/bootp
+ 	@:
+--- a/arch/arm/boot/compressed/Makefile
++++ b/arch/arm/boot/compressed/Makefile
+@@ -172,6 +172,9 @@ $(obj)/vmlinux: $(obj)/vmlinux.lds $(obj)/$(HEAD) $(obj)/piggy.$(suffix_y).o \
+ 	$(call if_changed,ld)
+ 	@$(kecho)
+ 
++# Ensure vmlinux is built with proper dependencies
++$(obj)/vmlinux: $(addprefix $(obj)/,$(OBJS)) $(obj)/lib1funcs.o $(obj)/asmdefs.h $(obj)/piggy.$(suffix_y).o FORCE
++
+ #
+ # We now have a PIC decompressor implementation.  Decompressors running
+ # from RAM should not define ZTEXTADDR.  Decompressors running directly
+@@ -190,5 +193,9 @@ $(obj)/piggy.$(suffix_y): $(obj)/../Image FORCE
+ $(obj)/piggy.$(suffix_y).o: $(obj)/piggy.$(suffix_y) FORCE
+ 
+ CFLAGS_font.o := -Dstatic=
++
++# Add debugging info for build process
++$(obj)/vmlinux: 
++	@echo "Building compressed vmlinux with objects: $(OBJS)"
+ 
+ $(obj)/font.o: $(srctree)/drivers/video/console/font_acorn_8x8.c FORCE
