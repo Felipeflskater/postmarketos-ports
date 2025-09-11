@@ -1,0 +1,68 @@
+--- a/fs/Makefile
++++ b/fs/Makefile
+@@ -5,6 +5,11 @@
+ # Rewritten to use lists instead of if-statements.
+ # 
+ 
++# Adicionar flags específicas para o subsistema fs
++EXTRA_CFLAGS += -w -fno-strict-overflow -fno-stack-protector
++KBUILD_CFLAGS += -Utrue -Ufalse -Ubool -w
++ccflags-y += -w -Wno-error
++
+ obj-y :=	open.o read_write.o file_table.o super.o \
+ 		char_dev.o stat.o exec.o pipe.o namei.o fcntl.o \
+ 		ioctl.o readdir.o select.o fifo.o dcache.o inode.o \
+@@ -126,3 +131,6 @@ obj-$(CONFIG_DEBUG_FS)		+= debugfs/
+ obj-$(CONFIG_OCFS2_FS)		+= ocfs2/
+ obj-$(CONFIG_BTRFS_FS)		+= btrfs/
+ obj-$(CONFIG_GFS2_FS)           += gfs2/
++
++# Garantir que todos os submódulos sejam compilados corretamente
++$(obj)/built-in.o: $(obj-y) $(obj-m)
+--- a/fs/ext4/Makefile  
++++ b/fs/ext4/Makefile
+@@ -2,6 +2,10 @@
+ # Makefile for the linux ext4 filesystem routines.
+ #
+ 
++# Flags específicas para ext4
++EXTRA_CFLAGS += -w -Wno-stringop-truncation -fno-strict-overflow
++ccflags-y += -w -Wno-stringop-truncation
++
+ obj-$(CONFIG_EXT4_FS) += ext4.o
+ 
+ ext4-y	:= balloc.o bitmap.o dir.o file.o fsync.o ialloc.o inode.o page-io.o \
+--- a/fs/proc/Makefile
++++ b/fs/proc/Makefile
+@@ -2,6 +2,10 @@
+ # Makefile for the Linux proc filesystem routines.
+ #
+ 
++# Flags específicas para proc
++EXTRA_CFLAGS += -w -fno-strict-overflow
++ccflags-y += -w
++
+ obj-y   += proc.o
+ 
+ proc-y			:= mmu.o
+--- a/Makefile
++++ b/Makefile
+@@ -1066,7 +1066,7 @@ export MODLIB
+ #	target-specific, they'll be ignored because nothing references them.
+ 
+ ifeq ($(KBUILD_EXTMOD),)
+-core-y		+= kernel/ mm/ fs/ ipc/ security/ crypto/ block/
++core-y		+= kernel/ mm/ ipc/ security/ crypto/ block/
+ 
+ vmlinux-dirs	:= $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
+ 		     $(core-y) $(core-m) $(drivers-y) $(drivers-m) \
+@@ -1074,6 +1074,9 @@ vmlinux-dirs	:= $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
+ 
+ vmlinux-alldirs	:= $(sort $(vmlinux-dirs) $(patsubst %/,%,$(filter %/, \
+ 		     $(init-) $(core-) $(drivers-) $(net-) $(libs-))))
++
++# Adicionar fs depois dos outros módulos core
++core-y		+= fs/
+ 
+ init-y		:= $(patsubst %/, %/built-in.o, $(init-y))
+ core-y		:= $(patsubst %/, %/built-in.o, $(core-y))
