@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=43
+pkgrel=44
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -60,10 +60,10 @@ _detect_cross_compiler() {
     _die "Nenhum compilador cruzado ARM encontrado!"
 }
 
-_setup_anti_macro_environment() {
-    _log "Configurando ambiente anti-redefinição SEM wrapper..."
+_setup_clean_environment() {
+    _log "Configurando ambiente limpo e otimizado..."
 
-    # Limpar TODAS as variáveis que podem injetar macros
+    # Limpar TODAS as variáveis de ambiente que podem interferir
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS
     unset KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
     unset KBUILD_SUBDIR_CCFLAGS KBUILD_SUBDIR_ASFLAGS
@@ -73,82 +73,71 @@ _setup_anti_macro_environment() {
     export SUBARCH=arm
     unset __LINUX_ARM_ARCH__
 
-    # Host compiler simples
+    # Host compiler básico
     export HOSTCC="gcc"
     export HOSTCXX="g++"
-    export HOSTCFLAGS="-std=gnu89 -O1 -w -fno-builtin"
-    export HOSTCXXFLAGS="-std=gnu89 -O1 -w -fno-builtin"
+    export HOSTCFLAGS="-std=gnu89 -O1 -w"
+    export HOSTCXXFLAGS="-std=gnu89 -O1 -w"
     export HOSTLDFLAGS=""
 
     # Versões fixas
     export KERNELRELEASE="3.4.113"
     export UTS_RELEASE="3.4.113"
     export LOCALVERSION=""
-
-    # Modo verboso para debug
     export KBUILD_VERBOSE=1
 
-    # NOVA ABORDAGEM: Flags diretas anti-redefinição
-    export KBUILD_CFLAGS="-Utrue -Ufalse -Ubool -w"
-    export KBUILD_AFLAGS="-Utrue -Ufalse -Ubool"
-    export EXTRA_CFLAGS="-Utrue -Ufalse -Ubool -w"
-    export KBUILD_CPPFLAGS="-Utrue -Ufalse -Ubool"
+    # NOVA ABORDAGEM: Uma única definição limpa de cada flag
+    # Macro safety - apenas uma vez
+    local macro_safety="-Utrue -Ufalse -Ubool"
 
-    _log "Ambiente anti-redefinição configurado (abordagem direta)"
+    # Warning suppression para GCC moderno
+    local warning_flags="-w -Wno-error -Wno-stringop-truncation -Wno-stringop-overflow"
+    warning_flags="$warning_flags -Wno-maybe-uninitialized -Wno-unused-but-set-variable"
+    warning_flags="$warning_flags -Wno-implicit-function-declaration -Wno-attributes"
+
+    # Compatibility flags para kernel 3.4
+    local compat_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing"
+    compat_flags="$compat_flags -fno-common -fgnu89-inline -fno-strict-overflow"
+
+    # ARM specific para MSM8226 (Cortex-A7, não A15!)
+    local arm_flags="-march=armv7-a -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=softfp"
+    arm_flags="$arm_flags -marm -mno-thumb-interwork"
+
+    # Combinar tudo UMA VEZ SÓ
+    local final_cflags="$macro_safety $warning_flags $compat_flags $arm_flags"
+
+    export KBUILD_CFLAGS="$final_cflags"
+    export KBUILD_AFLAGS="$macro_safety -Wa,-march=armv7-a -Wa,-mcpu=cortex-a7"
+    export EXTRA_CFLAGS="$final_cflags"
+    export KBUILD_CPPFLAGS="$macro_safety -D__LINUX_ARM_ARCH__=7"
+
+    _log "Ambiente limpo configurado (flags únicas, sem duplicação)"
 }
 
-_direct_makefile_patches() {
-    _log "Aplicando patches diretos nos Makefiles..."
+# Função simplificada para patches nos Makefiles
+_simple_makefile_patches() {
+    _log "Aplicando patches simples nos Makefiles..."
 
-    # Patch 1: Makefile principal - adicionar undefinições em LINUXINCLUDE
-    if [ -f "Makefile" ]; then
-        _log "Patcheando Makefile principal..."
+    # Apenas adicionar flags anti-macro no Makefile principal
+    if [ -f "Makefile" ] && ! grep -q "Utrue.*Ufalse.*Ubool" Makefile; then
+        _log "Adicionando flags anti-macro no Makefile..."
 
-        # Backup do Makefile original
+        # Backup
         cp Makefile Makefile.backup
 
-        # Adicionar -Utrue -Ufalse -Ubool em LINUXINCLUDE
-        sed -i 's|^LINUXINCLUDE.*include.*kconfig.h|& -Utrue -Ufalse -Ubool|' Makefile
-
-        # Adicionar nas flags de kernel
+        # Encontrar a linha KBUILD_CFLAGS e adicionar nossas flags
         sed -i '/^KBUILD_CFLAGS.*fconserve-stack/s|$| -Utrue -Ufalse -Ubool|' Makefile
 
-        _log "Makefile principal patcheado"
+        _log "Makefile patcheado com sucesso"
+    else
+        _log "Makefile já contém patches ou não encontrado"
     fi
-
-    # Patch 2: scripts/Makefile.build - flags de compilação
-    if [ -f "scripts/Makefile.build" ]; then
-        _log "Patcheando scripts/Makefile.build..."
-
-        # Backup
-        cp scripts/Makefile.build scripts/Makefile.build.backup
-
-        # Adicionar undefinições em c_flags
-        sed -i '/^c_flags.*kconfig.h/s|$| -Utrue -Ufalse -Ubool \\|' scripts/Makefile.build
-
-        _log "scripts/Makefile.build patcheado"
-    fi
-
-    # Patch 3: scripts/Makefile.lib - flags adicionais
-    if [ -f "scripts/Makefile.lib" ]; then
-        _log "Patcheando scripts/Makefile.lib..."
-
-        # Backup
-        cp scripts/Makefile.lib scripts/Makefile.lib.backup
-
-        # Adicionar nas flags originais
-        sed -i '/^orig_c_flags.*CFLAGS_.*\.o/s|$| -Utrue -Ufalse -Ubool|' scripts/Makefile.lib
-
-        _log "scripts/Makefile.lib patcheado"
-    fi
-
-    _log "Patches diretos nos Makefiles aplicados com sucesso"
 }
 
 _critical_manual_fixes() {
     _log "Aplicando correções críticas manuais..."
 
-    # Fix 1: irqs.h (mantido da versão anterior)
+    # Fix 1: irqs.h
     if [ -f "arch/arm/mach-msm/include/mach/irqs.h" ]; then
         _log "Analisando e corrigindo irqs.h..."
 
@@ -173,7 +162,7 @@ _critical_manual_fixes() {
         fi
     fi
 
-    # Fix 2: proc-v7.S (mantido)
+    # Fix 2: proc-v7.S
     if [ -f "arch/arm/mm/proc-v7.S" ]; then
         _log "Corrigindo proc-v7.S..."
         if grep -n "PMD_SECT_AF #" arch/arm/mm/proc-v7.S >/dev/null 2>&1; then
@@ -182,16 +171,14 @@ _critical_manual_fixes() {
         fi
     fi
 
-    # Fix 3: Criar header de emergência ainda mais agressivo
-    _log "Criando header de emergência super-agressivo..."
+    # Fix 3: Criar header de emergência mais simples
+    _log "Criando header de emergência..."
 
-    cat > include/linux/emergency_macro_fix.h << 'EOF'
-#ifndef _EMERGENCY_MACRO_FIX_H
-#define _EMERGENCY_MACRO_FIX_H
+    cat > include/linux/emergency_fix.h << 'EOF'
+#ifndef _EMERGENCY_FIX_H
+#define _EMERGENCY_FIX_H
 
-/* SUPER EMERGÊNCIA: Neutralizar qualquer definição de bool/true/false */
-
-/* Primeiro, forçar undefinição completa */
+/* Emergência: prevenir redefinições */
 #ifdef true
 #undef true
 #endif
@@ -202,23 +189,7 @@ _critical_manual_fixes() {
 #undef bool
 #endif
 
-/* Segundo, redefinir com segurança apenas se necessário */
-#ifndef __ASSEMBLY__
-#ifndef __kernel_false
-#define __kernel_false 0
-#endif
-#ifndef __kernel_true
-#define __kernel_true 1
-#endif
-
-/* Usar typedef apenas se _Bool estiver disponível */
-#ifdef _Bool
-typedef _Bool __kernel_bool_t;
-#endif
-
-#endif /* !__ASSEMBLY__ */
-
-#endif /* _EMERGENCY_MACRO_FIX_H */
+#endif /* _EMERGENCY_FIX_H */
 EOF
 
     _log "Correções críticas aplicadas com sucesso"
@@ -226,12 +197,12 @@ EOF
 
 prepare() {
     cd "$builddir"
-    _log "Preparando kernel Matisse3G com abordagem direta anti-redefinição..."
+    _log "Preparando kernel Matisse3G com ambiente limpo..."
 
     _detect_cross_compiler
-    _setup_anti_macro_environment
+    _setup_clean_environment
 
-    # Aplicar patches com tolerância máxima
+    # Aplicar patches com tolerância
     _log "Aplicando patches em sequência..."
     local patch_count=0
     local patch_success=0
@@ -258,9 +229,9 @@ prepare() {
 
     _log "Patches aplicados: $patch_success/$patch_count"
 
-    # CRÍTICO: Aplicar correções diretas APÓS patches
+    # Aplicar correções após patches
     _critical_manual_fixes
-    _direct_makefile_patches
+    _simple_makefile_patches
 
     # Configuração
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
@@ -307,19 +278,24 @@ prepare() {
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel com abordagem direta anti-redefinição..."
+    _log "Compilando kernel com ambiente limpo..."
 
     # Proteger arquivos críticos
     if [ -f include/generated/utsrelease.h ]; then
         chmod 444 include/generated/utsrelease.h
     fi
 
-    _log "Iniciando compilação SEM wrapper (abordagem direta)..."
+    # Tentar compilação com timeout para evitar travamento
+    _log "Iniciando compilação com detecção de erro real..."
 
-    # Compilação com flags diretas anti-redefinição
-    if ! env -i \
+    local build_log="build_detailed.log"
+    local make_result=0
+
+    # Compilação com ambiente completamente limpo
+    timeout 3600 env -i \
          PATH="$PATH" \
          HOME="$HOME" \
+         TERM="$TERM" \
          ARCH=arm \
          CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC="$HOSTCC" \
@@ -333,26 +309,53 @@ build() {
          KBUILD_AFLAGS="$KBUILD_AFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
-         make -j$(nproc) zImage 2>&1 | tee build.log; then
+         make -j$(nproc) zImage 2>&1 | tee "$build_log"
 
-        _log "Compilação falhou. Analisando erros..."
+    make_result=$?
 
-        echo "=== REDEFINIÇÕES DE MACROS ==="
-        grep -i "redefined" build.log | head -10 || echo "Nenhuma redefinição encontrada"
+    # Análise detalhada do resultado
+    if [ $make_result -ne 0 ]; then
+        _log "Build falhou com código $make_result. Analisando..."
 
-        echo "=== PROBLEMAS COM 'true/false' ==="
-        grep -i "true.*redefined\|false.*redefined" build.log | head -5 || echo "Nenhum problema com true/false"
+        echo "=== ERROS DE LINKING ==="
+        grep -i "ld:.*error\|undefined reference\|multiple definition" "$build_log" | head -10 || echo "Nenhum erro de linking encontrado"
 
-        echo "=== ERROS DE ARQUIVO NÃO ENCONTRADO ==="
-        grep -i "No such file" build.log | head -10 || echo "Nenhum erro de arquivo não encontrado"
+        echo "=== ERROS DE COMPILAÇÃO CRÍTICOS ==="
+        grep -E "error:.*fatal|Error.*stopping" "$build_log" | head -10 || echo "Nenhum erro fatal encontrado"
 
-        echo "=== ERROS CRÍTICOS ==="
-        grep -i "error:" build.log | grep -v "warning" | head -10 || echo "Nenhum erro 'error:' encontrado"
+        echo "=== PROBLEMAS COM MAKEFILES ==="
+        grep -i "Makefile.*Error\|make.*\*\*\*" "$build_log" | head -5 || echo "Nenhum problema de Makefile encontrado"
 
-        echo "=== ÚLTIMAS 20 LINHAS DO LOG ==="
-        tail -20 build.log
+        echo "=== ÚLTIMAS 30 LINHAS DO LOG ==="
+        tail -30 "$build_log"
 
-        _die "Compilação falhou - análise completa acima"
+        # Verificar se pelo menos chegou no linking
+        if grep -q "arm-none-eabi-ld.*fs/ext4" "$build_log"; then
+            _log "PROGRESSO: Chegou até o linking do ext4. Problema pode ser no pós-linking."
+
+            # Tentar build apenas do zImage sem filesystem modules
+            _log "Tentando build alternativo sem módulos problemáticos..."
+
+            # Desabilitar ext4 temporariamente na config
+            if [ -f .config ]; then
+                cp .config .config.backup
+                sed -i 's/^CONFIG_EXT4_FS=.*/# CONFIG_EXT4_FS is not set/' .config
+                sed -i 's/^CONFIG_JBD2=.*/# CONFIG_JBD2 is not set/' .config
+
+                _log "Tentando build sem EXT4..."
+                if timeout 1800 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+                    KBUILD_CFLAGS="$KBUILD_CFLAGS" \
+                    EXTRA_CFLAGS="$EXTRA_CFLAGS" \
+                    -j$(nproc) zImage 2>/dev/null; then
+                    _log "Build alternativo sem EXT4 foi bem-sucedido!"
+                else
+                    _log "Build alternativo também falhou"
+                    cp .config.backup .config
+                fi
+            fi
+        fi
+
+        _die "Compilação falhou - análise detalhada acima"
     fi
 
     # Verificar se zImage foi criado
@@ -363,18 +366,12 @@ build() {
     local zimage_size=$(stat -c%s arch/arm/boot/zImage 2>/dev/null || echo "0")
     _log "zImage criado com sucesso! Tamanho: $zimage_size bytes"
 
-    # Compilar módulos (não-crítico)
+    # Compilar módulos apenas se zImage foi bem-sucedido
     _log "Compilando módulos..."
-    env -i \
-         PATH="$PATH" \
-         HOME="$HOME" \
-         ARCH=arm \
-         CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" \
-         HOSTCFLAGS="$HOSTCFLAGS" \
+    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          KBUILD_CFLAGS="$KBUILD_CFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
-         make V=0 -j$(nproc) modules >/dev/null 2>&1 || _log "Módulos falharam (não-crítico)"
+         V=0 -j$(nproc) modules >/dev/null 2>&1 || _log "Módulos falharam (não-crítico)"
 
     _log "Compilação concluída com sucesso!"
 }
