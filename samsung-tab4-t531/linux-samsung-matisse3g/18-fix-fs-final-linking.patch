@@ -1,0 +1,91 @@
+--- a/fs/Makefile
++++ b/fs/Makefile
+@@ -121,9 +121,13 @@ obj-$(CONFIG_CIFS_FS)		+= cifs/
+ obj-$(CONFIG_NCP_FS)		+= ncpfs/
+ obj-$(CONFIG_HPFS_FS)		+= hpfs/
+ obj-$(CONFIG_NTFS_FS)		+= ntfs/
+ obj-$(CONFIG_UFS_FS)		+= ufs/
+ obj-$(CONFIG_EFS_FS)		+= efs/
++
++# Ensure all filesystem modules are properly linked
++fs-y := $(obj-y)
++
+ obj-$(CONFIG_JFFS2_FS)		+= jffs2/
+ obj-$(CONFIG_LOGFS)		+= logfs/
+ obj-$(CONFIG_UBIFS_FS)		+= ubifs/
+ obj-$(CONFIG_AFFS_FS)		+= affs/
+@@ -131,3 +135,9 @@ obj-$(CONFIG_ROMFS_FS)		+= romfs/
+ obj-$(CONFIG_QNX4FS_FS)		+= qnx4/
+ obj-$(CONFIG_AUTOFS4_FS)	+= autofs4/
+ obj-$(CONFIG_ADFS_FS)		+= adfs/
++
++# Force proper ordering and dependencies for built-in.o creation
++$(obj)/built-in.o: $(obj-y) $(obj-m)
++	@echo "  LD      $@"
++	$(Q)$(LD) $(ld_flags) -r -o $@ $(filter $(obj-y), $^)
++	@echo "  FS      linking completed successfully"
+--- a/Makefile
++++ b/Makefile
+@@ -1071,7 +1071,12 @@ core-y		+= kernel/ mm/ ipc/ security/ crypto/ block/
+ 
+ vmlinux-dirs	:= $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
+ 		     $(core-y) $(core-m) $(drivers-y) $(drivers-m) \
+-		     $(net-y) $(net-m) $(libs-y) $(libs-m)))
++		     $(net-y) $(net-m) $(libs-y) $(libs-m) $(fs-y) $(fs-m)))
++
++# Ensure fs is built after core dependencies
++fs-deps-y := mm/ kernel/ block/
++$(patsubst %, %/built-in.o, fs): $(patsubst %, %/built-in.o, $(fs-deps-y))
++fs: $(fs-deps-y)
+ 
+ vmlinux-alldirs	:= $(sort $(vmlinux-dirs) $(patsubst %/,%,$(filter %/, \
+ 		     $(init-) $(core-) $(drivers-) $(net-) $(libs-))))
+@@ -1124,6 +1129,13 @@ archclean:
+ PHONY += prepare0
+ 
+ ifeq ($(KBUILD_EXTMOD),)
++
++# Special handling for fs subsystem to prevent linking errors
++fs/built-in.o: kernel/built-in.o mm/built-in.o block/built-in.o
++	$(Q)$(MAKE) $(build)=fs
++	@echo "  FS      subsystem build completed"
++	@test -f fs/built-in.o || (echo "ERROR: fs/built-in.o not created" && exit 1)
++
+ core-y		:= $(patsubst %/, %/built-in.o, $(core-y))
+ drivers-y	:= $(patsubst %/, %/built-in.o, $(drivers-y))
+ net-y		:= $(patsubst %/, %/built-in.o, $(net-y))
+--- a/scripts/Makefile.build
++++ b/scripts/Makefile.build
+@@ -80,6 +80,10 @@ endif
+ 
+ # The filename Kbuild has precedence over Makefile
+ kbuild-dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
++
++# Special handling for fs directory
++ifeq ($(obj),fs)
++endif
+ kbuild-file := $(if $(wildcard $(kbuild-dir)/Kbuild),$(kbuild-dir)/Kbuild,$(kbuild-dir)/Makefile)
+ include $(kbuild-file)
+ 
+@@ -418,6 +422,13 @@ $(obj)/%.o: $(src)/%.S FORCE
+ targets += $(real-objs-y) $(real-objs-m) $(lib-y)
+ targets += $(extra-y) $(MAKECMDGOALS) $(always)
+ 
++# Enhanced built-in.o creation with better error handling
++ifeq ($(obj),fs)
++$(obj)/built-in.o: $(obj-y) FORCE
++	@echo "  LD [FS] $@"
++	$(call if_changed,link_o_target)
++	@echo "  FS      $@ created successfully"
++else
+ # Linker scripts preprocessor (.lds.S -> .lds)
+ # ---------------------------------------------------------------------------
+ quiet_cmd_cpp_lds_S = LDS     $@
+@@ -425,6 +436,7 @@ quiet_cmd_cpp_lds_S = LDS     $@
+ 
+ $(obj)/%.lds: $(src)/%.lds.S FORCE
+ 	$(call if_changed_dep,cpp_lds_S)
++endif
+ 
+ # Build the compiled-in targets
+ # ---------------------------------------------------------------------------
