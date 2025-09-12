@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=46
+pkgrel=53
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -110,6 +110,52 @@ _configure_advanced_linking() {
     _log "Linking configurado com configuração padrão"
 }
 
+_fix_gcc14_compatibility() {
+    _log "Aplicando correção para compatibilidade com GCC 14..."
+
+    # Criar o arquivo compiler-gcc14.h necessário
+    mkdir -p include/linux
+    cat > include/linux/compiler-gcc14.h << 'EOF'
+#ifndef __LINUX_COMPILER_H
+#error "Please do not include <linux/compiler-gcc14.h> directly, include <linux/compiler.h> instead."
+#endif
+
+#define __used			__attribute__((__used__))
+#define __must_check		__attribute__((warn_unused_result))
+#define __compiler_offsetof(a, b)	__builtin_offsetof(a, b)
+#define __cold			__attribute__((__cold__))
+#define __UNIQUE_ID(prefix) __PASTE(__PASTE(__UNIQUE_ID_, prefix), __COUNTER__)
+
+#ifndef __CHECKER__
+# define __compiletime_warning(message) __attribute__((warning(message)))
+# define __compiletime_error(message) __attribute__((error(message)))
+#endif
+
+#define unreachable() __builtin_unreachable()
+#define __noclone	__attribute__((__noclone__))
+#define __visible __attribute__((externally_visible))
+#define asm_volatile_goto(x...)	do { asm goto(x); asm (""); } while (0)
+
+#ifdef CONFIG_ARCH_USE_BUILTIN_BSWAP
+#define __HAVE_BUILTIN_BSWAP32__
+#define __HAVE_BUILTIN_BSWAP64__
+#define __HAVE_BUILTIN_BSWAP16__
+#endif
+
+#if GCC_VERSION >= 40902
+#define __no_sanitize_address __attribute__((no_sanitize_address))
+#endif
+EOF
+
+    if [ -f include/linux/compiler-gcc14.h ]; then
+        _log "Arquivo compiler-gcc14.h criado com sucesso"
+        ls -la include/linux/compiler-gcc14.h
+    else
+        _log "ERRO: Falha ao criar compiler-gcc14.h"
+        return 1
+    fi
+}
+
 prepare() {
     cd "$builddir"
     _log "Preparando kernel com configuração básica..."
@@ -122,6 +168,9 @@ prepare() {
 
     # Passo 3: Configurar linking
     _configure_advanced_linking
+
+    # PASSO CRÍTICO: Corrigir compatibilidade GCC 14
+    _fix_gcc14_compatibility
 
     # Passo 4: Aplicar patches básicos
     _log "Aplicando patches essenciais..."
@@ -170,15 +219,31 @@ prepare() {
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel..."
+    _log "Compilando kernel com correções ARMv7..."
+
+    # Verificar se a correção GCC 14 está funcionando
+    if [ -f include/linux/compiler-gcc14.h ]; then
+        _log "Correção GCC 14 confirmada - arquivo existe"
+    else
+        _log "AVISO: Correção GCC 14 não detectada, recriando..."
+        _fix_gcc14_compatibility
+    fi
+
+    # Verificar configuração ARMv7
+    _log "Verificando configurações ARMv7..."
+    if grep -q "CONFIG_CPU_V7=y" .config 2>/dev/null; then
+        _log "Configuração ARMv7 confirmada"
+    else
+        _log "AVISO: Configuração ARMv7 não detectada na .config"
+    fi
 
     # Proteger arquivos críticos
     if [ -f include/generated/utsrelease.h ]; then
         chmod 444 include/generated/utsrelease.h
     fi
 
-    # Compilação básica
-    _log "Iniciando compilação do zImage..."
+    # Compilação com flags ARMv7
+    _log "Iniciando compilação com flags ARMv7..."
 
     if ! timeout 3600 make \
          ARCH=arm \
@@ -187,10 +252,30 @@ build() {
          HOSTCFLAGS="$HOSTCFLAGS" \
          KBUILD_CFLAGS="$KBUILD_CFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
+         KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
+         KBUILD_AFLAGS="$KBUILD_AFLAGS" \
          -j$(nproc) zImage 2>&1 | tee build.log; then
 
-        _log "Compilação falhou. Últimas linhas do log:"
-        tail -20 build.log
+        _log "Compilação falhou. Analisando tipo de erro..."
+
+        if grep -q "SMP not supported on pre-ARMv6" build.log; then
+            _log "ERRO: Ainda detectando como pre-ARMv6. Problema na configuração de arquitetura."
+        elif grep -q "__LINUX_ARM_ARCH__.*undeclared" build.log; then
+            _log "ERRO: Macro __LINUX_ARM_ARCH__ não está sendo definida corretamente."
+        elif grep -q "expected expression before 'struct'" build.log; then
+            _log "ERRO: Problema de preprocessador com macros offsetof."
+            echo "=== DETALHES DO PROBLEMA OFFSETOF ==="
+            grep -B3 -A3 "expected expression before" build.log | head -10
+        elif grep -q "compiler-gcc14.h: No such file" build.log; then
+            _log "ERRO: Voltou o problema do GCC 14."
+        else
+            _log "PROGRESSO! Novo tipo de erro - problemas anteriores resolvidos"
+            echo "=== NOVO ERRO ==="
+            grep -E "error:|Error:|fatal error:" build.log | head -5
+        fi
+
+        echo "=== CONTEXTO DO ERRO ==="
+        grep -B2 -A2 "error:" build.log | head -15
         _die "Falha na compilação - verifique build.log"
     fi
 
@@ -208,7 +293,7 @@ build() {
          KBUILD_CFLAGS="$KBUILD_CFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          V=0 -j$(nproc) modules >/dev/null 2>&1 || _log "Módulos falharam (não-crítico)"
 
-    _log "Compilação concluída!"
+    _log "Compilação concluída com sucesso!"
 }
 
 package() {
