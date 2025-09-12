@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=45
+pkgrel=46
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -47,372 +47,173 @@ _die() {
 }
 
 _detect_cross_compiler() {
-    # CRÍTICO: Priorizar compiladores com linker completo para kernels Linux
+    _log "Detectando compilador cruzado disponível..."
+
+    # Lista de compiladores em ordem de preferência
     local compilers="armv7-alpine-linux-musleabihf-gcc arm-linux-gnueabihf-gcc arm-none-eabi-gcc"
 
     for compiler in $compilers; do
+        _log "Verificando $compiler..."
         if command -v "$compiler" >/dev/null 2>&1; then
             export CROSS_COMPILE="${compiler%-gcc}-"
-            _log "Testando $compiler..."
-
-            # NOVO: Verificar se o linker funciona para kernels
-            local linker="${CROSS_COMPILE}ld"
-            if command -v "$linker" >/dev/null 2>&1; then
-                # Testar se pode fazer linking ELF relocatable (necessário para kernel)
-                echo "int test;" | ${CROSS_COMPILE}gcc -c -o /tmp/test_link.o - 2>/dev/null
-                if $linker -r -o /tmp/test_final.o /tmp/test_link.o 2>/dev/null; then
-                    _log "✅ Usando $compiler com linker funcional"
-                    rm -f /tmp/test_link.o /tmp/test_final.o 2>/dev/null
-                    return 0
-                else
-                    _log "AVISO: $linker não suporta linking de kernel adequadamente"
-                fi
-                rm -f /tmp/test_link.o /tmp/test_final.o 2>/dev/null
-            fi
+            _log "Compilador encontrado: $compiler"
+            _log "CROSS_COMPILE definido como: $CROSS_COMPILE"
+            return 0
         fi
     done
 
-    _die "Nenhum compilador cruzado ARM com linker adequado encontrado!"
+    _die "Nenhum compilador cruzado ARM encontrado!"
 }
 
 _setup_clean_environment() {
-    _log "Configurando ambiente limpo e otimizado..."
+    _log "Configurando ambiente básico para compilação..."
 
-    # Limpar TODAS as variáveis de ambiente que podem interferir
+    # Limpar variáveis que podem interferir
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS
     unset KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
-    unset KBUILD_SUBDIR_CCFLAGS KBUILD_SUBDIR_ASFLAGS
     unset GCC_SPECS SPECS
 
+    # Configurações básicas obrigatórias
     export ARCH=arm
     export SUBARCH=arm
-    unset __LINUX_ARM_ARCH__
 
     # Host compiler básico
     export HOSTCC="gcc"
-    export HOSTCXX="g++"
-    export HOSTCFLAGS="-std=gnu89 -O1 -w"
-    export HOSTCXXFLAGS="-std=gnu89 -O1 -w"
-    export HOSTLDFLAGS=""
+    export HOSTCFLAGS="-O1 -w"
 
-    # Versões fixas
+    # Versões do kernel
     export KERNELRELEASE="3.4.113"
     export UTS_RELEASE="3.4.113"
     export LOCALVERSION=""
-    export KBUILD_VERBOSE=1
 
-    # Flags limpas e únicas
-    local macro_safety="-Utrue -Ufalse -Ubool"
+    # Flags básicas e seguras para GCC moderno com kernel antigo
+    export KBUILD_CFLAGS="-w -Wno-error -std=gnu89"
+    export EXTRA_CFLAGS="-w -Wno-error"
 
-    # Warning suppression para GCC moderno
-    local warning_flags="-w -Wno-error -Wno-stringop-truncation -Wno-stringop-overflow"
-    warning_flags="$warning_flags -Wno-maybe-uninitialized -Wno-unused-but-set-variable"
-    warning_flags="$warning_flags -Wno-implicit-function-declaration -Wno-attributes"
-
-    # Compatibility flags para kernel 3.4
-    local compat_flags="-std=gnu89 -fno-stack-protector -fno-strict-aliasing"
-    compat_flags="$compat_flags -fno-common -fgnu89-inline -fno-strict-overflow"
-
-    # ARM specific para MSM8226 (Cortex-A7)
-    local arm_flags="-march=armv7-a -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=softfp"
-    arm_flags="$arm_flags -marm -mno-thumb-interwork"
-
-    # Combinar flags UMA VEZ SÓ
-    local final_cflags="$macro_safety $warning_flags $compat_flags $arm_flags"
-
-    export KBUILD_CFLAGS="$final_cflags"
-    export KBUILD_AFLAGS="$macro_safety -Wa,-march=armv7-a -Wa,-mcpu=cortex-a7"
-    export EXTRA_CFLAGS="$final_cflags"
-    export KBUILD_CPPFLAGS="$macro_safety -D__LINUX_ARM_ARCH__=7"
-
-    _log "Ambiente limpo configurado (flags únicas, sem duplicação)"
+    _log "Ambiente básico configurado"
 }
 
 _configure_advanced_linking() {
-    _log "Configurando linking avançado para kernel..."
+    _log "Configurando linking simplificado para kernel..."
 
-    # Força o uso do LD através do GCC para melhor compatibilidade
-    export LD="${CROSS_COMPILE}gcc"
+    # SIMPLIFICADO: Usar apenas o linker padrão do cross-compile
+    # Deixar o kernel build system escolher o melhor método
 
-    # Flags de linking específicas para kernels ARM antigos
-    export LDFLAGS_vmlinux="-static --no-undefined"
+    # Apenas definir algumas flags básicas se necessário
+    export LDFLAGS_vmlinux=""
 
-    # Alternativa: usar ld.bfd se gold falhar
+    # Verificar se ld.bfd está disponível como alternativa
     if command -v "${CROSS_COMPILE}ld.bfd" >/dev/null 2>&1; then
-        export LD="${CROSS_COMPILE}ld.bfd"
-        _log "Usando ld.bfd como linker alternativo"
+        _log "ld.bfd disponível como alternativa"
     fi
 
-    _log "Linking configurado: LD=$LD"
-}
-
-_simple_makefile_patches() {
-    _log "Aplicando patches simples nos Makefiles..."
-
-    # Apenas adicionar flags anti-macro no Makefile principal
-    if [ -f "Makefile" ] && ! grep -q "Utrue.*Ufalse.*Ubool" Makefile; then
-        _log "Adicionando flags anti-macro no Makefile..."
-
-        # Backup
-        cp Makefile Makefile.backup
-
-        # Encontrar a linha KBUILD_CFLAGS e adicionar nossas flags
-        sed -i '/^KBUILD_CFLAGS.*fconserve-stack/s|$| -Utrue -Ufalse -Ubool|' Makefile
-
-        _log "Makefile patcheado com sucesso"
-    else
-        _log "Makefile já contém patches ou não encontrado"
-    fi
-}
-
-_critical_manual_fixes() {
-    _log "Aplicando correções críticas manuais..."
-
-    # Fix 1: irqs.h
-    if [ -f "arch/arm/mach-msm/include/mach/irqs.h" ]; then
-        _log "Corrigindo irqs.h..."
-
-        local endif_count=$(grep -c "#endif" arch/arm/mach-msm/include/mach/irqs.h 2>/dev/null || echo "0")
-        _log "Encontrados $endif_count #endif em irqs.h"
-
-        if sed -n '136p' arch/arm/mach-msm/include/mach/irqs.h 2>/dev/null | grep -q "^#endif"; then
-            _log "Removendo #endif duplicado da linha 136"
-            sed -i '136d' arch/arm/mach-msm/include/mach/irqs.h
-        fi
-
-        if ! tail -1 arch/arm/mach-msm/include/mach/irqs.h | grep -q "#endif"; then
-            echo "#endif" >> arch/arm/mach-msm/include/mach/irqs.h
-            _log "#endif adicionado ao final"
-        fi
-
-        if ! grep -q "INT_GP_TIMER_EXP" arch/arm/mach-msm/include/mach/irqs.h; then
-            _log "Adicionando definições de timer..."
-            sed -i '$i /* Timer definitions for MSM8226 */' arch/arm/mach-msm/include/mach/irqs.h
-            sed -i '$i #define INT_GP_TIMER_EXP (NR_MSM_IRQS + 1)' arch/arm/mach-msm/include/mach/irqs.h
-            sed -i '$i #define INT_DEBUG_TIMER_EXP (NR_MSM_IRQS + 2)' arch/arm/mach-msm/include/mach/irqs.h
-        fi
-    fi
-
-    # Fix 2: proc-v7.S
-    if [ -f "arch/arm/mm/proc-v7.S" ]; then
-        _log "Corrigindo proc-v7.S..."
-        if grep -n "PMD_SECT_AF #" arch/arm/mm/proc-v7.S >/dev/null 2>&1; then
-            _log "Corrigindo sintaxe de assembly em proc-v7.S"
-            sed -i 's/PMD_SECT_AF #|.*/PMD_SECT_AF | \\/' arch/arm/mm/proc-v7.S
-        fi
-    fi
-
-    # Fix 3: Header de emergência
-    _log "Criando header de emergência..."
-    cat > include/linux/emergency_fix.h << 'EOF'
-#ifndef _EMERGENCY_FIX_H
-#define _EMERGENCY_FIX_H
-
-/* Emergência: prevenir redefinições */
-#ifdef true
-#undef true
-#endif
-#ifdef false
-#undef false
-#endif
-#ifdef bool
-#undef bool
-#endif
-
-#endif /* _EMERGENCY_FIX_H */
-EOF
-
-    _log "Correções críticas aplicadas"
+    _log "Linking configurado com configuração padrão"
 }
 
 prepare() {
     cd "$builddir"
-    _log "Preparando kernel Matisse3G com solução definitiva..."
+    _log "Preparando kernel com configuração básica..."
 
+    # Passo 1: Detectar compilador
     _detect_cross_compiler
+
+    # Passo 2: Configurar ambiente básico
     _setup_clean_environment
+
+    # Passo 3: Configurar linking
     _configure_advanced_linking
 
-    # Aplicar patches
-    _log "Aplicando patches em sequência..."
+    # Passo 4: Aplicar patches básicos
+    _log "Aplicando patches essenciais..."
     local patch_count=0
     local patch_success=0
 
     for patch in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort); do
         if [ -f "$srcdir/$patch" ]; then
             patch_count=$((patch_count + 1))
-            _log "Aplicando $patch..."
-
             if patch -p1 -i "$srcdir/$patch" >/dev/null 2>&1; then
                 patch_success=$((patch_success + 1))
-                _log "  ✅ $patch aplicado com sucesso"
+                _log "Patch $patch aplicado"
             else
-                _log "  ⚠️  $patch falhou (tentando --reject-format)"
-                if patch -p1 --reject-format=unified -i "$srcdir/$patch" >/dev/null 2>&1; then
-                    patch_success=$((patch_success + 1))
-                    _log "  ✅ $patch aplicado com --reject-format"
-                else
-                    _log "  ❌ $patch falhou completamente (continuando)"
-                fi
+                _log "Patch $patch falhou - continuando"
             fi
         fi
     done
-
     _log "Patches aplicados: $patch_success/$patch_count"
 
-    # Aplicar correções
-    _critical_manual_fixes
-    _simple_makefile_patches
-
-    # Configuração
+    # Passo 5: Aplicar configuração do dispositivo
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
         _log "Aplicando configuração do dispositivo..."
         cp "$srcdir/config-samsung-matisse3g.armv7" .config
-
-        # Configs essenciais
-        {
-            echo "CONFIG_CROSS_COMPILE=\"$CROSS_COMPILE\""
-            echo "CONFIG_ARCH_MSM8226=y"
-            echo "CONFIG_MSM_CORTEX_A7=y"
-            echo "# CONFIG_CC_OPTIMIZE_FOR_SIZE is not set"
-        } >> .config
+    else
+        _die "Configuração do dispositivo não encontrada!"
     fi
 
-    # Estruturas necessárias
-    mkdir -p include/generated include/config scripts/basic scripts/kconfig scripts/mod
+    # Passo 6: Criar estruturas básicas
+    mkdir -p include/generated include/config scripts/basic
 
-    # Arquivos básicos
+    # Passo 7: Arquivos obrigatórios
     echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
-    echo '#define LINUX_VERSION_CODE 200435' >> include/generated/utsrelease.h
     echo '/* Auto generated */' > include/generated/autoconf.h
     touch include/generated/bounds.h include/generated/asm-offsets.h
-    touch include/config/auto.conf include/config/tristate.conf
 
-    # Preparar build tools
-    _log "Preparando ferramentas de build..."
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
-         KBUILD_CFLAGS="$KBUILD_CFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS" \
-         scripts_basic >/dev/null 2>&1 || _log "AVISO: scripts_basic falhou parcialmente"
+    # Passo 8: Preparar build básico
+    _log "Preparando ferramentas básicas..."
+    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" scripts_basic >/dev/null 2>&1 || _log "AVISO: scripts_basic parcial"
 
-    # Configuração
-    _log "Configurando kernel..."
-    yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" \
-         KBUILD_CFLAGS="$KBUILD_CFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS" \
-         oldconfig >/dev/null 2>&1 || _log "AVISO: oldconfig falhou parcialmente"
+    # Passo 9: Configuração final
+    _log "Configuração final..."
+    yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldconfig >/dev/null 2>&1 || _log "AVISO: oldconfig parcial"
 
-    _log "Preparação concluída"
+    _log "Preparação básica concluída"
 }
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel com linking otimizado..."
+    _log "Compilando kernel..."
 
     # Proteger arquivos críticos
     if [ -f include/generated/utsrelease.h ]; then
         chmod 444 include/generated/utsrelease.h
     fi
 
-    # Verificar configuração problemática
-    if grep -q "CONFIG_EXT4_FS=y" .config 2>/dev/null; then
-        _log "🔍 DETECTADO: EXT4 habilitado - aplicando estratégia inteligente"
+    # Compilação básica
+    _log "Iniciando compilação do zImage..."
 
-        # Backup da config
-        cp .config .config.full
+    if ! timeout 3600 make \
+         ARCH=arm \
+         CROSS_COMPILE="$CROSS_COMPILE" \
+         HOSTCC="$HOSTCC" \
+         HOSTCFLAGS="$HOSTCFLAGS" \
+         KBUILD_CFLAGS="$KBUILD_CFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
+         -j$(nproc) zImage 2>&1 | tee build.log; then
 
-        # Primeira tentativa: com EXT4
-        _log "🚀 Tentativa 1: Compilação completa com EXT4..."
-
-        local build_log="build_ext4.log"
-        if ! timeout 3600 env -i \
-             PATH="$PATH" HOME="$HOME" TERM="$TERM" \
-             ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-             LD="$LD" LDFLAGS_vmlinux="$LDFLAGS_vmlinux" \
-             HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-             KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" LOCALVERSION="$LOCALVERSION" \
-             KBUILD_VERBOSE="$KBUILD_VERBOSE" \
-             KBUILD_CFLAGS="$KBUILD_CFLAGS" KBUILD_AFLAGS="$KBUILD_AFLAGS" \
-             EXTRA_CFLAGS="$EXTRA_CFLAGS" KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
-             make -j$(nproc) zImage 2>&1 | tee "$build_log"; then
-
-            _log "❌ Tentativa com EXT4 falhou. Aplicando solução alternativa..."
-
-            # Desabilitar EXT4 e dependências
-            sed -i 's/^CONFIG_EXT4_FS=.*/# CONFIG_EXT4_FS is not set/' .config
-            sed -i 's/^CONFIG_JBD2=.*/# CONFIG_JBD2 is not set/' .config
-
-            # Forçar reconfig
-            yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-                KBUILD_CFLAGS="$KBUILD_CFLAGS" oldconfig >/dev/null 2>&1
-
-            _log "🔄 Tentativa 2: Compilando sem EXT4/JBD2 (kernel ainda funcional)..."
-            if ! timeout 1800 env -i \
-                PATH="$PATH" HOME="$HOME" TERM="$TERM" \
-                ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-                LD="$LD" LDFLAGS_vmlinux="$LDFLAGS_vmlinux" \
-                HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-                KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" LOCALVERSION="$LOCALVERSION" \
-                KBUILD_CFLAGS="$KBUILD_CFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS" \
-                make -j$(nproc) zImage 2>&1 | tee build_no_ext4.log; then
-
-                _log "❌ Ambas tentativas falharam. Análise de erro:"
-                echo "=== ERRO NO LINKING ==="
-                grep -i "ld:.*error\|undefined reference" build_*.log | tail -10 || echo "Nenhum erro de linking específico encontrado"
-                echo "=== ÚLTIMAS LINHAS DOS LOGS ==="
-                tail -10 build_*.log
-                _die "Linking falhou mesmo sem EXT4"
-            else
-                _log "✅ SUCESSO! Kernel compilado sem EXT4 (funcional para PostmarketOS)"
-            fi
-        else
-            _log "🎉 SUCESSO TOTAL! Kernel compilado com EXT4 completo"
-        fi
-    else
-        # Build normal se EXT4 não estiver habilitado
-        _log "🚀 Compilação normal (EXT4 não detectado)..."
-        if ! timeout 3600 env -i \
-             PATH="$PATH" HOME="$HOME" TERM="$TERM" \
-             ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-             LD="$LD" LDFLAGS_vmlinux="$LDFLAGS_vmlinux" \
-             HOSTCC="$HOSTCC" HOSTCFLAGS="$HOSTCFLAGS" HOSTLDFLAGS="$HOSTLDFLAGS" \
-             KERNELRELEASE="$KERNELRELEASE" UTS_RELEASE="$UTS_RELEASE" LOCALVERSION="$LOCALVERSION" \
-             KBUILD_VERBOSE="$KBUILD_VERBOSE" \
-             KBUILD_CFLAGS="$KBUILD_CFLAGS" KBUILD_AFLAGS="$KBUILD_AFLAGS" \
-             EXTRA_CFLAGS="$EXTRA_CFLAGS" KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
-             make -j$(nproc) zImage 2>&1 | tee build_normal.log; then
-            _die "Compilação normal falhou - verifique build_normal.log"
-        fi
+        _log "Compilação falhou. Últimas linhas do log:"
+        tail -20 build.log
+        _die "Falha na compilação - verifique build.log"
     fi
 
-    # Verificar resultado final
+    # Verificar se zImage foi criado
     if [ ! -f arch/arm/boot/zImage ]; then
         _die "zImage não foi criado"
     fi
 
     local zimage_size=$(stat -c%s arch/arm/boot/zImage 2>/dev/null || echo "0")
-    _log "🎉 zImage criado com sucesso! Tamanho: $zimage_size bytes"
+    _log "zImage criado com sucesso! Tamanho: $zimage_size bytes"
 
-    if [ $zimage_size -lt 1000000 ]; then
-        _log "⚠️  AVISO: zImage muito pequeno ($zimage_size bytes) - pode indicar problema"
-    else
-        _log "✅ Tamanho do zImage parece correto"
-    fi
+    # Módulos (não-crítico)
+    _log "Compilando módulos..."
+    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         KBUILD_CFLAGS="$KBUILD_CFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS" \
+         V=0 -j$(nproc) modules >/dev/null 2>&1 || _log "Módulos falharam (não-crítico)"
 
-    # Módulos (não-crítico para o boot)
-    _log "📦 Compilando módulos..."
-    env -i \
-        PATH="$PATH" HOME="$HOME" \
-        ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-        KBUILD_CFLAGS="$KBUILD_CFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS" \
-        make V=0 -j$(nproc) modules >/dev/null 2>&1 || _log "⚠️  Módulos falharam (não-crítico para boot)"
-
-    _log "🚀 COMPILAÇÃO CONCLUÍDA COM SUCESSO!"
+    _log "Compilação concluída!"
 }
 
 package() {
     cd "$builddir"
-    _log "📦 Empacotando kernel..."
+    _log "Empacotando kernel..."
 
     # Instalar kernel
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
@@ -428,7 +229,7 @@ package() {
         if [ "$dtb_count" -gt 0 ]; then
             mkdir -p "$pkgdir/boot/dtbs-$_flavor"
             find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \; 2>/dev/null
-            _log "📁 Instalados $dtb_count DTBs"
+            _log "Instalados $dtb_count DTBs"
         fi
     fi
 
@@ -436,8 +237,7 @@ package() {
     mkdir -p "$pkgdir/boot"
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 
-    _log "✅ Empacotamento concluído com sucesso"
-    _log "🎯 PORT DO POSTMARKETOS PARA SAMSUNG MATISSE3G CONCLUÍDO!"
+    _log "Empacotamento concluído"
 }
 
 sha512sums="
