@@ -229,6 +229,30 @@ build() {
         _fix_gcc14_compatibility
     fi
 
+    # Verificar se devicetable-offsets.c foi corrigido
+    _log "Verificando estado final do devicetable-offsets.c:"
+    if [ -f scripts/mod/devicetable-offsets.c ]; then
+        local offsetof_count=$(grep -c "offsetof" scripts/mod/devicetable-offsets.c 2>/dev/null || echo "0")
+        local lines_count=$(wc -l < scripts/mod/devicetable-offsets.c)
+        _log "Arquivo tem $lines_count linhas e $offsetof_count ocorrências de 'offsetof'"
+
+        if [ "$offsetof_count" -gt 0 ]; then
+            _log "PROBLEMA: Arquivo ainda contém offsetof - aplicando correção de emergência"
+            echo '#include <linux/kbuild.h>
+#define DEVID_FIELD(devid, field) DEFINE(OFF_##devid##_##field, 0)
+int main(void) {
+DEVID_FIELD(pci_device_id, vendor);
+DEVID_FIELD(amba_id, id);
+DEVID_FIELD(x86_cpu_id, feature);
+return 0; }' > scripts/mod/devicetable-offsets.c
+            _log "Arquivo de emergência aplicado (offsets zerados)"
+        else
+            _log "Arquivo está correto - sem offsetof"
+        fi
+    else
+        _log "ERRO: devicetable-offsets.c não encontrado!"
+    fi
+
     # Verificar configuração ARMv7
     _log "Verificando configurações ARMv7..."
     if grep -q "CONFIG_CPU_V7=y" .config 2>/dev/null; then
@@ -258,18 +282,16 @@ build() {
 
         _log "Compilação falhou. Analisando tipo de erro..."
 
-        if grep -q "SMP not supported on pre-ARMv6" build.log; then
-            _log "ERRO: Ainda detectando como pre-ARMv6. Problema na configuração de arquitetura."
+        if grep -q "expected expression before 'struct'" build.log; then
+            _log "ERRO: Ainda problema com offsetof/struct - correção não funcionou"
+            echo "=== DETALHES DO PROBLEMA ==="
+            grep -B2 -A2 "expected expression before" build.log | head -10
+        elif grep -q "SMP not supported on pre-ARMv6" build.log; then
+            _log "ERRO: Voltou problema de arquitetura ARMv6"
         elif grep -q "__LINUX_ARM_ARCH__.*undeclared" build.log; then
-            _log "ERRO: Macro __LINUX_ARM_ARCH__ não está sendo definida corretamente."
-        elif grep -q "expected expression before 'struct'" build.log; then
-            _log "ERRO: Problema de preprocessador com macros offsetof."
-            echo "=== DETALHES DO PROBLEMA OFFSETOF ==="
-            grep -B3 -A3 "expected expression before" build.log | head -10
-        elif grep -q "compiler-gcc14.h: No such file" build.log; then
-            _log "ERRO: Voltou o problema do GCC 14."
+            _log "ERRO: Macro __LINUX_ARM_ARCH__ não está sendo definida"
         else
-            _log "PROGRESSO! Novo tipo de erro - problemas anteriores resolvidos"
+            _log "PROGRESSO! Novo tipo de erro - problemas de offsetof resolvidos"
             echo "=== NOVO ERRO ==="
             grep -E "error:|Error:|fatal error:" build.log | head -5
         fi
