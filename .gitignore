@@ -46,3 +46,6 @@ vmlinuz
 zImage
 uImage
 samsung-tab4-t531/linux-samsung-matisse3g/corrected_apkbuild.txt
+samsung-tab4-t531/linux-samsung-matisse3g/debug-bool-sources.sh
+samsung-tab4-t531/linux-samsung-matisse3g/fixed_gcc_wrapper.sh
+samsung-tab4-t531/linux-samsung-matisse3g/super_robust_wrapper.sh
