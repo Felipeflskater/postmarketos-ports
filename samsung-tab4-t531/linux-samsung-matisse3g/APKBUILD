@@ -237,7 +237,7 @@ build() {
         _log "Arquivo tem $lines_count linhas e $offsetof_count ocorrências de 'offsetof'"
 
         if [ "$offsetof_count" -gt 0 ]; then
-            _log "PROBLEMA: Arquivo ainda contém offsetof - aplicando correção de emergência com tipos"
+            _log "PROBLEMA: Arquivo ainda contém offsetof - aplicando correção de emergência com BITS_PER_LONG"
             echo '#include <linux/kbuild.h>
 #include <linux/types.h>
 #ifndef __u16
@@ -245,6 +245,12 @@ typedef unsigned short __u16;
 #endif
 #ifndef kernel_ulong_t
 typedef unsigned long kernel_ulong_t;
+#endif
+#ifndef BITS_PER_LONG
+#define BITS_PER_LONG 32
+#endif
+#ifndef INPUT_DEVICE_ID_EV_MAX
+#define INPUT_DEVICE_ID_EV_MAX 0x1f
 #endif
 #include <linux/mod_devicetable.h>
 #define DEVID(devid) DEFINE(SIZE_##devid, sizeof(struct devid))
@@ -267,7 +273,7 @@ DEVID(of_device_id); DEVID_FIELD(of_device_id, name);
 DEVID(virtio_device_id); DEVID_FIELD(virtio_device_id, device);
 DEVID(hv_vmbus_device_id); DEVID_FIELD(hv_vmbus_device_id, guid);
 return 0; }' > scripts/mod/devicetable-offsets.c
-            _log "Arquivo de emergência aplicado (com tipos definidos)"
+            _log "Arquivo de emergência aplicado (com BITS_PER_LONG definido)"
         else
             _log "Arquivo está correto - sem offsetof"
         fi
