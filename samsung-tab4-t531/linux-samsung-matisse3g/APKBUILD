@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=53
+pkgrel=59
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -237,8 +237,15 @@ build() {
         _log "Arquivo tem $lines_count linhas e $offsetof_count ocorrências de 'offsetof'"
 
         if [ "$offsetof_count" -gt 0 ]; then
-            _log "PROBLEMA: Arquivo ainda contém offsetof - aplicando correção de emergência SIZE_"
+            _log "PROBLEMA: Arquivo ainda contém offsetof - aplicando correção de emergência com tipos"
             echo '#include <linux/kbuild.h>
+#include <linux/types.h>
+#ifndef __u16
+typedef unsigned short __u16;
+#endif
+#ifndef kernel_ulong_t
+typedef unsigned long kernel_ulong_t;
+#endif
 #include <linux/mod_devicetable.h>
 #define DEVID(devid) DEFINE(SIZE_##devid, sizeof(struct devid))
 #define DEVID_FIELD(devid, field) DEFINE(OFF_##devid##_##field, 0)
@@ -260,7 +267,7 @@ DEVID(of_device_id); DEVID_FIELD(of_device_id, name);
 DEVID(virtio_device_id); DEVID_FIELD(virtio_device_id, device);
 DEVID(hv_vmbus_device_id); DEVID_FIELD(hv_vmbus_device_id, guid);
 return 0; }' > scripts/mod/devicetable-offsets.c
-            _log "Arquivo de emergência aplicado (com SIZE_ e offsets zerados)"
+            _log "Arquivo de emergência aplicado (com tipos definidos)"
         else
             _log "Arquivo está correto - sem offsetof"
         fi
