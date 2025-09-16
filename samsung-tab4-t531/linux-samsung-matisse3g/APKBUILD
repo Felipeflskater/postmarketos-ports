@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=59
+pkgrel=60
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Otimizado para PostmarketOS"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -34,6 +34,7 @@ source="
 	14-fix-fs-build-errors.patch
 	15-ultimate-macro-redefinition-fix.patch
 	16-fix-ext4-strncpy-warnings.patch
+	17-fix-devicetable-offsets-final.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -156,9 +157,379 @@ EOF
     fi
 }
 
+_fix_devicetable_offsets_ultimate() {
+    _log "Aplicando correção DEFINITIVA para devicetable-offsets.c..."
+
+    # Criar diretório se não existir
+    mkdir -p scripts/mod
+
+    # Criar arquivo devicetable-offsets.c COMPLETO e funcional
+    cat > scripts/mod/devicetable-offsets.c << 'EOF'
+#include <linux/kbuild.h>
+#include <linux/types.h>
+#include <linux/mod_devicetable.h>
+
+/* Definir tipos básicos necessários */
+#ifndef __u8
+typedef unsigned char __u8;
+#endif
+#ifndef __u16
+typedef unsigned short __u16;
+#endif
+#ifndef __u32
+typedef unsigned int __u32;
+#endif
+#ifndef kernel_ulong_t
+typedef unsigned long kernel_ulong_t;
+#endif
+
+/* Definir constantes necessárias */
+#ifndef BITS_PER_LONG
+#define BITS_PER_LONG 32
+#endif
+
+#ifndef INPUT_DEVICE_ID_EV_MAX
+#define INPUT_DEVICE_ID_EV_MAX 0x1f
+#endif
+
+#ifndef INPUT_DEVICE_ID_KEY_MAX
+#define INPUT_DEVICE_ID_KEY_MAX 0x2ff
+#endif
+
+#ifndef INPUT_DEVICE_ID_REL_MAX
+#define INPUT_DEVICE_ID_REL_MAX 0x0f
+#endif
+
+#ifndef INPUT_DEVICE_ID_ABS_MAX
+#define INPUT_DEVICE_ID_ABS_MAX 0x3f
+#endif
+
+#ifndef INPUT_DEVICE_ID_MSC_MAX
+#define INPUT_DEVICE_ID_MSC_MAX 0x07
+#endif
+
+#ifndef INPUT_DEVICE_ID_LED_MAX
+#define INPUT_DEVICE_ID_LED_MAX 0x0f
+#endif
+
+#ifndef INPUT_DEVICE_ID_SND_MAX
+#define INPUT_DEVICE_ID_SND_MAX 0x07
+#endif
+
+#ifndef INPUT_DEVICE_ID_FF_MAX
+#define INPUT_DEVICE_ID_FF_MAX 0x7f
+#endif
+
+#ifndef INPUT_DEVICE_ID_SW_MAX
+#define INPUT_DEVICE_ID_SW_MAX 0x0f
+#endif
+
+/* Definir DEVID para estruturas simples */
+#define DEVID(devid) DEFINE(SIZE_##devid, sizeof(struct devid))
+
+/* Definir DEVID_FIELD usando offset manual calculado */
+#define DEVID_FIELD(devid, field) DEFINE(OFF_##devid##_##field, __builtin_offsetof(struct devid, field))
+
+int main(void)
+{
+    /* PCI device */
+    DEVID(pci_device_id);
+    DEVID_FIELD(pci_device_id, vendor);
+    DEVID_FIELD(pci_device_id, device);
+    DEVID_FIELD(pci_device_id, subvendor);
+    DEVID_FIELD(pci_device_id, subdevice);
+    DEVID_FIELD(pci_device_id, class);
+    DEVID_FIELD(pci_device_id, class_mask);
+
+    /* USB device */
+    DEVID(usb_device_id);
+    DEVID_FIELD(usb_device_id, match_flags);
+    DEVID_FIELD(usb_device_id, idVendor);
+    DEVID_FIELD(usb_device_id, idProduct);
+    DEVID_FIELD(usb_device_id, bcdDevice_lo);
+    DEVID_FIELD(usb_device_id, bcdDevice_hi);
+    DEVID_FIELD(usb_device_id, bDeviceClass);
+    DEVID_FIELD(usb_device_id, bDeviceSubClass);
+    DEVID_FIELD(usb_device_id, bDeviceProtocol);
+    DEVID_FIELD(usb_device_id, bInterfaceClass);
+    DEVID_FIELD(usb_device_id, bInterfaceSubClass);
+    DEVID_FIELD(usb_device_id, bInterfaceProtocol);
+    DEVID_FIELD(usb_device_id, bInterfaceNumber);
+
+    /* HID device */
+    DEVID(hid_device_id);
+    DEVID_FIELD(hid_device_id, bus);
+    DEVID_FIELD(hid_device_id, group);
+    DEVID_FIELD(hid_device_id, vendor);
+    DEVID_FIELD(hid_device_id, product);
+
+    /* Input device - com tratamento especial para arrays */
+    DEVID(input_device_id);
+    DEVID_FIELD(input_device_id, flags);
+    DEVID_FIELD(input_device_id, bustype);
+    DEVID_FIELD(input_device_id, vendor);
+    DEVID_FIELD(input_device_id, product);
+    DEVID_FIELD(input_device_id, version);
+    DEVID_FIELD(input_device_id, evbit);
+    DEVID_FIELD(input_device_id, keybit);
+    DEVID_FIELD(input_device_id, relbit);
+    DEVID_FIELD(input_device_id, absbit);
+    DEVID_FIELD(input_device_id, mscbit);
+    DEVID_FIELD(input_device_id, ledbit);
+    DEVID_FIELD(input_device_id, sndbit);
+    DEVID_FIELD(input_device_id, ffbit);
+    DEVID_FIELD(input_device_id, swbit);
+
+    /* Platform device */
+    DEVID(platform_device_id);
+    DEVID_FIELD(platform_device_id, name);
+
+    /* I2C device */
+    DEVID(i2c_device_id);
+    DEVID_FIELD(i2c_device_id, name);
+
+    /* SPI device */
+    DEVID(spi_device_id);
+    DEVID_FIELD(spi_device_id, name);
+
+    /* DMI system */
+    DEVID(dmi_system_id);
+    DEVID_FIELD(dmi_system_id, matches);
+
+    /* MDIO device */
+    DEVID(mdio_device_id);
+    DEVID_FIELD(mdio_device_id, phy_id);
+    DEVID_FIELD(mdio_device_id, phy_id_mask);
+
+    /* Zorro device */
+    DEVID(zorro_device_id);
+    DEVID_FIELD(zorro_device_id, id);
+
+    /* ISA PnP device */
+    DEVID(isapnp_device_id);
+    DEVID_FIELD(isapnp_device_id, vendor);
+    DEVID_FIELD(isapnp_device_id, function);
+
+    /* AMBA device */
+    DEVID(amba_id);
+    DEVID_FIELD(amba_id, id);
+    DEVID_FIELD(amba_id, mask);
+
+    /* x86 CPU */
+    DEVID(x86_cpu_id);
+    DEVID_FIELD(x86_cpu_id, feature);
+    DEVID_FIELD(x86_cpu_id, family);
+    DEVID_FIELD(x86_cpu_id, model);
+    DEVID_FIELD(x86_cpu_id, vendor);
+
+    /* OF device */
+    DEVID(of_device_id);
+    DEVID_FIELD(of_device_id, name);
+    DEVID_FIELD(of_device_id, type);
+    DEVID_FIELD(of_device_id, compatible);
+
+    /* VirtIO device */
+    DEVID(virtio_device_id);
+    DEVID_FIELD(virtio_device_id, device);
+    DEVID_FIELD(virtio_device_id, vendor);
+
+    /* VMBus device */
+    DEVID(hv_vmbus_device_id);
+    DEVID_FIELD(hv_vmbus_device_id, guid);
+
+    /* Definições condicionais para dispositivos que podem não existir */
+#ifdef CONFIG_IEEE1394
+    DEVID(ieee1394_device_id);
+    DEVID_FIELD(ieee1394_device_id, match_flags);
+    DEVID_FIELD(ieee1394_device_id, vendor_id);
+    DEVID_FIELD(ieee1394_device_id, model_id);
+    DEVID_FIELD(ieee1394_device_id, specifier_id);
+    DEVID_FIELD(ieee1394_device_id, version);
+#else
+    /* Definições vazias para evitar erros */
+    DEFINE(SIZE_ieee1394_device_id, 0);
+#endif
+
+#ifdef CONFIG_CCW
+    DEVID(ccw_device_id);
+    DEVID_FIELD(ccw_device_id, match_flags);
+    DEVID_FIELD(ccw_device_id, cu_type);
+    DEVID_FIELD(ccw_device_id, cu_model);
+    DEVID_FIELD(ccw_device_id, dev_type);
+    DEVID_FIELD(ccw_device_id, dev_model);
+#else
+    DEFINE(SIZE_ccw_device_id, 0);
+#endif
+
+#ifdef CONFIG_ZCRYPT
+    DEVID(ap_device_id);
+    DEVID_FIELD(ap_device_id, dev_type);
+#else
+    DEFINE(SIZE_ap_device_id, 0);
+#endif
+
+#ifdef CONFIG_CSS
+    DEVID(css_device_id);
+    DEVID_FIELD(css_device_id, type);
+#else
+    DEFINE(SIZE_css_device_id, 0);
+#endif
+
+#ifdef CONFIG_SERIO
+    DEVID(serio_device_id);
+    DEVID_FIELD(serio_device_id, type);
+    DEVID_FIELD(serio_device_id, proto);
+    DEVID_FIELD(serio_device_id, id);
+    DEVID_FIELD(serio_device_id, extra);
+#else
+    DEFINE(SIZE_serio_device_id, 0);
+#endif
+
+#ifdef CONFIG_ACPI
+    DEVID(acpi_device_id);
+    DEVID_FIELD(acpi_device_id, id);
+#else
+    DEFINE(SIZE_acpi_device_id, 0);
+#endif
+
+#ifdef CONFIG_PNP
+    DEVID(pnp_device_id);
+    DEVID_FIELD(pnp_device_id, id);
+    DEVID(pnp_card_device_id);
+    DEVID_FIELD(pnp_card_device_id, devs);
+#else
+    DEFINE(SIZE_pnp_device_id, 0);
+    DEFINE(SIZE_pnp_card_device_id, 0);
+#endif
+
+#ifdef CONFIG_PCMCIA
+    DEVID(pcmcia_device_id);
+    DEVID_FIELD(pcmcia_device_id, match_flags);
+    DEVID_FIELD(pcmcia_device_id, manf_id);
+    DEVID_FIELD(pcmcia_device_id, card_id);
+    DEVID_FIELD(pcmcia_device_id, func_id);
+    DEVID_FIELD(pcmcia_device_id, function);
+    DEVID_FIELD(pcmcia_device_id, device_no);
+    DEVID_FIELD(pcmcia_device_id, prod_id_hash);
+#else
+    DEFINE(SIZE_pcmcia_device_id, 0);
+#endif
+
+#ifdef CONFIG_VIO
+    DEVID(vio_device_id);
+    DEVID_FIELD(vio_device_id, type);
+    DEVID_FIELD(vio_device_id, compat);
+#else
+    DEFINE(SIZE_vio_device_id, 0);
+#endif
+
+#ifdef CONFIG_EISA
+    DEVID(eisa_device_id);
+    DEVID_FIELD(eisa_device_id, sig);
+#else
+    DEFINE(SIZE_eisa_device_id, 0);
+#endif
+
+#ifdef CONFIG_PARISC
+    DEVID(parisc_device_id);
+    DEVID_FIELD(parisc_device_id, hw_type);
+    DEVID_FIELD(parisc_device_id, hversion);
+    DEVID_FIELD(parisc_device_id, hversion_rev);
+    DEVID_FIELD(parisc_device_id, sversion);
+#else
+    DEFINE(SIZE_parisc_device_id, 0);
+#endif
+
+#ifdef CONFIG_MMC
+    DEVID(sdio_device_id);
+    DEVID_FIELD(sdio_device_id, class);
+    DEVID_FIELD(sdio_device_id, vendor);
+    DEVID_FIELD(sdio_device_id, device);
+#else
+    DEFINE(SIZE_sdio_device_id, 0);
+#endif
+
+#ifdef CONFIG_SSB
+    DEVID(ssb_device_id);
+    DEVID_FIELD(ssb_device_id, vendor);
+    DEVID_FIELD(ssb_device_id, coreid);
+    DEVID_FIELD(ssb_device_id, revision);
+#else
+    DEFINE(SIZE_ssb_device_id, 0);
+#endif
+
+#ifdef CONFIG_BCMA
+    DEVID(bcma_device_id);
+    DEVID_FIELD(bcma_device_id, manuf);
+    DEVID_FIELD(bcma_device_id, id);
+    DEVID_FIELD(bcma_device_id, rev);
+    DEVID_FIELD(bcma_device_id, class);
+#else
+    DEFINE(SIZE_bcma_device_id, 0);
+#endif
+
+    return 0;
+}
+EOF
+
+    _log "Arquivo devicetable-offsets.c criado com definições completas"
+
+    # Verificar se o arquivo foi criado corretamente
+    if [ -f scripts/mod/devicetable-offsets.c ]; then
+        local line_count=$(wc -l < scripts/mod/devicetable-offsets.c)
+        _log "Arquivo criado com $line_count linhas"
+
+        # Verificar se não contém offsetof (que causa problemas)
+        if grep -q "offsetof(" scripts/mod/devicetable-offsets.c; then
+            _log "ATENÇÃO: Arquivo contém offsetof - mas está usando __builtin_offsetof que deve funcionar"
+        else
+            _log "Arquivo não contém offsetof direto - perfeito!"
+        fi
+    else
+        _die "Falha ao criar devicetable-offsets.c"
+    fi
+}
+
+_fix_printf_macro_bug() {
+    _log "Corrigindo problema com macro __printf..."
+
+    # O erro está no include/asm-generic/bug.h que está tentando usar __printf
+    # Vamos corrigir definindo a macro antes
+
+    # Primeiro, verificar se o arquivo existe e contém o problema
+    if [ -f include/asm-generic/bug.h ]; then
+        if grep -q "__printf(3, 4)" include/asm-generic/bug.h; then
+            _log "Problema __printf detectado em bug.h, aplicando correção..."
+
+            # Fazer backup
+            cp include/asm-generic/bug.h include/asm-generic/bug.h.bak
+
+            # Adicionar definição de __printf no topo do arquivo se não existir
+            if ! grep -q "#define __printf" include/asm-generic/bug.h; then
+                sed -i '1i\
+#ifndef __printf\
+#define __printf(a,b) __attribute__((format(printf,a,b)))\
+#endif' include/asm-generic/bug.h
+
+                _log "__printf definido em bug.h"
+            fi
+        fi
+    fi
+
+    # Também verificar e corrigir em outros locais comuns
+    for header_file in include/linux/compiler.h include/linux/compiler-gcc*.h; do
+        if [ -f "$header_file" ] && ! grep -q "#define __printf" "$header_file"; then
+            sed -i '1i\
+#ifndef __printf\
+#define __printf(a,b) __attribute__((format(printf,a,b)))\
+#endif' "$header_file" 2>/dev/null || true
+        fi
+    done
+}
+
 prepare() {
     cd "$builddir"
-    _log "Preparando kernel com configuração básica..."
+    _log "Preparando kernel com correções completas..."
 
     # Passo 1: Detectar compilador
     _detect_cross_compiler
@@ -169,8 +540,11 @@ prepare() {
     # Passo 3: Configurar linking
     _configure_advanced_linking
 
-    # PASSO CRÍTICO: Corrigir compatibilidade GCC 14
+    # PASSO CRÍTICO 1: Corrigir compatibilidade GCC 14
     _fix_gcc14_compatibility
+
+    # PASSO CRÍTICO 2: Corrigir problema __printf ANTES de aplicar patches
+    _fix_printf_macro_bug
 
     # Passo 4: Aplicar patches básicos
     _log "Aplicando patches essenciais..."
@@ -189,6 +563,9 @@ prepare() {
         fi
     done
     _log "Patches aplicados: $patch_success/$patch_count"
+
+    # PASSO CRÍTICO 3: Corrigir devicetable-offsets.c COMPLETAMENTE
+    _fix_devicetable_offsets_ultimate
 
     # Passo 5: Aplicar configuração do dispositivo
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
@@ -214,79 +591,45 @@ prepare() {
     _log "Configuração final..."
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldconfig >/dev/null 2>&1 || _log "AVISO: oldconfig parcial"
 
-    _log "Preparação básica concluída"
+    _log "Preparação completa concluída com correções para devicetable-offsets"
 }
 
 build() {
     cd "$builddir"
-    _log "Compilando kernel com correções ARMv7..."
+    _log "Compilando kernel com todas as correções aplicadas..."
 
-    # Verificar se a correção GCC 14 está funcionando
+    # Verificar estado das correções
+    _log "=== VERIFICAÇÃO PRÉ-BUILD ==="
+
+    # 1. Verificar GCC 14
     if [ -f include/linux/compiler-gcc14.h ]; then
-        _log "Correção GCC 14 confirmada - arquivo existe"
+        _log "✓ Correção GCC 14 presente"
     else
-        _log "AVISO: Correção GCC 14 não detectada, recriando..."
+        _log "✗ Correção GCC 14 ausente - recriando"
         _fix_gcc14_compatibility
     fi
 
-    # Verificar se devicetable-offsets.c foi corrigido
-    _log "Verificando estado final do devicetable-offsets.c:"
+    # 2. Verificar devicetable-offsets
     if [ -f scripts/mod/devicetable-offsets.c ]; then
-        local offsetof_count=$(grep -c "offsetof" scripts/mod/devicetable-offsets.c 2>/dev/null || echo "0")
-        local lines_count=$(wc -l < scripts/mod/devicetable-offsets.c)
-        _log "Arquivo tem $lines_count linhas e $offsetof_count ocorrências de 'offsetof'"
-
-        if [ "$offsetof_count" -gt 0 ]; then
-            _log "PROBLEMA: Arquivo ainda contém offsetof - aplicando correção de emergência com BITS_PER_LONG"
-            echo '#include <linux/kbuild.h>
-#include <linux/types.h>
-#ifndef __u16
-typedef unsigned short __u16;
-#endif
-#ifndef kernel_ulong_t
-typedef unsigned long kernel_ulong_t;
-#endif
-#ifndef BITS_PER_LONG
-#define BITS_PER_LONG 32
-#endif
-#ifndef INPUT_DEVICE_ID_EV_MAX
-#define INPUT_DEVICE_ID_EV_MAX 0x1f
-#endif
-#include <linux/mod_devicetable.h>
-#define DEVID(devid) DEFINE(SIZE_##devid, sizeof(struct devid))
-#define DEVID_FIELD(devid, field) DEFINE(OFF_##devid##_##field, 0)
-int main(void) {
-DEVID(pci_device_id); DEVID_FIELD(pci_device_id, vendor);
-DEVID(usb_device_id); DEVID_FIELD(usb_device_id, match_flags);
-DEVID(hid_device_id); DEVID_FIELD(hid_device_id, bus);
-DEVID(input_device_id); DEVID_FIELD(input_device_id, flags);
-DEVID(platform_device_id); DEVID_FIELD(platform_device_id, name);
-DEVID(i2c_device_id); DEVID_FIELD(i2c_device_id, name);
-DEVID(spi_device_id); DEVID_FIELD(spi_device_id, name);
-DEVID(dmi_system_id); DEVID_FIELD(dmi_system_id, matches);
-DEVID(mdio_device_id); DEVID_FIELD(mdio_device_id, phy_id);
-DEVID(zorro_device_id); DEVID_FIELD(zorro_device_id, id);
-DEVID(isapnp_device_id); DEVID_FIELD(isapnp_device_id, vendor);
-DEVID(amba_id); DEVID_FIELD(amba_id, id);
-DEVID(x86_cpu_id); DEVID_FIELD(x86_cpu_id, feature);
-DEVID(of_device_id); DEVID_FIELD(of_device_id, name);
-DEVID(virtio_device_id); DEVID_FIELD(virtio_device_id, device);
-DEVID(hv_vmbus_device_id); DEVID_FIELD(hv_vmbus_device_id, guid);
-return 0; }' > scripts/mod/devicetable-offsets.c
-            _log "Arquivo de emergência aplicado (com BITS_PER_LONG definido)"
-        else
-            _log "Arquivo está correto - sem offsetof"
-        fi
+        local lines=$(wc -l < scripts/mod/devicetable-offsets.c)
+        _log "✓ devicetable-offsets.c presente ($lines linhas)"
     else
-        _log "ERRO: devicetable-offsets.c não encontrado!"
+        _log "✗ devicetable-offsets.c ausente - recriando"
+        _fix_devicetable_offsets_ultimate
+    fi
+
+    # 3. Verificar __printf
+    if grep -q "#define __printf" include/asm-generic/bug.h 2>/dev/null; then
+        _log "✓ Correção __printf aplicada"
+    else
+        _log "⚠ Correção __printf pode estar ausente"
     fi
 
     # Verificar configuração ARMv7
-    _log "Verificando configurações ARMv7..."
     if grep -q "CONFIG_CPU_V7=y" .config 2>/dev/null; then
-        _log "Configuração ARMv7 confirmada"
+        _log "✓ Configuração ARMv7 confirmada"
     else
-        _log "AVISO: Configuração ARMv7 não detectada na .config"
+        _log "⚠ Configuração ARMv7 não detectada"
     fi
 
     # Proteger arquivos críticos
@@ -294,9 +637,9 @@ return 0; }' > scripts/mod/devicetable-offsets.c
         chmod 444 include/generated/utsrelease.h
     fi
 
-    # Compilação com flags ARMv7
-    _log "Iniciando compilação com flags ARMv7..."
+    _log "=== INICIANDO COMPILAÇÃO ==="
 
+    # Compilação com timeout e flags otimizadas
     if ! timeout 3600 make \
          ARCH=arm \
          CROSS_COMPILE="$CROSS_COMPILE" \
@@ -304,28 +647,30 @@ return 0; }' > scripts/mod/devicetable-offsets.c
          HOSTCFLAGS="$HOSTCFLAGS" \
          KBUILD_CFLAGS="$KBUILD_CFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
-         KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
-         KBUILD_AFLAGS="$KBUILD_AFLAGS" \
+         V=1 \
          -j$(nproc) zImage 2>&1 | tee build.log; then
 
-        _log "Compilação falhou. Analisando tipo de erro..."
+        _log "Compilação falhou. Analisando erro..."
 
-        if grep -q "expected expression before 'struct'" build.log; then
-            _log "ERRO: Ainda problema com offsetof/struct - correção não funcionou"
-            echo "=== DETALHES DO PROBLEMA ==="
-            grep -B2 -A2 "expected expression before" build.log | head -10
-        elif grep -q "SMP not supported on pre-ARMv6" build.log; then
-            _log "ERRO: Voltou problema de arquitetura ARMv6"
-        elif grep -q "__LINUX_ARM_ARCH__.*undeclared" build.log; then
-            _log "ERRO: Macro __LINUX_ARM_ARCH__ não está sendo definida"
+        # Análise detalhada do erro
+        if grep -q "__printf.*expected declaration specifiers" build.log; then
+            _log "ERRO: Ainda problema com __printf macro"
+            echo "=== PROBLEMA __printf ==="
+            grep -B2 -A2 "__printf" build.log | head -10
+        elif grep -q "OFF_.*_undeclared" build.log; then
+            _log "ERRO: Ainda problema com device table offsets"
+            echo "=== PROBLEMA DEVICE TABLE ==="
+            grep -B2 -A2 "OFF_.*undeclared" build.log | head -10
+        elif grep -q "SMP not supported" build.log; then
+            _log "ERRO: Problema de arquitetura ARM"
         else
-            _log "PROGRESSO! Novo tipo de erro - problemas de offsetof resolvidos"
+            _log "NOVO TIPO DE ERRO - PROGRESSO!"
             echo "=== NOVO ERRO ==="
             grep -E "error:|Error:|fatal error:" build.log | head -5
         fi
 
-        echo "=== CONTEXTO DO ERRO ==="
-        grep -B2 -A2 "error:" build.log | head -15
+        echo "=== CONTEXTO COMPLETO DO ERRO ==="
+        grep -B3 -A3 "error:" build.log | head -20
         _die "Falha na compilação - verifique build.log"
     fi
 
@@ -393,4 +738,5 @@ c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad50
 bcaf48edc68de62aeae3c97c0419ae7e78ac3d65ced9d08cb1d397561bc546de9f632c1f398c7b04a4f8326ea01238f3204efdd1f96db860f32122a96c2736d1  14-fix-fs-build-errors.patch
 b31c13237d0f45bc9649be5915d0d37a9d40d3063d53f49b874481cb517d1bb5038af5071470f43ce07b160dcc2df60a65344bc49f9131ccaddab0dc4d55cdce  15-ultimate-macro-redefinition-fix.patch
 068a2b50a9125c8cc23897910edffa3b08fdab5e082679e90937b9f984da8fb3b99d9a415fac9314cfeba85e9729bc0405875627a3b01aa36dfbe2a7f8821de2  16-fix-ext4-strncpy-warnings.patch
+b879c8401e1c96a333e6cedb551a678562f4e349eb9c2526bb8111bb0e3c05d84e50722bbe24a356a0fd3386073760c911200f8a47804fd809d27aa3b15f9b52  17-fix-devicetable-offsets-final.patch
 "
