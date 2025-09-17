@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=66
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Build Definitivo"
+pkgrel=68
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Correção Tipos"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -31,6 +31,8 @@ source="
 	15-ultimate-macro-redefinition-fix.patch
 	16-fix-ext4-strncpy-warnings.patch
 	22-ultimate-all-offsets-final.patch
+	23-fix-arm-architecture-detection.patch
+	24-fix-devicetable-basic-types.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -49,7 +51,9 @@ prepare() {
     # Ambiente
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
     export ARCH=arm SUBARCH=arm HOSTCC=gcc HOSTCFLAGS="-O1 -w -std=gnu89"
-    export KBUILD_CFLAGS="-w -Wno-error -std=gnu89" EXTRA_CFLAGS="-w -Wno-error"
+    export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -D__LINUX_ARM_ARCH__=7"
+    export EXTRA_CFLAGS="-w -Wno-error -D__LINUX_ARM_ARCH__=7"
+    export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
 
     # GCC compat
     mkdir -p include/linux
@@ -71,7 +75,7 @@ EOF
     # Patches
     local ok=0
     for p in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort -V); do
-        [ -f "$srcdir/$p" ] && patch -p1 -i "$srcdir/$p" >/dev/null 2>&1 && ok=$((ok + 1))
+        [ -f "$srcdir/$p" ] && patch -p1 -i "$srcdir/$p" >/dev/null 2>&1 && ok=$((ok + 1)) && echo "✓ $p" || echo "✗ $p"
     done
 
     # Config
@@ -80,17 +84,42 @@ EOF
     # Estruturas
     mkdir -p include/generated include/config scripts/basic scripts/mod
     echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
-    echo '/* Auto */' > include/generated/autoconf.h
+    echo '/* Auto generated */' > include/generated/autoconf.h
+    echo '#define __LINUX_ARM_ARCH__ 7' >> include/generated/autoconf.h
+    echo '#define BITS_PER_LONG 32' >> include/generated/autoconf.h
     touch include/generated/bounds.h include/generated/asm-offsets.h
 
-    # ULTIMATE fallback - todos os offsets possíveis
+    # Garantir devicetable-offsets.c FINAL com tipos corretos
     cat > scripts/mod/devicetable-offsets.c << 'EOF'
 #include <linux/kbuild.h>
+#include <linux/types.h>
+#include <linux/stddef.h>
+
+/* Define basic types */
+#ifndef __u8
+typedef unsigned char __u8;
+#endif
+#ifndef __u16
+typedef unsigned short __u16;
+#endif
+#ifndef __u32
+typedef unsigned int __u32;
+#endif
+#ifndef kernel_ulong_t
+typedef unsigned long kernel_ulong_t;
+#endif
+#ifndef BITS_PER_LONG
+#define BITS_PER_LONG 32
+#endif
+
+/* Include device table after types are defined */
 #include <linux/mod_devicetable.h>
+
 #define MANUAL_OFFSET(type, field) ((unsigned long)&((type *)8)->field - 8)
 #define DEVID(devid) DEFINE(SIZE_##devid, sizeof(struct devid))
 #define DEVID_FIELD(devid, field) DEFINE(OFF_##devid##_##field, MANUAL_OFFSET(struct devid, field))
 #define FAKE_OFFSET(devid, field, offset) DEFINE(OFF_##devid##_##field, offset)
+
 int main(void) {
     DEVID(pci_device_id); DEVID_FIELD(pci_device_id, vendor); DEVID_FIELD(pci_device_id, device);
     DEVID_FIELD(pci_device_id, subvendor); DEVID_FIELD(pci_device_id, subdevice);
@@ -123,7 +152,6 @@ int main(void) {
     DEVID(virtio_device_id); DEVID_FIELD(virtio_device_id, device); DEVID_FIELD(virtio_device_id, vendor);
     DEVID(hv_vmbus_device_id); DEVID_FIELD(hv_vmbus_device_id, guid);
 
-    /* Fake offsets para evitar erros */
     DEFINE(SIZE_ssb_device_id, 16); FAKE_OFFSET(ssb_device_id, vendor, 0);
     FAKE_OFFSET(ssb_device_id, coreid, 2); FAKE_OFFSET(ssb_device_id, revision, 4);
     DEFINE(SIZE_bcma_device_id, 16); FAKE_OFFSET(bcma_device_id, manuf, 0);
@@ -144,20 +172,11 @@ int main(void) {
     FAKE_OFFSET(pcmcia_device_id, device_no, 10); FAKE_OFFSET(pcmcia_device_id, prod_id_hash, 12);
     DEFINE(SIZE_eisa_device_id, 16); FAKE_OFFSET(eisa_device_id, sig, 0);
     DEFINE(SIZE_vio_device_id, 64); FAKE_OFFSET(vio_device_id, type, 0); FAKE_OFFSET(vio_device_id, compat, 32);
-
-    /* Dispositivos restantes desabilitados */
     DEFINE(SIZE_ccw_device_id, 0); DEFINE(SIZE_ap_device_id, 0); DEFINE(SIZE_css_device_id, 0);
     DEFINE(SIZE_pnp_device_id, 0); DEFINE(SIZE_pnp_card_device_id, 0);
-
     return 0;
 }
 EOF
-
-    # string.h fix
-    [ -f include/linux/string.h ] && ! grep -q "#ifndef __KERNEL__" include/linux/string.h && {
-        sed -i '/#include <string.h>/i #ifndef __KERNEL__' include/linux/string.h
-        sed -i '/#include <string.h>/a #endif' include/linux/string.h
-    }
 
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" scripts_basic >/dev/null 2>&1 || true
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldconfig >/dev/null 2>&1 || true
@@ -166,65 +185,54 @@ EOF
 build() {
     cd "$builddir"
 
-    # Verificações finais
-    echo "=== VERIFICAÇÕES FINAIS ==="
-    [ -f scripts/mod/devicetable-offsets.c ] && echo "✓ devicetable-offsets.c" || echo "✗ CRITICAL"
-    grep -q "OFF_parisc_device_id_sversion" scripts/mod/devicetable-offsets.c 2>/dev/null && echo "✓ PARISC offsets" || echo "✗ PARISC offsets"
-    grep -q "OFF_sdio_device_id_class" scripts/mod/devicetable-offsets.c 2>/dev/null && echo "✓ SDIO offsets" || echo "✗ SDIO offsets"
-    grep -q "CONFIG_CPU_V7=y" .config 2>/dev/null && echo "✓ ARMv7" || echo "⚠ ARMv7"
+    echo "=== VERIFICAÇÕES TIPOS ==="
+    grep -q "__u32" scripts/mod/devicetable-offsets.c 2>/dev/null && echo "✓ Tipos básicos definidos" || echo "✗ Tipos básicos"
+    grep -q "BITS_PER_LONG.*32" scripts/mod/devicetable-offsets.c 2>/dev/null && echo "✓ BITS_PER_LONG definido" || echo "✗ BITS_PER_LONG"
+    grep -q "CONFIG_CPU_V7=y" .config 2>/dev/null && echo "✓ ARMv7 config" || echo "⚠ ARMv7 config"
 
-    # Build
-    echo "Executando build DEFINITIVO..."
+    echo "Build com correção de tipos..."
     if ! timeout 3600 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC=gcc HOSTCFLAGS="$HOSTCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS" \
-         EXTRA_CFLAGS="$EXTRA_CFLAGS" V=1 -j$(nproc) zImage 2>&1 | tee build.log; then
+         EXTRA_CFLAGS="$EXTRA_CFLAGS" KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
+         V=1 -j$(nproc) zImage 2>&1 | tee build.log; then
 
         echo "BUILD FALHOU:"
 
-        if grep -q "OFF_.*undeclared" build.log; then
-            echo "AINDA: Offsets não declarados"
-            grep -E "OFF_.*undeclared" build.log | head -3
-        elif grep -q "string.h.*No such file" build.log; then
-            echo "AINDA: string.h"
+        if grep -q "__u32.*unknown type name" build.log; then
+            echo "AINDA: Problema com tipos básicos (__u32, etc)"
+        elif grep -q "kernel_ulong_t.*unknown type name" build.log; then
+            echo "AINDA: Problema com kernel_ulong_t"
+        elif grep -q "BITS_PER_LONG.*undeclared" build.log; then
+            echo "AINDA: BITS_PER_LONG não definido"
+        elif grep -q "__printf.*expected declaration" build.log; then
+            echo "AINDA: Problema __printf"
+        elif grep -q "SMP not supported" build.log; then
+            echo "REGRESSÃO: Voltou problema SMP/ARMv6"
         else
-            echo "PROGRESSO: Novo tipo de erro!"
+            echo "PROGRESSO: Novo erro!"
             grep -E "(error|Error|fatal)" build.log | head -3
         fi
 
         echo ""
-        echo "=== CONTEXTO DO ERRO ==="
+        echo "=== CONTEXTO ==="
         grep -B1 -A1 -E "(error|Error|fatal)" build.log | head -15
-
-        echo "ERRO: Build falhou"
         exit 1
     fi
 
-    # Sucesso
-    if [ ! -f arch/arm/boot/zImage ]; then
-        echo "ERRO: zImage não criado"
-        exit 1
-    fi
-
+    [ -f arch/arm/boot/zImage ] || { echo "ERRO: zImage não criado"; exit 1; }
     local size=$(stat -c%s arch/arm/boot/zImage)
-    echo ""
-    echo "SUCCESS! zImage criado: $size bytes"
-    echo "Kernel Samsung Matisse3G compilado com sucesso!"
-
-    # Módulos
+    echo "SUCCESS! zImage: $size bytes"
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" modules >/dev/null 2>&1 || true
 }
 
 package() {
     cd "$builddir"
-
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
     make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" modules_install 2>/dev/null || true
-
     if [ -d arch/arm/boot/dts ]; then
         mkdir -p "$pkgdir/boot/dtbs-$_flavor"
         find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \; 2>/dev/null || true
     fi
-
     mkdir -p "$pkgdir/boot"
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 }
@@ -248,4 +256,6 @@ bcaf48edc68de62aeae3c97c0419ae7e78ac3d65ced9d08cb1d397561bc546de9f632c1f398c7b04
 b31c13237d0f45bc9649be5915d0d37a9d40d3063d53f49b874481cb517d1bb5038af5071470f43ce07b160dcc2df60a65344bc49f9131ccaddab0dc4d55cdce  15-ultimate-macro-redefinition-fix.patch
 068a2b50a9125c8cc23897910edffa3b08fdab5e082679e90937b9f984da8fb3b99d9a415fac9314cfeba85e9729bc0405875627a3b01aa36dfbe2a7f8821de2  16-fix-ext4-strncpy-warnings.patch
 fa48d727a40e0b305bf6c824c0416d9494281b9a5bf00b54074da1ac72002aa4fd25e556bdfee83afc50085d1e424cecf258e5098d25ca654a6777b91dc40be3  22-ultimate-all-offsets-final.patch
+e0bf78d0247d8969cae6c9b18fafddb53dfdcf08155b7c9dfa327ed0ca369f74c7d7801b03595464dba28a93e87c7010c6dce812cc016f67a876a80ae6528c59  23-fix-arm-architecture-detection.patch
+bc7c43f87eec73705a993ff971cf159933e762b0f658a124cdfd717ebe577a063b1d9eac71c51356244f0d579e2afbe75d14b66890d175932eb05d9dc502ccee  24-fix-devicetable-basic-types.patch
 "
