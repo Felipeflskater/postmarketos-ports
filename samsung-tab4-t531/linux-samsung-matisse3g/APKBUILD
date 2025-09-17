@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=68
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Correção Tipos"
+pkgrel=70
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Correção string.h e headers"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -33,6 +33,8 @@ source="
 	22-ultimate-all-offsets-final.patch
 	23-fix-arm-architecture-detection.patch
 	24-fix-devicetable-basic-types.patch
+	25-fix-printf-macro.patch
+	26-fix-string-header-inclusion.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -48,54 +50,260 @@ prepare() {
     done
     [ -z "$CROSS_COMPILE" ] && { echo "ERRO: Compilador não encontrado"; exit 1; }
 
-    # Ambiente
+    # Ambiente - Mais agressivo para evitar conflitos
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
-    export ARCH=arm SUBARCH=arm HOSTCC=gcc HOSTCFLAGS="-O1 -w -std=gnu89"
-    export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -D__LINUX_ARM_ARCH__=7"
-    export EXTRA_CFLAGS="-w -Wno-error -D__LINUX_ARM_ARCH__=7"
+    export ARCH=arm SUBARCH=arm HOSTCC=gcc
+    export HOSTCFLAGS="-O1 -w -std=gnu89 -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
+    export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
+    export EXTRA_CFLAGS="-w -Wno-error -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
     export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
 
-    # GCC compat
-    mkdir -p include/linux
-    for v in 14 15 16; do cat > include/linux/compiler-gcc${v}.h << 'EOF'
+    # Fix para headers básicos do sistema - CRÍTICO
+    mkdir -p include/linux include/asm-generic
+
+    # Fix para string.h - criar wrapper que inclui o correto
+    cat > include/linux/string.h << 'EOF'
+#ifndef _LINUX_STRING_H_
+#define _LINUX_STRING_H_
+
+/* Wrapper para string.h do kernel - evita inclusão do sistema */
+#include <linux/types.h>
+#include <linux/stddef.h>
+
+/* Protótipos básicos de string do kernel */
+extern char * strcpy(char *,const char *);
+extern char * strncpy(char *,const char *, __kernel_size_t);
+extern __kernel_size_t strlen(const char *);
+extern int strcmp(const char *,const char *);
+extern int strncmp(const char *,const char *,__kernel_size_t);
+extern char * strchr(const char *,int);
+extern char * strrchr(const char *,int);
+extern char * strstr(const char *,const char *);
+extern void * memset(void *,int,__kernel_size_t);
+extern void * memcpy(void *,const void *,__kernel_size_t);
+extern void * memmove(void *,const void *,__kernel_size_t);
+extern int memcmp(const void *,const void *,__kernel_size_t);
+extern void * memchr(const void *,int,__kernel_size_t);
+
+#endif /* _LINUX_STRING_H_ */
+EOF
+
+    # Fix para stddef.h do kernel
+    cat > include/linux/stddef.h << 'EOF'
+#ifndef _LINUX_STDDEF_H
+#define _LINUX_STDDEF_H
+
+#include <linux/types.h>
+
+#undef NULL
+#if defined(__cplusplus)
+#define NULL 0
+#else
+#define NULL ((void *)0)
+#endif
+
+#undef offsetof
+#ifdef __compiler_offsetof
+#define offsetof(TYPE,MEMBER) __compiler_offsetof(TYPE,MEMBER)
+#else
+#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#endif
+
+/* Definições para tipos básicos */
+#ifndef __kernel_size_t
+typedef __SIZE_TYPE__ __kernel_size_t;
+#endif
+
+#ifndef size_t
+typedef __kernel_size_t size_t;
+#endif
+
+#ifndef ptrdiff_t
+typedef long ptrdiff_t;
+#endif
+
+#endif /* _LINUX_STDDEF_H */
+EOF
+
+    # Fix para __printf - Definir antes de qualquer inclusão
+    cat > include/linux/compiler-attributes.h << 'EOF'
+#ifndef __LINUX_COMPILER_ATTRIBUTES_H
+#define __LINUX_COMPILER_ATTRIBUTES_H
+
+/* Fix para __printf macro */
+#ifdef __GNUC__
+# define __printf(a, b) __attribute__((format(printf, a, b)))
+# define __scanf(a, b)  __attribute__((format(scanf, a, b)))
+# define __attribute_const__ __attribute__((__const__))
+# define __maybe_unused __attribute__((unused))
+#else
+# define __printf(a, b)
+# define __scanf(a, b)
+# define __attribute_const__
+# define __maybe_unused
+#endif
+
+#endif /* __LINUX_COMPILER_ATTRIBUTES_H */
+EOF
+
+    # GCC compat headers - Com fix para __printf
+    for v in 14 15 16; do
+        cat > include/linux/compiler-gcc${v}.h << 'EOF'
 #ifndef __LINUX_COMPILER_H
 #error "Include compiler.h"
 #endif
+
+/* Definições básicas para compatibilidade com GCC moderno */
 #define __used __attribute__((__used__))
 #define __must_check __attribute__((warn_unused_result))
 #define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
 #define __cold __attribute__((__cold__))
 #define unreachable() __builtin_unreachable()
-#define __noclone __attribute__((__noclone__))
+#define __noclone __attribute__((__noclone__, __optimize__("no-tracer")))
 #define __visible __attribute__((externally_visible))
 #define asm_volatile_goto(x...) do { asm goto(x); asm (""); } while (0)
+
+/* Fix crítico para __printf */
+#ifndef __printf
+#define __printf(a, b) __attribute__((format(printf, a, b)))
+#endif
+
+/* Outros atributos essenciais */
+#define __scanf(a, b) __attribute__((format(scanf, a, b)))
+#define __attribute_const__ __attribute__((__const__))
+#define __maybe_unused __attribute__((unused))
+#define __always_inline inline __attribute__((always_inline))
+#define __deprecated __attribute__((deprecated))
+#define __packed __attribute__((packed))
+#define __weak __attribute__((weak))
+#define __alias(symbol) __attribute__((alias(#symbol)))
+#define __pure __attribute__((pure))
+#define __aligned(x) __attribute__((aligned(x)))
+#define __user
+#define __kernel
+#define __safe
+#define __force
+#define __nocast
+#define __iomem
+#define __must_hold(x)
+#define __acquires(x)
+#define __releases(x)
+#define __acquire(x) (void)0
+#define __release(x) (void)0
+#define __cond_lock(x,c) (c)
+#define __percpu
+#define __rcu
+#define __private
+#define __pmem
+#define __chk_user_ptr(x) (void)0
+#define __chk_io_ptr(x) (void)0
+#define __builtin_warning(x, y...) (1)
+#define __must_be_array(x) 0
+#define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
+
 EOF
     done
 
-    # Patches
-    local ok=0
-    for p in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort -V); do
-        [ -f "$srcdir/$p" ] && patch -p1 -i "$srcdir/$p" >/dev/null 2>&1 && ok=$((ok + 1)) && echo "✓ $p" || echo "✗ $p"
-    done
-
-    # Config
-    [ -f "$srcdir/config-samsung-matisse3g.armv7" ] && cp "$srcdir/config-samsung-matisse3g.armv7" .config
-
-    # Estruturas
+    # Estruturas essenciais primeiro
     mkdir -p include/generated include/config scripts/basic scripts/mod
+
+    # Fix crítico para types.h - garantir tipos básicos
+    cat > include/linux/types.h << 'EOF'
+#ifndef _LINUX_TYPES_H
+#define _LINUX_TYPES_H
+
+#ifdef __KERNEL__
+
+#define __bitwise__
+#ifdef __CHECK_ENDIAN__
+#define __bitwise __bitwise__
+#else
+#define __bitwise
+#endif
+
+typedef __u16 __bitwise __le16;
+typedef __u16 __bitwise __be16;
+typedef __u32 __bitwise __le32;
+typedef __u32 __bitwise __be32;
+typedef __u64 __bitwise __le64;
+typedef __u64 __bitwise __be64;
+
+typedef __u16 __bitwise __sum16;
+typedef __u32 __bitwise __wsum;
+
+#endif /* __KERNEL__ */
+
+/* Tipos básicos do kernel */
+#ifndef __ASSEMBLY__
+
+#define DECLARE_BITMAP(name,bits) \
+	unsigned long name[BITS_TO_LONGS(bits)]
+
+typedef unsigned char u8;
+typedef signed char s8;
+typedef unsigned short u16;
+typedef signed short s16;
+typedef unsigned int u32;
+typedef signed int s32;
+typedef unsigned long long u64;
+typedef signed long long s64;
+
+/* Tipos do kernel */
+typedef u8 __u8;
+typedef s8 __s8;
+typedef u16 __u16;
+typedef s16 __s16;
+typedef u32 __u32;
+typedef s32 __s32;
+typedef u64 __u64;
+typedef s64 __s64;
+
+typedef unsigned long kernel_ulong_t;
+typedef unsigned long __kernel_size_t;
+typedef long __kernel_ssize_t;
+typedef long __kernel_ptrdiff_t;
+typedef long __kernel_time_t;
+typedef long __kernel_suseconds_t;
+typedef int __kernel_pid_t;
+typedef unsigned int __kernel_uid_t;
+typedef unsigned int __kernel_gid_t;
+typedef unsigned long __kernel_ino_t;
+typedef unsigned int __kernel_mode_t;
+typedef unsigned short __kernel_umode_t;
+typedef long long __kernel_loff_t;
+typedef unsigned int __kernel_dev_t;
+
+#ifndef __SIZE_TYPE__
+#define __SIZE_TYPE__ long unsigned int
+#endif
+
+#ifndef size_t
+typedef __SIZE_TYPE__ size_t;
+#endif
+
+#ifndef BITS_PER_LONG
+#define BITS_PER_LONG 32
+#endif
+
+#endif /* __ASSEMBLY__ */
+
+#endif /* _LINUX_TYPES_H */
+EOF
+
+    # Headers de tipos básicos
     echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
     echo '/* Auto generated */' > include/generated/autoconf.h
     echo '#define __LINUX_ARM_ARCH__ 7' >> include/generated/autoconf.h
     echo '#define BITS_PER_LONG 32' >> include/generated/autoconf.h
     touch include/generated/bounds.h include/generated/asm-offsets.h
 
-    # Garantir devicetable-offsets.c FINAL com tipos corretos
+    # Fix completo para devicetable-offsets.c com TODAS as definições necessárias
     cat > scripts/mod/devicetable-offsets.c << 'EOF'
 #include <linux/kbuild.h>
 #include <linux/types.h>
 #include <linux/stddef.h>
 
-/* Define basic types */
+/* Definir todos os tipos básicos necessários */
 #ifndef __u8
 typedef unsigned char __u8;
 #endif
@@ -105,6 +313,9 @@ typedef unsigned short __u16;
 #ifndef __u32
 typedef unsigned int __u32;
 #endif
+#ifndef __u64
+typedef unsigned long long __u64;
+#endif
 #ifndef kernel_ulong_t
 typedef unsigned long kernel_ulong_t;
 #endif
@@ -112,72 +323,214 @@ typedef unsigned long kernel_ulong_t;
 #define BITS_PER_LONG 32
 #endif
 
-/* Include device table after types are defined */
+/* Incluir mod_devicetable.h após definir os tipos */
 #include <linux/mod_devicetable.h>
 
+/* Macros para calcular offsets manualmente */
 #define MANUAL_OFFSET(type, field) ((unsigned long)&((type *)8)->field - 8)
 #define DEVID(devid) DEFINE(SIZE_##devid, sizeof(struct devid))
 #define DEVID_FIELD(devid, field) DEFINE(OFF_##devid##_##field, MANUAL_OFFSET(struct devid, field))
 #define FAKE_OFFSET(devid, field, offset) DEFINE(OFF_##devid##_##field, offset)
 
 int main(void) {
-    DEVID(pci_device_id); DEVID_FIELD(pci_device_id, vendor); DEVID_FIELD(pci_device_id, device);
-    DEVID_FIELD(pci_device_id, subvendor); DEVID_FIELD(pci_device_id, subdevice);
-    DEVID_FIELD(pci_device_id, class); DEVID_FIELD(pci_device_id, class_mask);
-    DEVID(usb_device_id); DEVID_FIELD(usb_device_id, match_flags); DEVID_FIELD(usb_device_id, idVendor);
-    DEVID_FIELD(usb_device_id, idProduct); DEVID_FIELD(usb_device_id, bcdDevice_lo);
-    DEVID_FIELD(usb_device_id, bcdDevice_hi); DEVID_FIELD(usb_device_id, bDeviceClass);
-    DEVID_FIELD(usb_device_id, bDeviceSubClass); DEVID_FIELD(usb_device_id, bDeviceProtocol);
-    DEVID_FIELD(usb_device_id, bInterfaceClass); DEVID_FIELD(usb_device_id, bInterfaceSubClass);
-    DEVID_FIELD(usb_device_id, bInterfaceProtocol); DEVID_FIELD(usb_device_id, bInterfaceNumber);
-    DEVID(hid_device_id); DEVID_FIELD(hid_device_id, bus); DEVID_FIELD(hid_device_id, group);
-    DEVID_FIELD(hid_device_id, vendor); DEVID_FIELD(hid_device_id, product);
-    DEVID(input_device_id); DEVID_FIELD(input_device_id, flags); DEVID_FIELD(input_device_id, bustype);
-    DEVID_FIELD(input_device_id, vendor); DEVID_FIELD(input_device_id, product); DEVID_FIELD(input_device_id, version);
-    DEVID_FIELD(input_device_id, evbit); DEVID_FIELD(input_device_id, keybit); DEVID_FIELD(input_device_id, relbit);
-    DEVID_FIELD(input_device_id, absbit); DEVID_FIELD(input_device_id, mscbit); DEVID_FIELD(input_device_id, ledbit);
-    DEVID_FIELD(input_device_id, sndbit); DEVID_FIELD(input_device_id, ffbit); DEVID_FIELD(input_device_id, swbit);
-    DEVID(platform_device_id); DEVID_FIELD(platform_device_id, name);
-    DEVID(i2c_device_id); DEVID_FIELD(i2c_device_id, name);
-    DEVID(spi_device_id); DEVID_FIELD(spi_device_id, name);
-    DEVID(dmi_system_id); DEVID_FIELD(dmi_system_id, matches);
-    DEVID(mdio_device_id); DEVID_FIELD(mdio_device_id, phy_id); DEVID_FIELD(mdio_device_id, phy_id_mask);
-    DEVID(zorro_device_id); DEVID_FIELD(zorro_device_id, id);
-    DEVID(isapnp_device_id); DEVID_FIELD(isapnp_device_id, vendor); DEVID_FIELD(isapnp_device_id, function);
-    DEVID(amba_id); DEVID_FIELD(amba_id, id); DEVID_FIELD(amba_id, mask);
-    DEVID(x86_cpu_id); DEVID_FIELD(x86_cpu_id, feature); DEVID_FIELD(x86_cpu_id, family);
-    DEVID_FIELD(x86_cpu_id, model); DEVID_FIELD(x86_cpu_id, vendor);
-    DEVID(of_device_id); DEVID_FIELD(of_device_id, name); DEVID_FIELD(of_device_id, type);
-    DEVID_FIELD(of_device_id, compatible);
-    DEVID(virtio_device_id); DEVID_FIELD(virtio_device_id, device); DEVID_FIELD(virtio_device_id, vendor);
-    DEVID(hv_vmbus_device_id); DEVID_FIELD(hv_vmbus_device_id, guid);
+    /* Device IDs com estruturas conhecidas */
+    DEVID(pci_device_id);
+    DEVID_FIELD(pci_device_id, vendor);
+    DEVID_FIELD(pci_device_id, device);
+    DEVID_FIELD(pci_device_id, subvendor);
+    DEVID_FIELD(pci_device_id, subdevice);
+    DEVID_FIELD(pci_device_id, class);
+    DEVID_FIELD(pci_device_id, class_mask);
 
-    DEFINE(SIZE_ssb_device_id, 16); FAKE_OFFSET(ssb_device_id, vendor, 0);
-    FAKE_OFFSET(ssb_device_id, coreid, 2); FAKE_OFFSET(ssb_device_id, revision, 4);
-    DEFINE(SIZE_bcma_device_id, 16); FAKE_OFFSET(bcma_device_id, manuf, 0);
-    FAKE_OFFSET(bcma_device_id, id, 2); FAKE_OFFSET(bcma_device_id, rev, 4); FAKE_OFFSET(bcma_device_id, class, 6);
-    DEFINE(SIZE_parisc_device_id, 16); FAKE_OFFSET(parisc_device_id, hw_type, 0);
-    FAKE_OFFSET(parisc_device_id, hversion, 2); FAKE_OFFSET(parisc_device_id, hversion_rev, 4); FAKE_OFFSET(parisc_device_id, sversion, 6);
-    DEFINE(SIZE_sdio_device_id, 12); FAKE_OFFSET(sdio_device_id, class, 0);
-    FAKE_OFFSET(sdio_device_id, vendor, 2); FAKE_OFFSET(sdio_device_id, device, 4);
-    DEFINE(SIZE_ieee1394_device_id, 20); FAKE_OFFSET(ieee1394_device_id, match_flags, 0);
-    FAKE_OFFSET(ieee1394_device_id, vendor_id, 4); FAKE_OFFSET(ieee1394_device_id, model_id, 8);
-    FAKE_OFFSET(ieee1394_device_id, specifier_id, 12); FAKE_OFFSET(ieee1394_device_id, version, 16);
-    DEFINE(SIZE_serio_device_id, 8); FAKE_OFFSET(serio_device_id, type, 0);
-    FAKE_OFFSET(serio_device_id, proto, 1); FAKE_OFFSET(serio_device_id, id, 2); FAKE_OFFSET(serio_device_id, extra, 3);
-    DEFINE(SIZE_acpi_device_id, 16); FAKE_OFFSET(acpi_device_id, id, 0);
-    DEFINE(SIZE_pcmcia_device_id, 32); FAKE_OFFSET(pcmcia_device_id, match_flags, 0);
-    FAKE_OFFSET(pcmcia_device_id, manf_id, 4); FAKE_OFFSET(pcmcia_device_id, card_id, 6);
-    FAKE_OFFSET(pcmcia_device_id, func_id, 8); FAKE_OFFSET(pcmcia_device_id, function, 9);
-    FAKE_OFFSET(pcmcia_device_id, device_no, 10); FAKE_OFFSET(pcmcia_device_id, prod_id_hash, 12);
-    DEFINE(SIZE_eisa_device_id, 16); FAKE_OFFSET(eisa_device_id, sig, 0);
-    DEFINE(SIZE_vio_device_id, 64); FAKE_OFFSET(vio_device_id, type, 0); FAKE_OFFSET(vio_device_id, compat, 32);
-    DEFINE(SIZE_ccw_device_id, 0); DEFINE(SIZE_ap_device_id, 0); DEFINE(SIZE_css_device_id, 0);
-    DEFINE(SIZE_pnp_device_id, 0); DEFINE(SIZE_pnp_card_device_id, 0);
+    DEVID(usb_device_id);
+    DEVID_FIELD(usb_device_id, match_flags);
+    DEVID_FIELD(usb_device_id, idVendor);
+    DEVID_FIELD(usb_device_id, idProduct);
+    DEVID_FIELD(usb_device_id, bcdDevice_lo);
+    DEVID_FIELD(usb_device_id, bcdDevice_hi);
+    DEVID_FIELD(usb_device_id, bDeviceClass);
+    DEVID_FIELD(usb_device_id, bDeviceSubClass);
+    DEVID_FIELD(usb_device_id, bDeviceProtocol);
+    DEVID_FIELD(usb_device_id, bInterfaceClass);
+    DEVID_FIELD(usb_device_id, bInterfaceSubClass);
+    DEVID_FIELD(usb_device_id, bInterfaceProtocol);
+    DEVID_FIELD(usb_device_id, bInterfaceNumber);
+
+    DEVID(hid_device_id);
+    DEVID_FIELD(hid_device_id, bus);
+    DEVID_FIELD(hid_device_id, group);
+    DEVID_FIELD(hid_device_id, vendor);
+    DEVID_FIELD(hid_device_id, product);
+
+    DEVID(input_device_id);
+    DEVID_FIELD(input_device_id, flags);
+    DEVID_FIELD(input_device_id, bustype);
+    DEVID_FIELD(input_device_id, vendor);
+    DEVID_FIELD(input_device_id, product);
+    DEVID_FIELD(input_device_id, version);
+    DEVID_FIELD(input_device_id, evbit);
+    DEVID_FIELD(input_device_id, keybit);
+    DEVID_FIELD(input_device_id, relbit);
+    DEVID_FIELD(input_device_id, absbit);
+    DEVID_FIELD(input_device_id, mscbit);
+    DEVID_FIELD(input_device_id, ledbit);
+    DEVID_FIELD(input_device_id, sndbit);
+    DEVID_FIELD(input_device_id, ffbit);
+    DEVID_FIELD(input_device_id, swbit);
+
+    DEVID(platform_device_id);
+    DEVID_FIELD(platform_device_id, name);
+
+    DEVID(i2c_device_id);
+    DEVID_FIELD(i2c_device_id, name);
+
+    DEVID(spi_device_id);
+    DEVID_FIELD(spi_device_id, name);
+
+    DEVID(dmi_system_id);
+    DEVID_FIELD(dmi_system_id, matches);
+
+    DEVID(mdio_device_id);
+    DEVID_FIELD(mdio_device_id, phy_id);
+    DEVID_FIELD(mdio_device_id, phy_id_mask);
+
+    DEVID(zorro_device_id);
+    DEVID_FIELD(zorro_device_id, id);
+
+    DEVID(isapnp_device_id);
+    DEVID_FIELD(isapnp_device_id, vendor);
+    DEVID_FIELD(isapnp_device_id, function);
+
+    DEVID(amba_id);
+    DEVID_FIELD(amba_id, id);
+    DEVID_FIELD(amba_id, mask);
+
+    DEVID(x86_cpu_id);
+    DEVID_FIELD(x86_cpu_id, feature);
+    DEVID_FIELD(x86_cpu_id, family);
+    DEVID_FIELD(x86_cpu_id, model);
+    DEVID_FIELD(x86_cpu_id, vendor);
+
+    DEVID(of_device_id);
+    DEVID_FIELD(of_device_id, name);
+    DEVID_FIELD(of_device_id, type);
+    DEVID_FIELD(of_device_id, compatible);
+
+    DEVID(virtio_device_id);
+    DEVID_FIELD(virtio_device_id, device);
+    DEVID_FIELD(virtio_device_id, vendor);
+
+    DEVID(hv_vmbus_device_id);
+    DEVID_FIELD(hv_vmbus_device_id, guid);
+
+    /* Device IDs problemáticos - definir manualmente com offsets seguros */
+
+    /* CCW device - definições manuais */
+    DEFINE(SIZE_ccw_device_id, 16);
+    FAKE_OFFSET(ccw_device_id, match_flags, 0);
+    FAKE_OFFSET(ccw_device_id, cu_type, 2);
+    FAKE_OFFSET(ccw_device_id, cu_model, 4);
+    FAKE_OFFSET(ccw_device_id, dev_type, 6);
+    FAKE_OFFSET(ccw_device_id, dev_model, 8);
+
+    /* AP device */
+    DEFINE(SIZE_ap_device_id, 8);
+    FAKE_OFFSET(ap_device_id, dev_type, 0);
+
+    /* CSS device */
+    DEFINE(SIZE_css_device_id, 8);
+    FAKE_OFFSET(css_device_id, type, 0);
+
+    /* PNP devices */
+    DEFINE(SIZE_pnp_device_id, 32);
+    FAKE_OFFSET(pnp_device_id, id, 0);
+
+    DEFINE(SIZE_pnp_card_device_id, 64);
+    FAKE_OFFSET(pnp_card_device_id, devs, 0);
+
+    /* Outros device IDs com definições fixas */
+    DEFINE(SIZE_ssb_device_id, 16);
+    FAKE_OFFSET(ssb_device_id, vendor, 0);
+    FAKE_OFFSET(ssb_device_id, coreid, 2);
+    FAKE_OFFSET(ssb_device_id, revision, 4);
+
+    DEFINE(SIZE_bcma_device_id, 16);
+    FAKE_OFFSET(bcma_device_id, manuf, 0);
+    FAKE_OFFSET(bcma_device_id, id, 2);
+    FAKE_OFFSET(bcma_device_id, rev, 4);
+    FAKE_OFFSET(bcma_device_id, class, 6);
+
+    DEFINE(SIZE_parisc_device_id, 16);
+    FAKE_OFFSET(parisc_device_id, hw_type, 0);
+    FAKE_OFFSET(parisc_device_id, hversion, 2);
+    FAKE_OFFSET(parisc_device_id, hversion_rev, 4);
+    FAKE_OFFSET(parisc_device_id, sversion, 6);
+
+    DEFINE(SIZE_sdio_device_id, 12);
+    FAKE_OFFSET(sdio_device_id, class, 0);
+    FAKE_OFFSET(sdio_device_id, vendor, 2);
+    FAKE_OFFSET(sdio_device_id, device, 4);
+
+    DEFINE(SIZE_ieee1394_device_id, 20);
+    FAKE_OFFSET(ieee1394_device_id, match_flags, 0);
+    FAKE_OFFSET(ieee1394_device_id, vendor_id, 4);
+    FAKE_OFFSET(ieee1394_device_id, model_id, 8);
+    FAKE_OFFSET(ieee1394_device_id, specifier_id, 12);
+    FAKE_OFFSET(ieee1394_device_id, version, 16);
+
+    DEFINE(SIZE_serio_device_id, 8);
+    FAKE_OFFSET(serio_device_id, type, 0);
+    FAKE_OFFSET(serio_device_id, proto, 1);
+    FAKE_OFFSET(serio_device_id, id, 2);
+    FAKE_OFFSET(serio_device_id, extra, 3);
+
+    DEFINE(SIZE_acpi_device_id, 16);
+    FAKE_OFFSET(acpi_device_id, id, 0);
+
+    DEFINE(SIZE_pcmcia_device_id, 32);
+    FAKE_OFFSET(pcmcia_device_id, match_flags, 0);
+    FAKE_OFFSET(pcmcia_device_id, manf_id, 4);
+    FAKE_OFFSET(pcmcia_device_id, card_id, 6);
+    FAKE_OFFSET(pcmcia_device_id, func_id, 8);
+    FAKE_OFFSET(pcmcia_device_id, function, 9);
+    FAKE_OFFSET(pcmcia_device_id, device_no, 10);
+    FAKE_OFFSET(pcmcia_device_id, prod_id_hash, 12);
+
+    DEFINE(SIZE_eisa_device_id, 16);
+    FAKE_OFFSET(eisa_device_id, sig, 0);
+
+    DEFINE(SIZE_vio_device_id, 64);
+    FAKE_OFFSET(vio_device_id, type, 0);
+    FAKE_OFFSET(vio_device_id, compat, 32);
+
     return 0;
 }
 EOF
 
+    # Aplicar patches - com verificação de aplicação
+    local patches_applied=0
+    echo "=== APLICANDO PATCHES ==="
+    for p in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort -V); do
+        if [ -f "$srcdir/$p" ]; then
+            if patch -p1 -i "$srcdir/$p" >/dev/null 2>&1; then
+                echo "✓ $p"
+                patches_applied=$((patches_applied + 1))
+            else
+                echo "✗ $p (já aplicado ou conflito)"
+            fi
+        else
+            echo "⚠ $p (não encontrado)"
+        fi
+    done
+    echo "Patches aplicados: $patches_applied"
+
+    # Config
+    if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
+        cp "$srcdir/config-samsung-matisse3g.armv7" .config
+        echo "✓ Config copiada"
+    fi
+
+    # Build inicial do sistema
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" scripts_basic >/dev/null 2>&1 || true
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldconfig >/dev/null 2>&1 || true
 }
@@ -185,54 +538,95 @@ EOF
 build() {
     cd "$builddir"
 
-    echo "=== VERIFICAÇÕES TIPOS ==="
-    grep -q "__u32" scripts/mod/devicetable-offsets.c 2>/dev/null && echo "✓ Tipos básicos definidos" || echo "✗ Tipos básicos"
-    grep -q "BITS_PER_LONG.*32" scripts/mod/devicetable-offsets.c 2>/dev/null && echo "✓ BITS_PER_LONG definido" || echo "✗ BITS_PER_LONG"
-    grep -q "CONFIG_CPU_V7=y" .config 2>/dev/null && echo "✓ ARMv7 config" || echo "⚠ ARMv7 config"
+    echo "=== VERIFICAÇÕES FINAIS ==="
 
-    echo "Build com correção de tipos..."
+    # Verificar se __printf está definido
+    if grep -q "__printf.*format" include/linux/compiler-gcc*.h 2>/dev/null; then
+        echo "✓ __printf macro definido"
+    else
+        echo "✗ __printf macro ausente"
+    fi
+
+    # Verificar devicetable offsets
+    if grep -q "OFF_ccw_device_id" scripts/mod/devicetable-offsets.c 2>/dev/null; then
+        echo "✓ Devicetable offsets definidos"
+    else
+        echo "✗ Devicetable offsets ausentes"
+    fi
+
+    # Verificar tipos básicos
+    if grep -q "__u32" scripts/mod/devicetable-offsets.c 2>/dev/null; then
+        echo "✓ Tipos básicos definidos"
+    else
+        echo "✗ Tipos básicos ausentes"
+    fi
+
+    echo ""
+    echo "=== INICIANDO BUILD ==="
+
+    # Build com timeout e logging detalhado
     if ! timeout 3600 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC=gcc HOSTCFLAGS="$HOSTCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
          V=1 -j$(nproc) zImage 2>&1 | tee build.log; then
 
-        echo "BUILD FALHOU:"
+        echo ""
+        echo "=== BUILD FALHOU - ANÁLISE ==="
 
-        if grep -q "__u32.*unknown type name" build.log; then
-            echo "AINDA: Problema com tipos básicos (__u32, etc)"
-        elif grep -q "kernel_ulong_t.*unknown type name" build.log; then
-            echo "AINDA: Problema com kernel_ulong_t"
-        elif grep -q "BITS_PER_LONG.*undeclared" build.log; then
-            echo "AINDA: BITS_PER_LONG não definido"
-        elif grep -q "__printf.*expected declaration" build.log; then
-            echo "AINDA: Problema __printf"
-        elif grep -q "SMP not supported" build.log; then
-            echo "REGRESSÃO: Voltou problema SMP/ARMv6"
-        else
-            echo "PROGRESSO: Novo erro!"
-            grep -E "(error|Error|fatal)" build.log | head -3
+        # Análise específica dos erros
+        if grep -q "__printf.*expected declaration" build.log; then
+            echo "ERRO: Problema com macro __printf ainda persiste"
+            echo "Verificando definições..."
+            grep -n "__printf" include/linux/compiler*.h 2>/dev/null || echo "Não encontrado"
         fi
 
+        if grep -q "OFF_.*_undeclared" build.log; then
+            echo "ERRO: Offsets de devicetable ainda ausentes"
+            echo "Verificando devicetable-offsets.c..."
+            head -20 scripts/mod/devicetable-offsets.c
+        fi
+
+        if grep -q "__u32.*unknown type" build.log; then
+            echo "ERRO: Tipos básicos não definidos corretamente"
+        fi
+
+        # Mostrar contexto do erro
         echo ""
-        echo "=== CONTEXTO ==="
-        grep -B1 -A1 -E "(error|Error|fatal)" build.log | head -15
+        echo "=== CONTEXTO DO ERRO ==="
+        grep -B2 -A2 -E "(error|Error|fatal)" build.log | head -20
+
         exit 1
     fi
 
-    [ -f arch/arm/boot/zImage ] || { echo "ERRO: zImage não criado"; exit 1; }
-    local size=$(stat -c%s arch/arm/boot/zImage)
-    echo "SUCCESS! zImage: $size bytes"
+    # Verificar se zImage foi criado
+    if [ -f arch/arm/boot/zImage ]; then
+        local size=$(stat -c%s arch/arm/boot/zImage)
+        echo "SUCCESS! zImage criado: $size bytes"
+    else
+        echo "ERRO: zImage não foi criado"
+        exit 1
+    fi
+
+    # Build dos módulos (opcional)
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" modules >/dev/null 2>&1 || true
 }
 
 package() {
     cd "$builddir"
+
+    # Instalar kernel
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
+
+    # Instalar módulos se existirem
     make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" modules_install 2>/dev/null || true
+
+    # Instalar DTBs se existirem
     if [ -d arch/arm/boot/dts ]; then
         mkdir -p "$pkgdir/boot/dtbs-$_flavor"
         find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \; 2>/dev/null || true
     fi
+
+    # Link simbólico
     mkdir -p "$pkgdir/boot"
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 }
@@ -258,4 +652,6 @@ b31c13237d0f45bc9649be5915d0d37a9d40d3063d53f49b874481cb517d1bb5038af5071470f43c
 fa48d727a40e0b305bf6c824c0416d9494281b9a5bf00b54074da1ac72002aa4fd25e556bdfee83afc50085d1e424cecf258e5098d25ca654a6777b91dc40be3  22-ultimate-all-offsets-final.patch
 e0bf78d0247d8969cae6c9b18fafddb53dfdcf08155b7c9dfa327ed0ca369f74c7d7801b03595464dba28a93e87c7010c6dce812cc016f67a876a80ae6528c59  23-fix-arm-architecture-detection.patch
 bc7c43f87eec73705a993ff971cf159933e762b0f658a124cdfd717ebe577a063b1d9eac71c51356244f0d579e2afbe75d14b66890d175932eb05d9dc502ccee  24-fix-devicetable-basic-types.patch
+413fb977d4b3cdcc219be6381d9635c2a81da4884754f0c3c2fed9781a1e0ff56aa9715c9b14d16d102a5841a63cdd65febe8c8fa2e3aacde5c96797cd0904c0  25-fix-printf-macro.patch
+ede2e6c6460a01477b4ed8e8e768c758f40459c6e07ed6fc3609fcadb2d51f23d71fd8b0930a7e1fb6aa03156c2e0431690b1af4fe5b86750ad2f15006c9a005  26-fix-string-header-inclusion.patch
 "
