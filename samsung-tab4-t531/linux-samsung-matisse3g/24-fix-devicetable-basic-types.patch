@@ -1,0 +1,143 @@
+--- a/scripts/mod/devicetable-offsets.c
++++ b/scripts/mod/devicetable-offsets.c
+@@ -1,8 +1,27 @@
++/* Device table offsets for kernel 3.4.x with proper type definitions */
+ #include <linux/kbuild.h>
++#include <linux/types.h>
++#include <linux/stddef.h>
++#include <asm/types.h>
++
++/* Define basic types if not available */
++#ifndef __u8
++typedef unsigned char __u8;
++#endif
++#ifndef __u16
++typedef unsigned short __u16;
++#endif
++#ifndef __u32
++typedef unsigned int __u32;
++#endif
++#ifndef kernel_ulong_t
++typedef unsigned long kernel_ulong_t;
++#endif
++#ifndef BITS_PER_LONG
++#define BITS_PER_LONG 32
++#endif
++
+ #include <linux/mod_devicetable.h>
+-#ifndef __LINUX_ARM_ARCH__
+-#define __LINUX_ARM_ARCH__ 7
+-#endif
++
+ #define MANUAL_OFFSET(type, field) ((unsigned long)&((type *)8)->field - 8)
+ #define DEVID(devid) DEFINE(SIZE_##devid, sizeof(struct devid))
+ #define DEVID_FIELD(devid, field) DEFINE(OFF_##devid##_##field, MANUAL_OFFSET(struct devid, field))
+--- a/include/asm-generic/bug.h
++++ b/include/asm-generic/bug.h
+@@ -1,6 +1,10 @@
+ #ifndef _ASM_GENERIC_BUG_H
+ #define _ASM_GENERIC_BUG_H
+ 
++#ifndef __printf
++#define __printf(a,b) __attribute__((format(printf,a,b)))
++#endif
++
+ #include <linux/compiler.h>
+ 
+ #ifdef CONFIG_BUG
+--- a/arch/arm/include/asm/div64.h
++++ b/arch/arm/include/asm/div64.h
+@@ -1,6 +1,10 @@
+ #ifndef __ASM_ARM_DIV64
+ #define __ASM_ARM_DIV64
+ 
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
+ #include <asm/compiler.h>
+ 
+ /*
+--- a/arch/arm/include/asm/atomic.h
++++ b/arch/arm/include/asm/atomic.h
+@@ -11,6 +11,10 @@
+ #ifndef __ASM_ARM_ATOMIC_H
+ #define __ASM_ARM_ATOMIC_H
+ 
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
+ #include <linux/compiler.h>
+ #include <linux/types.h>
+ #include <linux/irqflags.h>
+@@ -150,7 +154,11 @@ static inline int atomic_add_unless(atomic_t *v, int a, int u)
+ 
+ #define atomic_inc_not_zero(v) atomic_add_unless((v), 1, 0)
+ 
+-#ifdef CONFIG_GENERIC_ATOMIC64
++#if __LINUX_ARM_ARCH__ >= 6
++/* ARMv6+ supports proper atomic operations */
++#include <asm/atomic.h>
++#else
++/* Pre-ARMv6 or fallback - use generic implementation */
+ #include <asm-generic/atomic64.h>
+ #else
+ #error SMP not supported on pre-ARMv6 CPUs
+--- a/arch/arm/include/asm/cmpxchg.h
++++ b/arch/arm/include/asm/cmpxchg.h
+@@ -2,6 +2,10 @@
+ #ifndef __ASM_ARM_CMPXCHG_H
+ #define __ASM_ARM_CMPXCHG_H
+ 
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
+ #include <linux/irqflags.h>
+ #include <asm/barrier.h>
+ 
+@@ -107,10 +111,15 @@ static inline unsigned long __cmpxchg_local(volatile void *ptr,
+ 		ret = __cmpxchg_local_generic(ptr, old, new, size);
+ 
+ 	return ret;
+-#else /* min ARCH >= ARMv6 */
++#elif __LINUX_ARM_ARCH__ >= 6
++	/* ARMv6+ has proper cmpxchg support */
++	ret = __cmpxchg(ptr, old, new, size);
++	return ret;
++#else
++	/* Pre-ARMv6 fallback */
+ 	extern void __bad_cmpxchg(volatile void *ptr, int size);
+-#error "SMP is not supported on this platform"
+-#endif
++	ret = __cmpxchg_local_generic(ptr, old, new, size);
++	return ret;
+ 
+ 	return ret;
+ }
+--- a/include/linux/string.h
++++ b/include/linux/string.h
+@@ -4,7 +4,9 @@
+ 
+ #include <linux/compiler.h>	/* for inline */
+ #include <linux/types.h>	/* for size_t */
++#ifndef __KERNEL__
+ #include <string.h>
++#endif
+ 
+ extern char *strndup_user(const char __user *, long);
+ extern void *memdup_user(const void __user *, size_t);
+--- a/arch/arm/kernel/asm-offsets.c
++++ b/arch/arm/kernel/asm-offsets.c
+@@ -8,6 +8,10 @@
+  * it under the terms of the GNU General Public License version 2 as
+  * published by the Free Software Foundation.
+  */
++#ifndef __KERNEL__
++#define __KERNEL__ 1
++#endif
++
+ #include <linux/stddef.h>
+ #include <linux/sched.h>
+ #include <linux/mm.h>
