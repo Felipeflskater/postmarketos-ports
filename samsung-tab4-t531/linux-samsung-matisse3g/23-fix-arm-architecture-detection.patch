@@ -1,0 +1,129 @@
+--- a/arch/arm/include/asm/div64.h
++++ b/arch/arm/include/asm/div64.h
+@@ -1,6 +1,10 @@
+ #ifndef __ASM_ARM_DIV64
+ #define __ASM_ARM_DIV64
+ 
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
+ #include <asm/compiler.h>
+ 
+ /*
+--- a/arch/arm/include/asm/atomic.h
++++ b/arch/arm/include/asm/atomic.h
+@@ -11,6 +11,10 @@
+ #ifndef __ASM_ARM_ATOMIC_H
+ #define __ASM_ARM_ATOMIC_H
+ 
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
+ #include <linux/compiler.h>
+ #include <linux/types.h>
+ #include <linux/irqflags.h>
+@@ -150,7 +154,7 @@ static inline int atomic_add_unless(atomic_t *v, int a, int u)
+ 
+ #define atomic_inc_not_zero(v) atomic_add_unless((v), 1, 0)
+ 
+-#ifdef CONFIG_GENERIC_ATOMIC64
++#if defined(CONFIG_GENERIC_ATOMIC64) || (__LINUX_ARM_ARCH__ < 6)
+ #include <asm-generic/atomic64.h>
+ #else
+ #error SMP not supported on pre-ARMv6 CPUs
+--- a/arch/arm/include/asm/cmpxchg.h
++++ b/arch/arm/include/asm/cmpxchg.h
+@@ -2,6 +2,10 @@
+ #ifndef __ASM_ARM_CMPXCHG_H
+ #define __ASM_ARM_CMPXCHG_H
+ 
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
+ #include <linux/irqflags.h>
+ #include <asm/barrier.h>
+ 
+@@ -107,9 +111,13 @@ static inline unsigned long __cmpxchg_local(volatile void *ptr,
+ 		ret = __cmpxchg_local_generic(ptr, old, new, size);
+ 
+ 	return ret;
+-#else /* min ARCH >= ARMv6 */
++#elif (__LINUX_ARM_ARCH__ >= 6)
++	/* ARMv6+ has proper cmpxchg support */
++	return __cmpxchg(ptr, old, new, size);
++#else
+ 	extern void __bad_cmpxchg(volatile void *ptr, int size);
+-#error "SMP is not supported on this platform"
++	/* For pre-ARMv6, use generic implementation */
++	ret = __cmpxchg_local_generic(ptr, old, new, size);
+ #endif
+ 
+ 	return ret;
+--- a/arch/arm/include/asm/processor.h
++++ b/arch/arm/include/asm/processor.h
+@@ -17,6 +17,10 @@
+ #ifndef __ASM_ARM_PROCESSOR_H
+ #define __ASM_ARM_PROCESSOR_H
+ 
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
+ /*
+  * Default implementation of macro that returns current
+  * instruction pointer ("program counter").
+--- a/arch/arm/kernel/Makefile
++++ b/arch/arm/kernel/Makefile
+@@ -10,6 +10,9 @@ ifdef CONFIG_FUNCTION_TRACER
+ CFLAGS_REMOVE_return_address.o = -pg
+ endif
+ 
++# Force ARMv7 architecture
++CPPFLAGS_vmlinux.lds += -D__LINUX_ARM_ARCH__=7
++
+ # Object file lists.
+ 
+ obj-y		:= elf.o entry-armv.o entry-common.o irq.o opcodes.o \
+--- a/arch/arm/Makefile
++++ b/arch/arm/Makefile
+@@ -120,6 +120,9 @@ endif
+ # Need -Uarm for gcc < 3.x
+ KBUILD_CFLAGS	+=$(CFLAGS_ABI) $(CFLAGS_THUMB2) $(arch-y) $(tune-y) $(call cc-option,-mshort-load-bytes,$(call cc-option,-malignment-traps,)) -msoft-float -Uarm
+ KBUILD_AFLAGS	+=$(CFLAGS_ABI) $(AFLAGS_THUMB2) $(arch-y) $(tune-y) -include asm/unified.h -msoft-float
++
++# Force ARMv7 architecture definition
++KBUILD_CPPFLAGS += -D__LINUX_ARM_ARCH__=7
+ 
+ CHECKFLAGS	+= -D__arm__
+ 
+--- a/include/linux/compiler.h
++++ b/include/linux/compiler.h
+@@ -4,6 +4,11 @@
+ 
+ #ifndef __ASSEMBLY__
+ 
++/* Define ARM architecture version if not already defined */
++#ifdef __arm__ 
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++#endif
++
+ #ifdef __CHECKER__
+ # define __user		__attribute__((noderef, address_space(1)))
+--- a/arch/arm/include/asm/system.h
++++ b/arch/arm/include/asm/system.h
+@@ -2,6 +2,10 @@
+ #ifndef __ASM_ARM_SYSTEM_H
+ #define __ASM_ARM_SYSTEM_H
+ 
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
+ #ifdef __KERNEL__
+ 
+ #include <linux/compiler.h>
