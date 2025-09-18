@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=70
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Correção string.h e headers"
+pkgrel=71
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Fix completo de tipos e headers"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -35,6 +35,7 @@ source="
 	24-fix-devicetable-basic-types.patch
 	25-fix-printf-macro.patch
 	26-fix-string-header-inclusion.patch
+	27-fix-fundamental-types-comprehensive.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -288,14 +289,125 @@ typedef __SIZE_TYPE__ size_t;
 #endif /* __ASSEMBLY__ */
 
 #endif /* _LINUX_TYPES_H */
+    # Fix para mach/memory.h e headers ARM específicos
+    mkdir -p arch/arm/include/mach
+    cat > arch/arm/include/mach/memory.h << 'EOF'
+#ifndef __ASM_MACH_MEMORY_H
+#define __ASM_MACH_MEMORY_H
+
+/* Memory layout para MSM8226 - Samsung Matisse3G */
+#define PLAT_PHYS_OFFSET	UL(0x00000000)
+
+/* DMA zone - primeiros 1GB */
+#define MAX_DMA_ADDRESS		0x40000000
+
+#endif /* __ASM_MACH_MEMORY_H */
 EOF
 
-    # Headers de tipos básicos
-    echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
-    echo '/* Auto generated */' > include/generated/autoconf.h
-    echo '#define __LINUX_ARM_ARCH__ 7' >> include/generated/autoconf.h
-    echo '#define BITS_PER_LONG 32' >> include/generated/autoconf.h
-    touch include/generated/bounds.h include/generated/asm-offsets.h
+    # Criar outros headers ARM necessários
+    mkdir -p arch/arm/include/generated/mach
+    cat > arch/arm/include/generated/mach/uncompress.h << 'EOF'
+/* Arquivo vazio - gerado automaticamente */
+EOF
+
+    cat > arch/arm/include/generated/mach/debug-macro.S << 'EOF'
+/* Debug macro vazio para MSM8226 */
+	.macro	addruart, rp, rv, tmp
+	.endm
+
+	.macro	senduart, rd, rx
+	.endm
+
+	.macro	busyuart, rd, rx
+	.endm
+
+	.macro	waituart, rd, rx
+	.endm
+EOF
+
+    # Fix completo para compiler.h base
+    cat > include/linux/compiler.h << 'EOF'
+#ifndef __LINUX_COMPILER_H
+#define __LINUX_COMPILER_H
+
+/* Include attribute definitions first */
+#include <linux/compiler-attributes.h>
+
+#ifdef __CHECKER__
+# define __user		__attribute__((noderef, address_space(1)))
+# define __kernel	/* default address space */
+# define __safe		__attribute__((safe))
+# define __force	__attribute__((force))
+# define __nocast	__attribute__((nocast))
+# define __iomem	__attribute__((noderef, address_space(2)))
+# define __must_hold(x)	__attribute__((context(x,1,1)))
+# define __acquires(x)	__attribute__((context(x,0,1)))
+# define __releases(x)	__attribute__((context(x,1,0)))
+# define __acquire(x)	__context__(x,1)
+# define __release(x)	__context__(x,-1)
+# define __cond_lock(x,c)	((c) ? ({ __acquire(x); 1; }) : 0)
+# define __percpu	__attribute__((noderef, address_space(3)))
+# define __rcu		__attribute__((noderef, address_space(4)))
+# define __private	__attribute__((noderef))
+# ifdef STRUCTLEAK_PLUGIN
+#  define __no_randomize_layout __attribute__((no_randomize_layout))
+#  define __randomize_layout __attribute__((randomize_layout))
+# endif
+#else
+# define __rcu
+# define __private
+# define __pmem
+# define __user
+# define __kernel
+# define __safe
+# define __force
+# define __nocast
+# define __iomem
+# define __chk_user_ptr(x) (void)0
+# define __chk_io_ptr(x) (void)0
+# define __builtin_warning(x, y...) (1)
+# define __must_hold(x)
+# define __acquires(x)
+# define __releases(x)
+# define __acquire(x) (void)0
+# define __release(x) (void)0
+# define __cond_lock(x,c) (c)
+# define __percpu
+# define __rcu
+# define __private
+# define __pmem
+# define __must_be_array(x) 0
+# define __no_randomize_layout
+# define __randomize_layout
+#endif
+
+/* Specific compiler support */
+#ifdef __GNUC__
+
+/* GCC version-specific includes */
+# if __GNUC__ >= 15
+#  include <linux/compiler-gcc15.h>
+# elif __GNUC__ >= 14
+#  include <linux/compiler-gcc14.h>
+# else
+#  include <linux/compiler-gcc.h>
+# endif
+
+#else
+# error Sorry, your compiler is too old/not recognized.
+#endif
+
+/* Generic definitions fallback */
+#ifndef __same_type
+# define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
+#endif
+
+#ifndef barrier
+# define barrier() __memory_barrier()
+#endif
+
+#endif /* __LINUX_COMPILER_H */
+EOF
 
     # Fix completo para devicetable-offsets.c com TODAS as definições necessárias
     cat > scripts/mod/devicetable-offsets.c << 'EOF'
@@ -654,4 +766,5 @@ e0bf78d0247d8969cae6c9b18fafddb53dfdcf08155b7c9dfa327ed0ca369f74c7d7801b03595464
 bc7c43f87eec73705a993ff971cf159933e762b0f658a124cdfd717ebe577a063b1d9eac71c51356244f0d579e2afbe75d14b66890d175932eb05d9dc502ccee  24-fix-devicetable-basic-types.patch
 413fb977d4b3cdcc219be6381d9635c2a81da4884754f0c3c2fed9781a1e0ff56aa9715c9b14d16d102a5841a63cdd65febe8c8fa2e3aacde5c96797cd0904c0  25-fix-printf-macro.patch
 ede2e6c6460a01477b4ed8e8e768c758f40459c6e07ed6fc3609fcadb2d51f23d71fd8b0930a7e1fb6aa03156c2e0431690b1af4fe5b86750ad2f15006c9a005  26-fix-string-header-inclusion.patch
+dcd2ab1e0e7d5a6484f6e278328003d2e8fe51aed94bc431b239cd7d63af9189b28d642b794804dfd3d95c9448c366958f25da88d6d9e9ed0befcbc15f4e2c7b  27-fix-fundamental-types-comprehensive.patch
 "
