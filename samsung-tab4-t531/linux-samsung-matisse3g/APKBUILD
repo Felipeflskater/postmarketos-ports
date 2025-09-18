@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=71
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Fix completo de tipos e headers"
+pkgrel=72
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Fix tipos sem conflitos"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
