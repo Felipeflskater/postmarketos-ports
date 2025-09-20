@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=72
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Fix tipos sem conflitos"
+pkgrel=75
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Fix struct proc_info_list"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -59,42 +59,141 @@ prepare() {
     export EXTRA_CFLAGS="-w -Wno-error -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
     export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
 
-    # Fix para headers básicos do sistema - CRÍTICO
-    mkdir -p include/linux include/asm-generic
+    # Criar estruturas básicas
+    mkdir -p include/linux include/asm-generic include/generated include/config scripts/basic scripts/mod
 
-    # Fix para string.h - criar wrapper que inclui o correto
-    cat > include/linux/string.h << 'EOF'
-#ifndef _LINUX_STRING_H_
-#define _LINUX_STRING_H_
+    # Headers ARM-específicos primeiro
+    mkdir -p arch/arm/include/mach arch/arm/include/generated/mach arch/arm/include/generated/asm
 
-/* Wrapper para string.h do kernel - evita inclusão do sistema */
-#include <linux/types.h>
-#include <linux/stddef.h>
+    # INÍCIO DOS ARQUIVOS HEADER - types.h
+    cat << 'TYPES_EOF' > include/linux/types.h
+#ifndef _LINUX_TYPES_H
+#define _LINUX_TYPES_H
 
-/* Protótipos básicos de string do kernel */
-extern char * strcpy(char *,const char *);
-extern char * strncpy(char *,const char *, __kernel_size_t);
-extern __kernel_size_t strlen(const char *);
-extern int strcmp(const char *,const char *);
-extern int strncmp(const char *,const char *,__kernel_size_t);
-extern char * strchr(const char *,int);
-extern char * strrchr(const char *,int);
-extern char * strstr(const char *,const char *);
-extern void * memset(void *,int,__kernel_size_t);
-extern void * memcpy(void *,const void *,__kernel_size_t);
-extern void * memmove(void *,const void *,__kernel_size_t);
-extern int memcmp(const void *,const void *,__kernel_size_t);
-extern void * memchr(const void *,int,__kernel_size_t);
+#ifndef __ASSEMBLY__
 
-#endif /* _LINUX_STRING_H_ */
-EOF
+typedef unsigned char u8;
+typedef signed char s8;
+typedef unsigned short u16;
+typedef signed short s16;
+typedef unsigned int u32;
+typedef signed int s32;
+typedef unsigned long long u64;
+typedef signed long long s64;
 
-    # Fix para stddef.h do kernel
-    cat > include/linux/stddef.h << 'EOF'
+typedef u8 __u8;
+typedef s8 __s8;
+typedef u16 __u16;
+typedef s16 __s16;
+typedef u32 __u32;
+typedef s32 __s32;
+typedef u64 __u64;
+typedef s64 __s64;
+
+#ifndef __SIZE_TYPE__
+#define __SIZE_TYPE__ unsigned long
+#endif
+
+typedef unsigned long kernel_ulong_t;
+typedef __SIZE_TYPE__ __kernel_size_t;
+typedef long __kernel_ssize_t;
+typedef long __kernel_ptrdiff_t;
+typedef long __kernel_time_t;
+typedef long __kernel_suseconds_t;
+typedef int __kernel_pid_t;
+typedef unsigned int __kernel_uid_t;
+typedef unsigned int __kernel_gid_t;
+typedef unsigned long __kernel_ino_t;
+typedef unsigned int __kernel_mode_t;
+typedef unsigned short __kernel_umode_t;
+typedef long long __kernel_loff_t;
+typedef unsigned int __kernel_dev_t;
+
+typedef __kernel_size_t size_t;
+typedef __kernel_ssize_t ssize_t;
+typedef __kernel_ptrdiff_t ptrdiff_t;
+typedef __kernel_time_t time_t;
+typedef __kernel_mode_t umode_t;
+typedef unsigned int dev_t;
+typedef unsigned int gfp_t;
+typedef long clock_t;
+typedef unsigned long resource_size_t;
+typedef unsigned long phys_addr_t;
+typedef int clockid_t;
+typedef unsigned char bool;
+
+#ifndef true
+#define true 1
+#endif
+#ifndef false
+#define false 0
+#endif
+
+typedef struct {
+    int counter;
+} atomic_t;
+
+struct list_head {
+    struct list_head *next, *prev;
+};
+
+struct hlist_head {
+    struct hlist_node *first;
+};
+
+struct hlist_node {
+    struct hlist_node *next, **pprev;
+};
+
+#ifdef __KERNEL__
+
+#define __bitwise__
+#ifdef __CHECK_ENDIAN__
+#define __bitwise __bitwise__
+#else
+#define __bitwise
+#endif
+
+typedef __u16 __bitwise __le16;
+typedef __u16 __bitwise __be16;
+typedef __u32 __bitwise __le32;
+typedef __u32 __bitwise __be32;
+typedef __u64 __bitwise __le64;
+typedef __u64 __bitwise __be64;
+
+typedef __u16 __bitwise __sum16;
+typedef __u32 __bitwise __wsum;
+
+#endif
+
+#define DECLARE_BITMAP(name,bits) unsigned long name[BITS_TO_LONGS(bits)]
+
+#ifndef BITS_PER_LONG
+#define BITS_PER_LONG 32
+#endif
+
+#define BITS_TO_LONGS(nr) (((nr) + BITS_PER_LONG - 1) / BITS_PER_LONG)
+
+typedef struct wait_queue wait_queue_t;
+typedef struct wait_queue_head wait_queue_head_t;
+
+#define NSEC_PER_USEC   1000L
+#define NSEC_PER_MSEC   1000000L
+#define USEC_PER_MSEC   1000L
+#define NSEC_PER_SEC    1000000000L
+#define USEC_PER_SEC    1000000L
+#define MSEC_PER_SEC    1000L
+#define FSEC_PER_SEC    1000000000000000LL
+
+#endif
+
+#endif
+TYPES_EOF
+
+    # stddef.h - simples, sem inclusões circulares
+    cat << 'STDDEF_EOF' > include/linux/stddef.h
 #ifndef _LINUX_STDDEF_H
 #define _LINUX_STDDEF_H
-
-#include <linux/types.h>
 
 #undef NULL
 #if defined(__cplusplus)
@@ -110,28 +209,39 @@ EOF
 #define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 #endif
 
-/* Definições para tipos básicos */
-#ifndef __kernel_size_t
-typedef __SIZE_TYPE__ __kernel_size_t;
 #endif
+STDDEF_EOF
 
-#ifndef size_t
-typedef __kernel_size_t size_t;
+    # string.h
+    cat << 'STRING_EOF' > include/linux/string.h
+#ifndef _LINUX_STRING_H_
+#define _LINUX_STRING_H_
+
+#include <linux/types.h>
+#include <linux/stddef.h>
+
+extern char * strcpy(char *,const char *);
+extern char * strncpy(char *,const char *, __kernel_size_t);
+extern __kernel_size_t strlen(const char *);
+extern int strcmp(const char *,const char *);
+extern int strncmp(const char *,const char *,__kernel_size_t);
+extern char * strchr(const char *,int);
+extern char * strrchr(const char *,int);
+extern char * strstr(const char *,const char *);
+extern void * memset(void *,int,__kernel_size_t);
+extern void * memcpy(void *,const void *,__kernel_size_t);
+extern void * memmove(void *,const void *,__kernel_size_t);
+extern int memcmp(const void *,const void *,__kernel_size_t);
+extern void * memchr(const void *,int,__kernel_size_t);
+
 #endif
+STRING_EOF
 
-#ifndef ptrdiff_t
-typedef long ptrdiff_t;
-#endif
-
-#endif /* _LINUX_STDDEF_H */
-EOF
-
-    # Fix para __printf - Definir antes de qualquer inclusão
-    cat > include/linux/compiler-attributes.h << 'EOF'
+    # compiler-attributes.h
+    cat << 'COMPILER_ATTR_EOF' > include/linux/compiler-attributes.h
 #ifndef __LINUX_COMPILER_ATTRIBUTES_H
 #define __LINUX_COMPILER_ATTRIBUTES_H
 
-/* Fix para __printf macro */
 #ifdef __GNUC__
 # define __printf(a, b) __attribute__((format(printf, a, b)))
 # define __scanf(a, b)  __attribute__((format(scanf, a, b)))
@@ -144,17 +254,52 @@ EOF
 # define __maybe_unused
 #endif
 
-#endif /* __LINUX_COMPILER_ATTRIBUTES_H */
-EOF
+#endif
+COMPILER_ATTR_EOF
 
-    # GCC compat headers - Com fix para __printf
+    # Headers ARM
+    cat << 'MEMORY_EOF' > arch/arm/include/mach/memory.h
+#ifndef __ASM_MACH_MEMORY_H
+#define __ASM_MACH_MEMORY_H
+
+#define PLAT_PHYS_OFFSET	UL(0x00000000)
+#define MAX_DMA_ADDRESS		0x40000000
+
+#endif
+MEMORY_EOF
+
+    # param.h
+    cat << 'PARAM_EOF' > arch/arm/include/generated/asm/param.h
+#ifndef _ASM_ARM_PARAM_H
+#define _ASM_ARM_PARAM_H
+
+#ifndef HZ
+#define HZ 250
+#endif
+
+#define USER_HZ		100
+#define CLOCKS_PER_SEC	(USER_HZ)
+
+#ifndef EXEC_PAGESIZE
+#define EXEC_PAGESIZE	4096
+#endif
+
+#ifndef NOGROUP
+#define NOGROUP		(-1)
+#endif
+
+#define MAXHOSTNAMELEN	64
+
+#endif
+PARAM_EOF
+
+    # GCC headers
     for v in 14 15 16; do
-        cat > include/linux/compiler-gcc${v}.h << 'EOF'
+        cat << "GCC_EOF" > include/linux/compiler-gcc${v}.h
 #ifndef __LINUX_COMPILER_H
 #error "Include compiler.h"
 #endif
 
-/* Definições básicas para compatibilidade com GCC moderno */
 #define __used __attribute__((__used__))
 #define __must_check __attribute__((warn_unused_result))
 #define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
@@ -164,12 +309,10 @@ EOF
 #define __visible __attribute__((externally_visible))
 #define asm_volatile_goto(x...) do { asm goto(x); asm (""); } while (0)
 
-/* Fix crítico para __printf */
 #ifndef __printf
 #define __printf(a, b) __attribute__((format(printf, a, b)))
 #endif
 
-/* Outros atributos essenciais */
 #define __scanf(a, b) __attribute__((format(scanf, a, b)))
 #define __attribute_const__ __attribute__((__const__))
 #define __maybe_unused __attribute__((unused))
@@ -202,140 +345,19 @@ EOF
 #define __must_be_array(x) 0
 #define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
 
-EOF
+GCC_EOF
     done
 
-    # Estruturas essenciais primeiro
-    mkdir -p include/generated include/config scripts/basic scripts/mod
-
-    # Fix crítico para types.h - garantir tipos básicos
-    cat > include/linux/types.h << 'EOF'
-#ifndef _LINUX_TYPES_H
-#define _LINUX_TYPES_H
-
-#ifdef __KERNEL__
-
-#define __bitwise__
-#ifdef __CHECK_ENDIAN__
-#define __bitwise __bitwise__
-#else
-#define __bitwise
-#endif
-
-typedef __u16 __bitwise __le16;
-typedef __u16 __bitwise __be16;
-typedef __u32 __bitwise __le32;
-typedef __u32 __bitwise __be32;
-typedef __u64 __bitwise __le64;
-typedef __u64 __bitwise __be64;
-
-typedef __u16 __bitwise __sum16;
-typedef __u32 __bitwise __wsum;
-
-#endif /* __KERNEL__ */
-
-/* Tipos básicos do kernel */
-#ifndef __ASSEMBLY__
-
-#define DECLARE_BITMAP(name,bits) \
-	unsigned long name[BITS_TO_LONGS(bits)]
-
-typedef unsigned char u8;
-typedef signed char s8;
-typedef unsigned short u16;
-typedef signed short s16;
-typedef unsigned int u32;
-typedef signed int s32;
-typedef unsigned long long u64;
-typedef signed long long s64;
-
-/* Tipos do kernel */
-typedef u8 __u8;
-typedef s8 __s8;
-typedef u16 __u16;
-typedef s16 __s16;
-typedef u32 __u32;
-typedef s32 __s32;
-typedef u64 __u64;
-typedef s64 __s64;
-
-typedef unsigned long kernel_ulong_t;
-typedef unsigned long __kernel_size_t;
-typedef long __kernel_ssize_t;
-typedef long __kernel_ptrdiff_t;
-typedef long __kernel_time_t;
-typedef long __kernel_suseconds_t;
-typedef int __kernel_pid_t;
-typedef unsigned int __kernel_uid_t;
-typedef unsigned int __kernel_gid_t;
-typedef unsigned long __kernel_ino_t;
-typedef unsigned int __kernel_mode_t;
-typedef unsigned short __kernel_umode_t;
-typedef long long __kernel_loff_t;
-typedef unsigned int __kernel_dev_t;
-
-#ifndef __SIZE_TYPE__
-#define __SIZE_TYPE__ long unsigned int
-#endif
-
-#ifndef size_t
-typedef __SIZE_TYPE__ size_t;
-#endif
-
-#ifndef BITS_PER_LONG
-#define BITS_PER_LONG 32
-#endif
-
-#endif /* __ASSEMBLY__ */
-
-#endif /* _LINUX_TYPES_H */
-    # Fix para mach/memory.h e headers ARM específicos
-    mkdir -p arch/arm/include/mach
-    cat > arch/arm/include/mach/memory.h << 'EOF'
-#ifndef __ASM_MACH_MEMORY_H
-#define __ASM_MACH_MEMORY_H
-
-/* Memory layout para MSM8226 - Samsung Matisse3G */
-#define PLAT_PHYS_OFFSET	UL(0x00000000)
-
-/* DMA zone - primeiros 1GB */
-#define MAX_DMA_ADDRESS		0x40000000
-
-#endif /* __ASM_MACH_MEMORY_H */
-EOF
-
-    # Criar outros headers ARM necessários
-    mkdir -p arch/arm/include/generated/mach
-    cat > arch/arm/include/generated/mach/uncompress.h << 'EOF'
-/* Arquivo vazio - gerado automaticamente */
-EOF
-
-    cat > arch/arm/include/generated/mach/debug-macro.S << 'EOF'
-/* Debug macro vazio para MSM8226 */
-	.macro	addruart, rp, rv, tmp
-	.endm
-
-	.macro	senduart, rd, rx
-	.endm
-
-	.macro	busyuart, rd, rx
-	.endm
-
-	.macro	waituart, rd, rx
-	.endm
-EOF
-
-    # Fix completo para compiler.h base
-    cat > include/linux/compiler.h << 'EOF'
+    # compiler.h principal
+    cat << 'COMPILER_EOF' > include/linux/compiler.h
 #ifndef __LINUX_COMPILER_H
 #define __LINUX_COMPILER_H
 
-/* Include attribute definitions first */
 #include <linux/compiler-attributes.h>
 
 #ifdef __CHECKER__
 # define __user		__attribute__((noderef, address_space(1)))
-# define __kernel	/* default address space */
+# define __kernel
 # define __safe		__attribute__((safe))
 # define __force	__attribute__((force))
 # define __nocast	__attribute__((nocast))
@@ -349,10 +371,6 @@ EOF
 # define __percpu	__attribute__((noderef, address_space(3)))
 # define __rcu		__attribute__((noderef, address_space(4)))
 # define __private	__attribute__((noderef))
-# ifdef STRUCTLEAK_PLUGIN
-#  define __no_randomize_layout __attribute__((no_randomize_layout))
-#  define __randomize_layout __attribute__((randomize_layout))
-# endif
 #else
 # define __rcu
 # define __private
@@ -377,14 +395,9 @@ EOF
 # define __private
 # define __pmem
 # define __must_be_array(x) 0
-# define __no_randomize_layout
-# define __randomize_layout
 #endif
 
-/* Specific compiler support */
 #ifdef __GNUC__
-
-/* GCC version-specific includes */
 # if __GNUC__ >= 15
 #  include <linux/compiler-gcc15.h>
 # elif __GNUC__ >= 14
@@ -392,12 +405,10 @@ EOF
 # else
 #  include <linux/compiler-gcc.h>
 # endif
-
 #else
 # error Sorry, your compiler is too old/not recognized.
 #endif
 
-/* Generic definitions fallback */
 #ifndef __same_type
 # define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
 #endif
@@ -406,16 +417,75 @@ EOF
 # define barrier() __memory_barrier()
 #endif
 
-#endif /* __LINUX_COMPILER_H */
-EOF
+#endif
+COMPILER_EOF
 
-    # Fix completo para devicetable-offsets.c com TODAS as definições necessárias
-    cat > scripts/mod/devicetable-offsets.c << 'EOF'
-#include <linux/kbuild.h>
-#include <linux/types.h>
-#include <linux/stddef.h>
+    # Headers gerados básicos
+    echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
+    echo '/* Auto generated */' > include/generated/autoconf.h
+    echo '#define __LINUX_ARM_ARCH__ 7' >> include/generated/autoconf.h
+    echo '#define BITS_PER_LONG 32' >> include/generated/autoconf.h
+    echo '#define HZ 250' >> include/generated/autoconf.h
+    echo '#define CLOCK_TICK_RATE 19200000' >> include/generated/autoconf.h
 
-/* Definir todos os tipos básicos necessários */
+    # Headers vazios necessários
+    touch include/generated/bounds.h
+    echo '/* Empty asm-offsets.h */' > include/generated/asm-offsets.h
+
+    # Fix para asm/procinfo.h - definir estrutura proc_info_list
+    mkdir -p arch/arm/include/asm
+    cat << 'PROCINFO_EOF' > arch/arm/include/asm/procinfo.h
+#ifndef __ASM_PROCINFO_H
+#define __ASM_PROCINFO_H
+
+#ifndef __ASSEMBLY__
+
+struct proc_info_list {
+    unsigned int        cpu_val;
+    unsigned int        cpu_mask;
+    unsigned long       __cpu_mm_mmu_flags;
+    unsigned long       __cpu_io_mmu_flags;
+    unsigned long       __cpu_flush;
+    const char          *arch_name;
+    const char          *elf_name;
+    unsigned int        elf_hwcap;
+    const char          *cpu_name;
+    struct processor    *proc;
+    struct cpu_tlb_fns  *tlb;
+    struct cpu_user_fns *user;
+    struct cpu_cache_fns *cache;
+};
+
+#endif /* !__ASSEMBLY__ */
+
+/* Definições para compatibilidade */
+#define PROCINFO_INITFUNC 0x10
+#define PROCINFO_MM_MMUFLAGS 0x08
+#define PROCINFO_IO_MMUFLAGS 0x0C
+
+#endif
+PROCINFO_EOF
+
+    cat << 'DEBUG_EOF' > arch/arm/include/generated/mach/debug-macro.S
+/* Debug macro vazio para MSM8226 */
+	.macro	addruart, rp, rv, tmp
+	.endm
+
+	.macro	senduart, rd, rx
+	.endm
+
+	.macro	busyuart, rd, rx
+	.endm
+
+	.macro	waituart, rd, rx
+	.endm
+DEBUG_EOF
+
+    # Fix completo para devicetable-offsets.c
+    cat << 'DEVICETABLE_EOF' > scripts/mod/devicetable-offsets.c
+/* Fix fundamental para devicetable offsets */
+
+/* Definir tipos básicos antes de qualquer coisa */
 #ifndef __u8
 typedef unsigned char __u8;
 #endif
@@ -431,11 +501,9 @@ typedef unsigned long long __u64;
 #ifndef kernel_ulong_t
 typedef unsigned long kernel_ulong_t;
 #endif
-#ifndef BITS_PER_LONG
-#define BITS_PER_LONG 32
-#endif
 
-/* Incluir mod_devicetable.h após definir os tipos */
+#include <linux/kbuild.h>
+#include <linux/stddef.h>
 #include <linux/mod_devicetable.h>
 
 /* Macros para calcular offsets manualmente */
@@ -536,8 +604,6 @@ int main(void) {
     DEVID_FIELD(hv_vmbus_device_id, guid);
 
     /* Device IDs problemáticos - definir manualmente com offsets seguros */
-
-    /* CCW device - definições manuais */
     DEFINE(SIZE_ccw_device_id, 16);
     FAKE_OFFSET(ccw_device_id, match_flags, 0);
     FAKE_OFFSET(ccw_device_id, cu_type, 2);
@@ -545,15 +611,12 @@ int main(void) {
     FAKE_OFFSET(ccw_device_id, dev_type, 6);
     FAKE_OFFSET(ccw_device_id, dev_model, 8);
 
-    /* AP device */
     DEFINE(SIZE_ap_device_id, 8);
     FAKE_OFFSET(ap_device_id, dev_type, 0);
 
-    /* CSS device */
     DEFINE(SIZE_css_device_id, 8);
     FAKE_OFFSET(css_device_id, type, 0);
 
-    /* PNP devices */
     DEFINE(SIZE_pnp_device_id, 32);
     FAKE_OFFSET(pnp_device_id, id, 0);
 
@@ -617,9 +680,9 @@ int main(void) {
 
     return 0;
 }
-EOF
+DEVICETABLE_EOF
 
-    # Aplicar patches - com verificação de aplicação
+    # Aplicar patches
     local patches_applied=0
     echo "=== APLICANDO PATCHES ==="
     for p in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort -V); do
