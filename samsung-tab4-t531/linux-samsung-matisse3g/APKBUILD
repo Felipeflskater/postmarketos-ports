@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=75
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Fix struct proc_info_list"
+pkgrel=81
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - APKBUILD simplificado sem asm-offsets"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -36,6 +36,7 @@ source="
 	25-fix-printf-macro.patch
 	26-fix-string-header-inclusion.patch
 	27-fix-fundamental-types-comprehensive.patch
+	28-fix-asm-offsets-includes.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -51,7 +52,7 @@ prepare() {
     done
     [ -z "$CROSS_COMPILE" ] && { echo "ERRO: Compilador não encontrado"; exit 1; }
 
-    # Ambiente - Mais agressivo para evitar conflitos
+    # Ambiente
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
     export ARCH=arm SUBARCH=arm HOSTCC=gcc
     export HOSTCFLAGS="-O1 -w -std=gnu89 -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
@@ -61,626 +62,106 @@ prepare() {
 
     # Criar estruturas básicas
     mkdir -p include/linux include/asm-generic include/generated include/config scripts/basic scripts/mod
-
-    # Headers ARM-específicos primeiro
     mkdir -p arch/arm/include/mach arch/arm/include/generated/mach arch/arm/include/generated/asm
 
-    # INÍCIO DOS ARQUIVOS HEADER - types.h
-    cat << 'TYPES_EOF' > include/linux/types.h
-#ifndef _LINUX_TYPES_H
-#define _LINUX_TYPES_H
+    # Headers básicos
+    printf '%s\n' '#ifndef _LINUX_TYPES_H' '#define _LINUX_TYPES_H' '#ifndef __ASSEMBLY__' > include/linux/types.h
+    printf '%s\n' 'typedef unsigned char u8;' 'typedef signed char s8;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned short u16;' 'typedef signed short s16;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned int u32;' 'typedef signed int s32;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned long long u64;' 'typedef signed long long s64;' >> include/linux/types.h
+    printf '%s\n' 'typedef u8 __u8; typedef s8 __s8; typedef u16 __u16; typedef s16 __s16;' >> include/linux/types.h
+    printf '%s\n' 'typedef u32 __u32; typedef s32 __s32; typedef u64 __u64; typedef s64 __s64;' >> include/linux/types.h
+    printf '%s\n' '#ifndef __SIZE_TYPE__' '#define __SIZE_TYPE__ unsigned long' '#endif' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned long kernel_ulong_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef __SIZE_TYPE__ __kernel_size_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef long __kernel_ssize_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef long __kernel_ptrdiff_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef long __kernel_time_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef long __kernel_suseconds_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef int __kernel_pid_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned int __kernel_uid_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned int __kernel_gid_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned long __kernel_ino_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned int __kernel_mode_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned short __kernel_umode_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef long long __kernel_loff_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned int __kernel_dev_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef __kernel_size_t size_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef __kernel_ssize_t ssize_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef __kernel_ptrdiff_t ptrdiff_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef __kernel_time_t time_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef __kernel_mode_t umode_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned int dev_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned int gfp_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef long clock_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned long resource_size_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned long phys_addr_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef int clockid_t;' >> include/linux/types.h
+    printf '%s\n' 'typedef unsigned char bool;' >> include/linux/types.h
+    printf '%s\n' '#ifndef true' '#define true 1' '#endif' >> include/linux/types.h
+    printf '%s\n' '#ifndef false' '#define false 0' '#endif' >> include/linux/types.h
+    printf '%s\n' 'typedef struct { int counter; } atomic_t;' >> include/linux/types.h
+    printf '%s\n' 'struct list_head { struct list_head *next, *prev; };' >> include/linux/types.h
+    printf '%s\n' 'struct hlist_head { struct hlist_node *first; };' >> include/linux/types.h
+    printf '%s\n' 'struct hlist_node { struct hlist_node *next, **pprev; };' >> include/linux/types.h
+    printf '%s\n' '#ifndef BITS_PER_LONG' '#define BITS_PER_LONG 32' '#endif' >> include/linux/types.h
+    printf '%s\n' '#define BITS_TO_LONGS(nr) (((nr) + BITS_PER_LONG - 1) / BITS_PER_LONG)' >> include/linux/types.h
+    printf '%s\n' '#define NSEC_PER_USEC 1000L' '#define NSEC_PER_MSEC 1000000L' >> include/linux/types.h
+    printf '%s\n' '#define USEC_PER_MSEC 1000L' '#define NSEC_PER_SEC 1000000000L' >> include/linux/types.h
+    printf '%s\n' '#define USEC_PER_SEC 1000000L' '#define MSEC_PER_SEC 1000L' >> include/linux/types.h
+    printf '%s\n' '#endif' '#endif' >> include/linux/types.h
 
-#ifndef __ASSEMBLY__
+    # stddef.h
+    printf '%s\n' '#ifndef _LINUX_STDDEF_H' '#define _LINUX_STDDEF_H' > include/linux/stddef.h
+    printf '%s\n' '#undef NULL' >> include/linux/stddef.h
+    printf '%s\n' '#if defined(__cplusplus)' '#define NULL 0' '#else' '#define NULL ((void *)0)' '#endif' >> include/linux/stddef.h
+    printf '%s\n' '#undef offsetof' >> include/linux/stddef.h
+    printf '%s\n' '#ifdef __compiler_offsetof' >> include/linux/stddef.h
+    printf '%s\n' '#define offsetof(TYPE,MEMBER) __compiler_offsetof(TYPE,MEMBER)' >> include/linux/stddef.h
+    printf '%s\n' '#else' >> include/linux/stddef.h
+    printf '%s\n' '#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)' >> include/linux/stddef.h
+    printf '%s\n' '#endif' '#endif' >> include/linux/stddef.h
 
-typedef unsigned char u8;
-typedef signed char s8;
-typedef unsigned short u16;
-typedef signed short s16;
-typedef unsigned int u32;
-typedef signed int s32;
-typedef unsigned long long u64;
-typedef signed long long s64;
-
-typedef u8 __u8;
-typedef s8 __s8;
-typedef u16 __u16;
-typedef s16 __s16;
-typedef u32 __u32;
-typedef s32 __s32;
-typedef u64 __u64;
-typedef s64 __s64;
-
-#ifndef __SIZE_TYPE__
-#define __SIZE_TYPE__ unsigned long
-#endif
-
-typedef unsigned long kernel_ulong_t;
-typedef __SIZE_TYPE__ __kernel_size_t;
-typedef long __kernel_ssize_t;
-typedef long __kernel_ptrdiff_t;
-typedef long __kernel_time_t;
-typedef long __kernel_suseconds_t;
-typedef int __kernel_pid_t;
-typedef unsigned int __kernel_uid_t;
-typedef unsigned int __kernel_gid_t;
-typedef unsigned long __kernel_ino_t;
-typedef unsigned int __kernel_mode_t;
-typedef unsigned short __kernel_umode_t;
-typedef long long __kernel_loff_t;
-typedef unsigned int __kernel_dev_t;
-
-typedef __kernel_size_t size_t;
-typedef __kernel_ssize_t ssize_t;
-typedef __kernel_ptrdiff_t ptrdiff_t;
-typedef __kernel_time_t time_t;
-typedef __kernel_mode_t umode_t;
-typedef unsigned int dev_t;
-typedef unsigned int gfp_t;
-typedef long clock_t;
-typedef unsigned long resource_size_t;
-typedef unsigned long phys_addr_t;
-typedef int clockid_t;
-typedef unsigned char bool;
-
-#ifndef true
-#define true 1
-#endif
-#ifndef false
-#define false 0
-#endif
-
-typedef struct {
-    int counter;
-} atomic_t;
-
-struct list_head {
-    struct list_head *next, *prev;
-};
-
-struct hlist_head {
-    struct hlist_node *first;
-};
-
-struct hlist_node {
-    struct hlist_node *next, **pprev;
-};
-
-#ifdef __KERNEL__
-
-#define __bitwise__
-#ifdef __CHECK_ENDIAN__
-#define __bitwise __bitwise__
-#else
-#define __bitwise
-#endif
-
-typedef __u16 __bitwise __le16;
-typedef __u16 __bitwise __be16;
-typedef __u32 __bitwise __le32;
-typedef __u32 __bitwise __be32;
-typedef __u64 __bitwise __le64;
-typedef __u64 __bitwise __be64;
-
-typedef __u16 __bitwise __sum16;
-typedef __u32 __bitwise __wsum;
-
-#endif
-
-#define DECLARE_BITMAP(name,bits) unsigned long name[BITS_TO_LONGS(bits)]
-
-#ifndef BITS_PER_LONG
-#define BITS_PER_LONG 32
-#endif
-
-#define BITS_TO_LONGS(nr) (((nr) + BITS_PER_LONG - 1) / BITS_PER_LONG)
-
-typedef struct wait_queue wait_queue_t;
-typedef struct wait_queue_head wait_queue_head_t;
-
-#define NSEC_PER_USEC   1000L
-#define NSEC_PER_MSEC   1000000L
-#define USEC_PER_MSEC   1000L
-#define NSEC_PER_SEC    1000000000L
-#define USEC_PER_SEC    1000000L
-#define MSEC_PER_SEC    1000L
-#define FSEC_PER_SEC    1000000000000000LL
-
-#endif
-
-#endif
-TYPES_EOF
-
-    # stddef.h - simples, sem inclusões circulares
-    cat << 'STDDEF_EOF' > include/linux/stddef.h
-#ifndef _LINUX_STDDEF_H
-#define _LINUX_STDDEF_H
-
-#undef NULL
-#if defined(__cplusplus)
-#define NULL 0
-#else
-#define NULL ((void *)0)
-#endif
-
-#undef offsetof
-#ifdef __compiler_offsetof
-#define offsetof(TYPE,MEMBER) __compiler_offsetof(TYPE,MEMBER)
-#else
-#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
-#endif
-
-#endif
-STDDEF_EOF
-
-    # string.h
-    cat << 'STRING_EOF' > include/linux/string.h
-#ifndef _LINUX_STRING_H_
-#define _LINUX_STRING_H_
-
-#include <linux/types.h>
-#include <linux/stddef.h>
-
-extern char * strcpy(char *,const char *);
-extern char * strncpy(char *,const char *, __kernel_size_t);
-extern __kernel_size_t strlen(const char *);
-extern int strcmp(const char *,const char *);
-extern int strncmp(const char *,const char *,__kernel_size_t);
-extern char * strchr(const char *,int);
-extern char * strrchr(const char *,int);
-extern char * strstr(const char *,const char *);
-extern void * memset(void *,int,__kernel_size_t);
-extern void * memcpy(void *,const void *,__kernel_size_t);
-extern void * memmove(void *,const void *,__kernel_size_t);
-extern int memcmp(const void *,const void *,__kernel_size_t);
-extern void * memchr(const void *,int,__kernel_size_t);
-
-#endif
-STRING_EOF
-
-    # compiler-attributes.h
-    cat << 'COMPILER_ATTR_EOF' > include/linux/compiler-attributes.h
-#ifndef __LINUX_COMPILER_ATTRIBUTES_H
-#define __LINUX_COMPILER_ATTRIBUTES_H
-
-#ifdef __GNUC__
-# define __printf(a, b) __attribute__((format(printf, a, b)))
-# define __scanf(a, b)  __attribute__((format(scanf, a, b)))
-# define __attribute_const__ __attribute__((__const__))
-# define __maybe_unused __attribute__((unused))
-#else
-# define __printf(a, b)
-# define __scanf(a, b)
-# define __attribute_const__
-# define __maybe_unused
-#endif
-
-#endif
-COMPILER_ATTR_EOF
-
-    # Headers ARM
-    cat << 'MEMORY_EOF' > arch/arm/include/mach/memory.h
-#ifndef __ASM_MACH_MEMORY_H
-#define __ASM_MACH_MEMORY_H
-
-#define PLAT_PHYS_OFFSET	UL(0x00000000)
-#define MAX_DMA_ADDRESS		0x40000000
-
-#endif
-MEMORY_EOF
-
-    # param.h
-    cat << 'PARAM_EOF' > arch/arm/include/generated/asm/param.h
-#ifndef _ASM_ARM_PARAM_H
-#define _ASM_ARM_PARAM_H
-
-#ifndef HZ
-#define HZ 250
-#endif
-
-#define USER_HZ		100
-#define CLOCKS_PER_SEC	(USER_HZ)
-
-#ifndef EXEC_PAGESIZE
-#define EXEC_PAGESIZE	4096
-#endif
-
-#ifndef NOGROUP
-#define NOGROUP		(-1)
-#endif
-
-#define MAXHOSTNAMELEN	64
-
-#endif
-PARAM_EOF
+    # Compiler attributes
+    printf '%s\n' '#ifndef __LINUX_COMPILER_ATTRIBUTES_H' '#define __LINUX_COMPILER_ATTRIBUTES_H' > include/linux/compiler-attributes.h
+    printf '%s\n' '#ifdef __GNUC__' >> include/linux/compiler-attributes.h
+    printf '%s\n' '# define __printf(a, b) __attribute__((format(printf, a, b)))' >> include/linux/compiler-attributes.h
+    printf '%s\n' '# define __scanf(a, b) __attribute__((format(scanf, a, b)))' >> include/linux/compiler-attributes.h
+    printf '%s\n' '# define __attribute_const__ __attribute__((__const__))' >> include/linux/compiler-attributes.h
+    printf '%s\n' '# define __maybe_unused __attribute__((unused))' >> include/linux/compiler-attributes.h
+    printf '%s\n' '#else' >> include/linux/compiler-attributes.h
+    printf '%s\n' '# define __printf(a, b)' '# define __scanf(a, b)' >> include/linux/compiler-attributes.h
+    printf '%s\n' '# define __attribute_const__' '# define __maybe_unused' >> include/linux/compiler-attributes.h
+    printf '%s\n' '#endif' '#endif' >> include/linux/compiler-attributes.h
 
     # GCC headers
     for v in 14 15 16; do
-        cat << "GCC_EOF" > include/linux/compiler-gcc${v}.h
-#ifndef __LINUX_COMPILER_H
-#error "Include compiler.h"
-#endif
-
-#define __used __attribute__((__used__))
-#define __must_check __attribute__((warn_unused_result))
-#define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
-#define __cold __attribute__((__cold__))
-#define unreachable() __builtin_unreachable()
-#define __noclone __attribute__((__noclone__, __optimize__("no-tracer")))
-#define __visible __attribute__((externally_visible))
-#define asm_volatile_goto(x...) do { asm goto(x); asm (""); } while (0)
-
-#ifndef __printf
-#define __printf(a, b) __attribute__((format(printf, a, b)))
-#endif
-
-#define __scanf(a, b) __attribute__((format(scanf, a, b)))
-#define __attribute_const__ __attribute__((__const__))
-#define __maybe_unused __attribute__((unused))
-#define __always_inline inline __attribute__((always_inline))
-#define __deprecated __attribute__((deprecated))
-#define __packed __attribute__((packed))
-#define __weak __attribute__((weak))
-#define __alias(symbol) __attribute__((alias(#symbol)))
-#define __pure __attribute__((pure))
-#define __aligned(x) __attribute__((aligned(x)))
-#define __user
-#define __kernel
-#define __safe
-#define __force
-#define __nocast
-#define __iomem
-#define __must_hold(x)
-#define __acquires(x)
-#define __releases(x)
-#define __acquire(x) (void)0
-#define __release(x) (void)0
-#define __cond_lock(x,c) (c)
-#define __percpu
-#define __rcu
-#define __private
-#define __pmem
-#define __chk_user_ptr(x) (void)0
-#define __chk_io_ptr(x) (void)0
-#define __builtin_warning(x, y...) (1)
-#define __must_be_array(x) 0
-#define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
-
-GCC_EOF
+        printf '%s\n' '#ifndef __LINUX_COMPILER_H' '#error "Include compiler.h"' '#endif' > include/linux/compiler-gcc${v}.h
+        printf '%s\n' '#define __used __attribute__((__used__))' >> include/linux/compiler-gcc${v}.h
+        printf '%s\n' '#define __must_check __attribute__((warn_unused_result))' >> include/linux/compiler-gcc${v}.h
+        printf '%s\n' '#define __compiler_offsetof(a,b) __builtin_offsetof(a,b)' >> include/linux/compiler-gcc${v}.h
+        printf '%s\n' '#ifndef __printf' >> include/linux/compiler-gcc${v}.h
+        printf '%s\n' '#define __printf(a, b) __attribute__((format(printf, a, b)))' >> include/linux/compiler-gcc${v}.h
+        printf '%s\n' '#endif' >> include/linux/compiler-gcc${v}.h
     done
 
-    # compiler.h principal
-    cat << 'COMPILER_EOF' > include/linux/compiler.h
-#ifndef __LINUX_COMPILER_H
-#define __LINUX_COMPILER_H
+    # Headers ARM
+    printf '%s\n' '#ifndef __ASM_MACH_MEMORY_H' '#define __ASM_MACH_MEMORY_H' > arch/arm/include/mach/memory.h
+    printf '%s\n' '#define PLAT_PHYS_OFFSET UL(0x00000000)' >> arch/arm/include/mach/memory.h
+    printf '%s\n' '#define MAX_DMA_ADDRESS 0x40000000' >> arch/arm/include/mach/memory.h
+    printf '%s\n' '#endif' >> arch/arm/include/mach/memory.h
 
-#include <linux/compiler-attributes.h>
+    # Headers básicos gerados
+    printf '%s\n' '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
+    printf '%s\n' '/* Auto generated */' > include/generated/autoconf.h
+    printf '%s\n' '#define __LINUX_ARM_ARCH__ 7' >> include/generated/autoconf.h
+    printf '%s\n' '#define BITS_PER_LONG 32' >> include/generated/autoconf.h
+    printf '%s\n' '#define HZ 250' >> include/generated/autoconf.h
+    printf '%s\n' '#define CLOCK_TICK_RATE 19200000' >> include/generated/autoconf.h
 
-#ifdef __CHECKER__
-# define __user		__attribute__((noderef, address_space(1)))
-# define __kernel
-# define __safe		__attribute__((safe))
-# define __force	__attribute__((force))
-# define __nocast	__attribute__((nocast))
-# define __iomem	__attribute__((noderef, address_space(2)))
-# define __must_hold(x)	__attribute__((context(x,1,1)))
-# define __acquires(x)	__attribute__((context(x,0,1)))
-# define __releases(x)	__attribute__((context(x,1,0)))
-# define __acquire(x)	__context__(x,1)
-# define __release(x)	__context__(x,-1)
-# define __cond_lock(x,c)	((c) ? ({ __acquire(x); 1; }) : 0)
-# define __percpu	__attribute__((noderef, address_space(3)))
-# define __rcu		__attribute__((noderef, address_space(4)))
-# define __private	__attribute__((noderef))
-#else
-# define __rcu
-# define __private
-# define __pmem
-# define __user
-# define __kernel
-# define __safe
-# define __force
-# define __nocast
-# define __iomem
-# define __chk_user_ptr(x) (void)0
-# define __chk_io_ptr(x) (void)0
-# define __builtin_warning(x, y...) (1)
-# define __must_hold(x)
-# define __acquires(x)
-# define __releases(x)
-# define __acquire(x) (void)0
-# define __release(x) (void)0
-# define __cond_lock(x,c) (c)
-# define __percpu
-# define __rcu
-# define __private
-# define __pmem
-# define __must_be_array(x) 0
-#endif
-
-#ifdef __GNUC__
-# if __GNUC__ >= 15
-#  include <linux/compiler-gcc15.h>
-# elif __GNUC__ >= 14
-#  include <linux/compiler-gcc14.h>
-# else
-#  include <linux/compiler-gcc.h>
-# endif
-#else
-# error Sorry, your compiler is too old/not recognized.
-#endif
-
-#ifndef __same_type
-# define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
-#endif
-
-#ifndef barrier
-# define barrier() __memory_barrier()
-#endif
-
-#endif
-COMPILER_EOF
-
-    # Headers gerados básicos
-    echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
-    echo '/* Auto generated */' > include/generated/autoconf.h
-    echo '#define __LINUX_ARM_ARCH__ 7' >> include/generated/autoconf.h
-    echo '#define BITS_PER_LONG 32' >> include/generated/autoconf.h
-    echo '#define HZ 250' >> include/generated/autoconf.h
-    echo '#define CLOCK_TICK_RATE 19200000' >> include/generated/autoconf.h
-
-    # Headers vazios necessários
+    printf '%s\n' '/* Empty asm-offsets.h */' > include/generated/asm-offsets.h
     touch include/generated/bounds.h
-    echo '/* Empty asm-offsets.h */' > include/generated/asm-offsets.h
-
-    # Fix para asm/procinfo.h - definir estrutura proc_info_list
-    mkdir -p arch/arm/include/asm
-    cat << 'PROCINFO_EOF' > arch/arm/include/asm/procinfo.h
-#ifndef __ASM_PROCINFO_H
-#define __ASM_PROCINFO_H
-
-#ifndef __ASSEMBLY__
-
-struct proc_info_list {
-    unsigned int        cpu_val;
-    unsigned int        cpu_mask;
-    unsigned long       __cpu_mm_mmu_flags;
-    unsigned long       __cpu_io_mmu_flags;
-    unsigned long       __cpu_flush;
-    const char          *arch_name;
-    const char          *elf_name;
-    unsigned int        elf_hwcap;
-    const char          *cpu_name;
-    struct processor    *proc;
-    struct cpu_tlb_fns  *tlb;
-    struct cpu_user_fns *user;
-    struct cpu_cache_fns *cache;
-};
-
-#endif /* !__ASSEMBLY__ */
-
-/* Definições para compatibilidade */
-#define PROCINFO_INITFUNC 0x10
-#define PROCINFO_MM_MMUFLAGS 0x08
-#define PROCINFO_IO_MMUFLAGS 0x0C
-
-#endif
-PROCINFO_EOF
-
-    cat << 'DEBUG_EOF' > arch/arm/include/generated/mach/debug-macro.S
-/* Debug macro vazio para MSM8226 */
-	.macro	addruart, rp, rv, tmp
-	.endm
-
-	.macro	senduart, rd, rx
-	.endm
-
-	.macro	busyuart, rd, rx
-	.endm
-
-	.macro	waituart, rd, rx
-	.endm
-DEBUG_EOF
-
-    # Fix completo para devicetable-offsets.c
-    cat << 'DEVICETABLE_EOF' > scripts/mod/devicetable-offsets.c
-/* Fix fundamental para devicetable offsets */
-
-/* Definir tipos básicos antes de qualquer coisa */
-#ifndef __u8
-typedef unsigned char __u8;
-#endif
-#ifndef __u16
-typedef unsigned short __u16;
-#endif
-#ifndef __u32
-typedef unsigned int __u32;
-#endif
-#ifndef __u64
-typedef unsigned long long __u64;
-#endif
-#ifndef kernel_ulong_t
-typedef unsigned long kernel_ulong_t;
-#endif
-
-#include <linux/kbuild.h>
-#include <linux/stddef.h>
-#include <linux/mod_devicetable.h>
-
-/* Macros para calcular offsets manualmente */
-#define MANUAL_OFFSET(type, field) ((unsigned long)&((type *)8)->field - 8)
-#define DEVID(devid) DEFINE(SIZE_##devid, sizeof(struct devid))
-#define DEVID_FIELD(devid, field) DEFINE(OFF_##devid##_##field, MANUAL_OFFSET(struct devid, field))
-#define FAKE_OFFSET(devid, field, offset) DEFINE(OFF_##devid##_##field, offset)
-
-int main(void) {
-    /* Device IDs com estruturas conhecidas */
-    DEVID(pci_device_id);
-    DEVID_FIELD(pci_device_id, vendor);
-    DEVID_FIELD(pci_device_id, device);
-    DEVID_FIELD(pci_device_id, subvendor);
-    DEVID_FIELD(pci_device_id, subdevice);
-    DEVID_FIELD(pci_device_id, class);
-    DEVID_FIELD(pci_device_id, class_mask);
-
-    DEVID(usb_device_id);
-    DEVID_FIELD(usb_device_id, match_flags);
-    DEVID_FIELD(usb_device_id, idVendor);
-    DEVID_FIELD(usb_device_id, idProduct);
-    DEVID_FIELD(usb_device_id, bcdDevice_lo);
-    DEVID_FIELD(usb_device_id, bcdDevice_hi);
-    DEVID_FIELD(usb_device_id, bDeviceClass);
-    DEVID_FIELD(usb_device_id, bDeviceSubClass);
-    DEVID_FIELD(usb_device_id, bDeviceProtocol);
-    DEVID_FIELD(usb_device_id, bInterfaceClass);
-    DEVID_FIELD(usb_device_id, bInterfaceSubClass);
-    DEVID_FIELD(usb_device_id, bInterfaceProtocol);
-    DEVID_FIELD(usb_device_id, bInterfaceNumber);
-
-    DEVID(hid_device_id);
-    DEVID_FIELD(hid_device_id, bus);
-    DEVID_FIELD(hid_device_id, group);
-    DEVID_FIELD(hid_device_id, vendor);
-    DEVID_FIELD(hid_device_id, product);
-
-    DEVID(input_device_id);
-    DEVID_FIELD(input_device_id, flags);
-    DEVID_FIELD(input_device_id, bustype);
-    DEVID_FIELD(input_device_id, vendor);
-    DEVID_FIELD(input_device_id, product);
-    DEVID_FIELD(input_device_id, version);
-    DEVID_FIELD(input_device_id, evbit);
-    DEVID_FIELD(input_device_id, keybit);
-    DEVID_FIELD(input_device_id, relbit);
-    DEVID_FIELD(input_device_id, absbit);
-    DEVID_FIELD(input_device_id, mscbit);
-    DEVID_FIELD(input_device_id, ledbit);
-    DEVID_FIELD(input_device_id, sndbit);
-    DEVID_FIELD(input_device_id, ffbit);
-    DEVID_FIELD(input_device_id, swbit);
-
-    DEVID(platform_device_id);
-    DEVID_FIELD(platform_device_id, name);
-
-    DEVID(i2c_device_id);
-    DEVID_FIELD(i2c_device_id, name);
-
-    DEVID(spi_device_id);
-    DEVID_FIELD(spi_device_id, name);
-
-    DEVID(dmi_system_id);
-    DEVID_FIELD(dmi_system_id, matches);
-
-    DEVID(mdio_device_id);
-    DEVID_FIELD(mdio_device_id, phy_id);
-    DEVID_FIELD(mdio_device_id, phy_id_mask);
-
-    DEVID(zorro_device_id);
-    DEVID_FIELD(zorro_device_id, id);
-
-    DEVID(isapnp_device_id);
-    DEVID_FIELD(isapnp_device_id, vendor);
-    DEVID_FIELD(isapnp_device_id, function);
-
-    DEVID(amba_id);
-    DEVID_FIELD(amba_id, id);
-    DEVID_FIELD(amba_id, mask);
-
-    DEVID(x86_cpu_id);
-    DEVID_FIELD(x86_cpu_id, feature);
-    DEVID_FIELD(x86_cpu_id, family);
-    DEVID_FIELD(x86_cpu_id, model);
-    DEVID_FIELD(x86_cpu_id, vendor);
-
-    DEVID(of_device_id);
-    DEVID_FIELD(of_device_id, name);
-    DEVID_FIELD(of_device_id, type);
-    DEVID_FIELD(of_device_id, compatible);
-
-    DEVID(virtio_device_id);
-    DEVID_FIELD(virtio_device_id, device);
-    DEVID_FIELD(virtio_device_id, vendor);
-
-    DEVID(hv_vmbus_device_id);
-    DEVID_FIELD(hv_vmbus_device_id, guid);
-
-    /* Device IDs problemáticos - definir manualmente com offsets seguros */
-    DEFINE(SIZE_ccw_device_id, 16);
-    FAKE_OFFSET(ccw_device_id, match_flags, 0);
-    FAKE_OFFSET(ccw_device_id, cu_type, 2);
-    FAKE_OFFSET(ccw_device_id, cu_model, 4);
-    FAKE_OFFSET(ccw_device_id, dev_type, 6);
-    FAKE_OFFSET(ccw_device_id, dev_model, 8);
-
-    DEFINE(SIZE_ap_device_id, 8);
-    FAKE_OFFSET(ap_device_id, dev_type, 0);
-
-    DEFINE(SIZE_css_device_id, 8);
-    FAKE_OFFSET(css_device_id, type, 0);
-
-    DEFINE(SIZE_pnp_device_id, 32);
-    FAKE_OFFSET(pnp_device_id, id, 0);
-
-    DEFINE(SIZE_pnp_card_device_id, 64);
-    FAKE_OFFSET(pnp_card_device_id, devs, 0);
-
-    /* Outros device IDs com definições fixas */
-    DEFINE(SIZE_ssb_device_id, 16);
-    FAKE_OFFSET(ssb_device_id, vendor, 0);
-    FAKE_OFFSET(ssb_device_id, coreid, 2);
-    FAKE_OFFSET(ssb_device_id, revision, 4);
-
-    DEFINE(SIZE_bcma_device_id, 16);
-    FAKE_OFFSET(bcma_device_id, manuf, 0);
-    FAKE_OFFSET(bcma_device_id, id, 2);
-    FAKE_OFFSET(bcma_device_id, rev, 4);
-    FAKE_OFFSET(bcma_device_id, class, 6);
-
-    DEFINE(SIZE_parisc_device_id, 16);
-    FAKE_OFFSET(parisc_device_id, hw_type, 0);
-    FAKE_OFFSET(parisc_device_id, hversion, 2);
-    FAKE_OFFSET(parisc_device_id, hversion_rev, 4);
-    FAKE_OFFSET(parisc_device_id, sversion, 6);
-
-    DEFINE(SIZE_sdio_device_id, 12);
-    FAKE_OFFSET(sdio_device_id, class, 0);
-    FAKE_OFFSET(sdio_device_id, vendor, 2);
-    FAKE_OFFSET(sdio_device_id, device, 4);
-
-    DEFINE(SIZE_ieee1394_device_id, 20);
-    FAKE_OFFSET(ieee1394_device_id, match_flags, 0);
-    FAKE_OFFSET(ieee1394_device_id, vendor_id, 4);
-    FAKE_OFFSET(ieee1394_device_id, model_id, 8);
-    FAKE_OFFSET(ieee1394_device_id, specifier_id, 12);
-    FAKE_OFFSET(ieee1394_device_id, version, 16);
-
-    DEFINE(SIZE_serio_device_id, 8);
-    FAKE_OFFSET(serio_device_id, type, 0);
-    FAKE_OFFSET(serio_device_id, proto, 1);
-    FAKE_OFFSET(serio_device_id, id, 2);
-    FAKE_OFFSET(serio_device_id, extra, 3);
-
-    DEFINE(SIZE_acpi_device_id, 16);
-    FAKE_OFFSET(acpi_device_id, id, 0);
-
-    DEFINE(SIZE_pcmcia_device_id, 32);
-    FAKE_OFFSET(pcmcia_device_id, match_flags, 0);
-    FAKE_OFFSET(pcmcia_device_id, manf_id, 4);
-    FAKE_OFFSET(pcmcia_device_id, card_id, 6);
-    FAKE_OFFSET(pcmcia_device_id, func_id, 8);
-    FAKE_OFFSET(pcmcia_device_id, function, 9);
-    FAKE_OFFSET(pcmcia_device_id, device_no, 10);
-    FAKE_OFFSET(pcmcia_device_id, prod_id_hash, 12);
-
-    DEFINE(SIZE_eisa_device_id, 16);
-    FAKE_OFFSET(eisa_device_id, sig, 0);
-
-    DEFINE(SIZE_vio_device_id, 64);
-    FAKE_OFFSET(vio_device_id, type, 0);
-    FAKE_OFFSET(vio_device_id, compat, 32);
-
-    return 0;
-}
-DEVICETABLE_EOF
 
     # Aplicar patches
     local patches_applied=0
@@ -715,21 +196,12 @@ build() {
 
     echo "=== VERIFICAÇÕES FINAIS ==="
 
-    # Verificar se __printf está definido
-    if grep -q "__printf.*format" include/linux/compiler-gcc*.h 2>/dev/null; then
+    if grep -q "printf.*format" include/linux/compiler-gcc*.h 2>/dev/null; then
         echo "✓ __printf macro definido"
     else
         echo "✗ __printf macro ausente"
     fi
 
-    # Verificar devicetable offsets
-    if grep -q "OFF_ccw_device_id" scripts/mod/devicetable-offsets.c 2>/dev/null; then
-        echo "✓ Devicetable offsets definidos"
-    else
-        echo "✗ Devicetable offsets ausentes"
-    fi
-
-    # Verificar tipos básicos
     if grep -q "__u32" scripts/mod/devicetable-offsets.c 2>/dev/null; then
         echo "✓ Tipos básicos definidos"
     else
@@ -739,7 +211,6 @@ build() {
     echo ""
     echo "=== INICIANDO BUILD ==="
 
-    # Build com timeout e logging detalhado
     if ! timeout 3600 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC=gcc HOSTCFLAGS="$HOSTCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
@@ -748,24 +219,14 @@ build() {
         echo ""
         echo "=== BUILD FALHOU - ANÁLISE ==="
 
-        # Análise específica dos erros
         if grep -q "__printf.*expected declaration" build.log; then
             echo "ERRO: Problema com macro __printf ainda persiste"
-            echo "Verificando definições..."
-            grep -n "__printf" include/linux/compiler*.h 2>/dev/null || echo "Não encontrado"
         fi
 
         if grep -q "OFF_.*_undeclared" build.log; then
             echo "ERRO: Offsets de devicetable ainda ausentes"
-            echo "Verificando devicetable-offsets.c..."
-            head -20 scripts/mod/devicetable-offsets.c
         fi
 
-        if grep -q "__u32.*unknown type" build.log; then
-            echo "ERRO: Tipos básicos não definidos corretamente"
-        fi
-
-        # Mostrar contexto do erro
         echo ""
         echo "=== CONTEXTO DO ERRO ==="
         grep -B2 -A2 -E "(error|Error|fatal)" build.log | head -20
@@ -773,7 +234,6 @@ build() {
         exit 1
     fi
 
-    # Verificar se zImage foi criado
     if [ -f arch/arm/boot/zImage ]; then
         local size=$(stat -c%s arch/arm/boot/zImage)
         echo "SUCCESS! zImage criado: $size bytes"
@@ -782,26 +242,20 @@ build() {
         exit 1
     fi
 
-    # Build dos módulos (opcional)
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" modules >/dev/null 2>&1 || true
 }
 
 package() {
     cd "$builddir"
 
-    # Instalar kernel
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
-
-    # Instalar módulos se existirem
     make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" modules_install 2>/dev/null || true
 
-    # Instalar DTBs se existirem
     if [ -d arch/arm/boot/dts ]; then
         mkdir -p "$pkgdir/boot/dtbs-$_flavor"
         find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \; 2>/dev/null || true
     fi
 
-    # Link simbólico
     mkdir -p "$pkgdir/boot"
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 }
@@ -830,4 +284,5 @@ bc7c43f87eec73705a993ff971cf159933e762b0f658a124cdfd717ebe577a063b1d9eac71c51356
 413fb977d4b3cdcc219be6381d9635c2a81da4884754f0c3c2fed9781a1e0ff56aa9715c9b14d16d102a5841a63cdd65febe8c8fa2e3aacde5c96797cd0904c0  25-fix-printf-macro.patch
 ede2e6c6460a01477b4ed8e8e768c758f40459c6e07ed6fc3609fcadb2d51f23d71fd8b0930a7e1fb6aa03156c2e0431690b1af4fe5b86750ad2f15006c9a005  26-fix-string-header-inclusion.patch
 dcd2ab1e0e7d5a6484f6e278328003d2e8fe51aed94bc431b239cd7d63af9189b28d642b794804dfd3d95c9448c366958f25da88d6d9e9ed0befcbc15f4e2c7b  27-fix-fundamental-types-comprehensive.patch
+3bbf210725fc2c835137cbe6c8f255961f724ec2ff6613d15c2168e19989031af7398ee41b0e726ddf2eb3653db38cdb8ccd028b183256874dba87dc69783a84  28-fix-asm-offsets-includes.patch
 "
