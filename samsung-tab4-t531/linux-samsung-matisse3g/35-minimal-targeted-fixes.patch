@@ -1,0 +1,76 @@
+--- a/scripts/mod/devicetable-offsets.c
++++ b/scripts/mod/devicetable-offsets.c
+@@ -1,3 +1,21 @@
++/* Minimal type definitions to prevent compilation errors */
++#ifndef __KERNEL_BASIC_TYPES_DEFINED
++#define __KERNEL_BASIC_TYPES_DEFINED
++typedef unsigned char __u8;
++typedef unsigned short __u16; 
++typedef unsigned int __u32;
++typedef unsigned long long __u64;
++typedef signed char __s8;
++typedef signed short __s16;
++typedef signed int __s32;
++typedef signed long long __s64;
++typedef unsigned long kernel_ulong_t;
++typedef unsigned long size_t;
++typedef int ptrdiff_t;
++#ifndef NULL
++#define NULL ((void *)0)
++#endif
++#endif
++
+ #include <linux/kbuild.h>
+ #include <linux/mod_devicetable.h>
+ 
+--- a/kernel/bounds.c
++++ b/kernel/bounds.c
+@@ -6,6 +6,21 @@
+  * it from using __builtin_offsetof().
+  */
+ 
++/* Minimal type definitions to prevent compilation errors */
++#ifndef __KERNEL_BASIC_TYPES_DEFINED
++#define __KERNEL_BASIC_TYPES_DEFINED
++typedef unsigned char __u8;
++typedef unsigned short __u16;
++typedef unsigned int __u32;
++typedef unsigned long long __u64;
++typedef unsigned long kernel_ulong_t;
++typedef unsigned long size_t;
++typedef int ptrdiff_t;
++#ifndef NULL
++#define NULL ((void *)0)
++#endif
++#endif
++
+ #include <linux/kbuild.h>
+ #include <linux/page-flags.h>
+ #include <linux/mmzone.h>
+--- a/include/linux/mod_devicetable.h
++++ b/include/linux/mod_devicetable.h
+@@ -1,8 +1,22 @@
+ #ifndef LINUX_MOD_DEVICETABLE_H
+ #define LINUX_MOD_DEVICETABLE_H
++
++/* Ensure basic types are available before any other includes */
++#ifndef __KERNEL_BASIC_TYPES_DEFINED
++#define __KERNEL_BASIC_TYPES_DEFINED
++typedef unsigned char __u8;
++typedef unsigned short __u16;
++typedef unsigned int __u32;
++typedef unsigned long long __u64;
++typedef unsigned long kernel_ulong_t;
++#endif
++
+ #ifdef __KERNEL__
+-#include <linux/types.h>
+-#include <linux/uuid.h>
++/* Only include if not already defined */
++#ifndef _LINUX_TYPES_H
++# include <linux/types.h>
++#endif
++# include <linux/uuid.h>
+ typedef unsigned long kernel_ulong_t;
+ #endif
+ #include <linux/uuid.h>
