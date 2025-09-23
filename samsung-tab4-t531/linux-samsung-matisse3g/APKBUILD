@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=82
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - APKBUILD corrigido para tipos básicos"
+pkgrel=83
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Build minimalista"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -15,34 +15,7 @@ _commit="pmos-matisse3g-fixes"
 source="
 	$pkgname-$_commit.tar.gz::https://github.com/Felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/$_commit.tar.gz
 	config-samsung-matisse3g.armv7
-	01-fix-timex-header.patch
-	03-fix-defconfig.patch
-	04-fix-jffs2-format-warnings.patch
-	05-fix-fundamental-headers.patch
-	06-add-missing-byteorder-headers.patch
-	07-fix-compiler-headers.patch
-	08-fix-asm-offsets-simple.patch
-	09-fix-memory-and-const.patch
-	10-add-gcc15-conservative-flags.patch
-	11-fix-irq-timer-definitions-v2.patch
-	12-fix-proc-v7-assembly.patch
-	13-fix-bool-redefinitions.patch
-	14-fix-fs-build-errors.patch
-	15-ultimate-macro-redefinition-fix.patch
-	16-fix-ext4-strncpy-warnings.patch
-	22-ultimate-all-offsets-final.patch
-	23-fix-arm-architecture-detection.patch
-	24-fix-devicetable-basic-types.patch
-	25-fix-printf-macro.patch
-	26-fix-string-header-inclusion.patch
-	27-fix-fundamental-types-comprehensive.patch
-	28-fix-asm-offsets-includes.patch
-	29-fix-devicetable-offsets-comprehensive.patch
-	30-fix-hz-clock-definitions.patch
-	31-fix-string-headers-complete.patch
-	32-fix-must-check-attributes.patch
-	33-fix-ptrdiff_t-type-conflict.patch
-	34-fix-types-simple-no-stddef.patch
+	35-minimal-targeted-fixes.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -58,364 +31,45 @@ prepare() {
     done
     [ -z "$CROSS_COMPILE" ] && { echo "ERRO: Compilador não encontrado"; exit 1; }
 
-    # Ambiente - Mais restritivo para evitar conflitos
+    # Ambiente básico - SEM modificações drásticas de headers
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
     export ARCH=arm SUBARCH=arm HOSTCC=gcc
-    export HOSTCFLAGS="-O1 -w -std=gnu89 -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32 -DHZ=250 -DCLOCK_TICK_RATE=19200000"
-    export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32 -DHZ=250 -DCLOCK_TICK_RATE=19200000"
-    export EXTRA_CFLAGS="-w -Wno-error -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32 -DHZ=250 -DCLOCK_TICK_RATE=19200000"
-    export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32 -DHZ=250 -DCLOCK_TICK_RATE=19200000"
+    export HOSTCFLAGS="-O1 -w -std=gnu89"
+    export KBUILD_CFLAGS="-w -Wno-error -std=gnu89"
+    export EXTRA_CFLAGS="-w -Wno-error"
 
-    # Criar estruturas básicas
-    mkdir -p include/linux include/asm-generic include/generated include/config scripts/basic scripts/mod
-    mkdir -p arch/arm/include/mach arch/arm/include/generated/mach arch/arm/include/generated/asm
+    # Criar apenas diretórios básicos necessários
+    mkdir -p include/generated include/config scripts/basic scripts/mod
+    mkdir -p arch/arm/include/generated/asm
 
-    # Types.h completo com todos os tipos necessários - SEM conflitos com stddef.h
-    cat > include/linux/types.h << 'EOF'
-#ifndef _LINUX_TYPES_H
-#define _LINUX_TYPES_H
+    # Headers mínimos apenas se não existirem
+    if [ ! -f include/generated/utsrelease.h ]; then
+        echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
+    fi
 
-#ifndef __ASSEMBLY__
-
-/* Basic integer types */
-typedef unsigned char u8;
-typedef signed char s8;
-typedef unsigned short u16;
-typedef signed short s16;
-typedef unsigned int u32;
-typedef signed int s32;
-typedef unsigned long long u64;
-typedef signed long long s64;
-
-/* Kernel types */
-typedef u8 __u8;
-typedef s8 __s8;
-typedef u16 __u16;
-typedef s16 __s16;
-typedef u32 __u32;
-typedef s32 __s32;
-typedef u64 __u64;
-typedef s64 __s64;
-
-/* Size types - use compiler's definitions to avoid conflicts */
-#ifndef __SIZE_TYPE__
-#define __SIZE_TYPE__ unsigned long
-#endif
-
-typedef __SIZE_TYPE__ __kernel_size_t;
-typedef long __kernel_ssize_t;
-
-/* Use GCC's ptrdiff_t definition to avoid conflicts */
-#ifdef __PTRDIFF_TYPE__
-typedef __PTRDIFF_TYPE__ __kernel_ptrdiff_t;
-#else
-typedef int __kernel_ptrdiff_t;
-#endif
-
-typedef long __kernel_time_t;
-typedef long __kernel_suseconds_t;
-typedef int __kernel_pid_t;
-typedef unsigned int __kernel_uid_t;
-typedef unsigned int __kernel_gid_t;
-typedef unsigned long __kernel_ino_t;
-typedef unsigned int __kernel_mode_t;
-typedef unsigned short __kernel_umode_t;
-typedef long long __kernel_loff_t;
-typedef unsigned int __kernel_dev_t;
-typedef long __kernel_long_t;
-typedef unsigned long __kernel_ulong_t;
-
-typedef __kernel_size_t size_t;
-typedef __kernel_ssize_t ssize_t;
-
-/* Only define ptrdiff_t if not already defined by compiler */
-#ifndef _PTRDIFF_T_DEFINED
-#ifndef __PTRDIFF_T
-typedef __kernel_ptrdiff_t ptrdiff_t;
-#endif
-#endif
-
-typedef __kernel_time_t time_t;
-typedef __kernel_mode_t umode_t;
-typedef __kernel_loff_t loff_t;
-typedef unsigned int dev_t;
-typedef unsigned int gfp_t;
-typedef long clock_t;
-typedef unsigned long resource_size_t;
-typedef unsigned long phys_addr_t;
-typedef int clockid_t;
-typedef __kernel_ulong_t kernel_ulong_t;
-
-/* Boolean type */
-#ifndef __cplusplus
-typedef unsigned char bool;
-#ifndef true
-#define true 1
-#endif
-#ifndef false
-#define false 0
-#endif
-#endif
-
-/* Atomic and list structures */
-typedef struct { int counter; } atomic_t;
-struct list_head { struct list_head *next, *prev; };
-struct hlist_head { struct hlist_node *first; };
-struct hlist_node { struct hlist_node *next, **pprev; };
-
-/* Constants */
-#ifndef BITS_PER_LONG
-#define BITS_PER_LONG 32
-#endif
-#define BITS_TO_LONGS(nr) (((nr) + BITS_PER_LONG - 1) / BITS_PER_LONG)
-
-/* Time constants */
-#define NSEC_PER_USEC 1000L
-#define NSEC_PER_MSEC 1000000L
-#define USEC_PER_MSEC 1000L
-#define NSEC_PER_SEC 1000000000L
-#define USEC_PER_SEC 1000000L
-#define MSEC_PER_SEC 1000L
-
-/* NULL definition */
-#undef NULL
-#if defined(__cplusplus)
-#define NULL 0
-#else
-#define NULL ((void *)0)
-#endif
-
-/* Wait queue types - básicos */
-struct __wait_queue_head {
-    void *task_list;
-    void *lock;
-};
-typedef struct __wait_queue_head wait_queue_head_t;
-
-/* VA_LIST forward declaration */
-#ifndef _VA_LIST_DEFINED
-#define _VA_LIST_DEFINED
-typedef __builtin_va_list va_list;
-#endif
-
-#endif /* __ASSEMBLY__ */
-#endif /* _LINUX_TYPES_H */
-EOF
-
-    # stddef.h compatível SEM conflitos
-    cat > include/linux/stddef.h << 'EOF'
-#ifndef _LINUX_STDDEF_H
-#define _LINUX_STDDEF_H
-
-#undef NULL
-#if defined(__cplusplus)
-#define NULL 0
-#else
-#define NULL ((void *)0)
-#endif
-
-#undef offsetof
-#ifdef __compiler_offsetof
-#define offsetof(TYPE,MEMBER) __compiler_offsetof(TYPE,MEMBER)
-#else
-#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
-#endif
-
-/* Only define types if not already defined by compiler */
-#ifndef __SIZE_TYPE__
-#define __SIZE_TYPE__ unsigned long
-#endif
-
-/* Don't redefine size_t or ptrdiff_t if they're already defined */
-#ifndef _SIZE_T_DEFINED
-#ifndef __SIZE_T
-typedef __SIZE_TYPE__ size_t;
-#endif
-#endif
-
-#endif /* _LINUX_STDDEF_H */
-EOF
-
-    # Compiler attributes completo
-    cat > include/linux/compiler-attributes.h << 'EOF'
-#ifndef __LINUX_COMPILER_ATTRIBUTES_H
-#define __LINUX_COMPILER_ATTRIBUTES_H
-
-#ifdef __GNUC__
-# define __printf(a, b) __attribute__((format(printf, a, b)))
-# define __scanf(a, b) __attribute__((format(scanf, a, b)))
-# define __attribute_const__ __attribute__((__const__))
-# define __maybe_unused __attribute__((unused))
-# define __must_check __attribute__((warn_unused_result))
-# define __used __attribute__((__used__))
-# define __always_inline inline __attribute__((always_inline))
-# define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
-#else
-# define __printf(a, b)
-# define __scanf(a, b)
-# define __attribute_const__
-# define __maybe_unused
-# define __must_check
-# define __used
-# define __always_inline inline
-# define __compiler_offsetof(a,b) ((size_t) &((a *)0)->b)
-#endif
-
-#endif /* __LINUX_COMPILER_ATTRIBUTES_H */
-EOF
-
-    # Compiler.h básico
-    cat > include/linux/compiler.h << 'EOF'
-#ifndef __LINUX_COMPILER_H
-#define __LINUX_COMPILER_H
-
-#include <linux/compiler-attributes.h>
-
-#ifndef __ASSEMBLY__
-
-#ifdef __GNUC__
-#include <linux/compiler-gcc15.h>
-#endif
-
-#ifndef __must_check
-#define __must_check __attribute__((warn_unused_result))
-#endif
-
-#ifndef __printf
-#define __printf(a, b) __attribute__((format(printf, a, b)))
-#endif
-
-#ifndef __used
-#define __used __attribute__((__used__))
-#endif
-
-#ifndef __maybe_unused
-#define __maybe_unused __attribute__((unused))
-#endif
-
-#ifndef __always_inline
-#define __always_inline inline __attribute__((always_inline))
-#endif
-
-#ifndef __compiler_offsetof
-#define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
-#endif
-
-#ifndef likely
-# define likely(x)   __builtin_expect(!!(x), 1)
-# define unlikely(x) __builtin_expect(!!(x), 0)
-#endif
-
-#ifndef barrier
-# define barrier() __asm__ __volatile__("": : :"memory")
-#endif
-
-#endif /* __ASSEMBLY__ */
-#endif /* __LINUX_COMPILER_H */
-EOF
-
-    # String.h básico sem conflitos
-    cat > include/linux/string.h << 'EOF'
-#ifndef _LINUX_STRING_H
-#define _LINUX_STRING_H
-
-#include <linux/types.h>
-#include <linux/stddef.h>
-
-#ifdef __ASSEMBLY__
-/* Empty for assembly */
-#else
-
-#ifndef __HAVE_ARCH_STRCPY
-extern char * strcpy(char *,const char *);
-#endif
-#ifndef __HAVE_ARCH_STRNCPY
-extern char * strncpy(char *,const char *, size_t);
-#endif
-#ifndef __HAVE_ARCH_STRLEN
-extern size_t strlen(const char *);
-#endif
-#ifndef __HAVE_ARCH_STRCMP
-extern int strcmp(const char *,const char *);
-#endif
-#ifndef __HAVE_ARCH_STRNCMP
-extern int strncmp(const char *,const char *,size_t);
-#endif
-
-extern void * memset(void *,int,size_t);
-extern void * memcpy(void *,const void *,size_t);
-extern void * memmove(void *,const void *,size_t);
-extern int memcmp(const void *,const void *,size_t);
-extern void * memchr(const void *,int,size_t);
-
-#endif /* __ASSEMBLY__ */
-#endif /* _LINUX_STRING_H */
-EOF
-
-    # Headers GCC melhorados
-    for v in 14 15 16; do
-        cat > include/linux/compiler-gcc${v}.h << EOF
-#ifndef __LINUX_COMPILER_H
-#error "Include compiler.h"
-#endif
-
-#define __used __attribute__((__used__))
-#define __must_check __attribute__((warn_unused_result))
-#define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
-
-#ifndef __printf
-#define __printf(a, b) __attribute__((format(printf, a, b)))
-#endif
-
-#ifndef __always_inline
-#define __always_inline inline __attribute__((always_inline))
-#endif
-
-#ifndef __maybe_unused
-#define __maybe_unused __attribute__((unused))
-#endif
-EOF
-    done
-
-    # Headers ARM básicos
-    printf '%s\n' '#ifndef __ASM_MACH_MEMORY_H' '#define __ASM_MACH_MEMORY_H' > arch/arm/include/mach/memory.h
-    printf '%s\n' '#define PLAT_PHYS_OFFSET UL(0x00000000)' >> arch/arm/include/mach/memory.h
-    printf '%s\n' '#define MAX_DMA_ADDRESS 0x40000000' >> arch/arm/include/mach/memory.h
-    printf '%s\n' '#endif' >> arch/arm/include/mach/memory.h
-
-    # Generated headers com definições corretas
-    cat > include/generated/utsrelease.h << 'EOF'
-#define UTS_RELEASE "3.4.113"
-EOF
-
-    cat > include/generated/autoconf.h << 'EOF'
-/* Automatically generated file */
-#define __LINUX_ARM_ARCH__ 7
-#define BITS_PER_LONG 32
-#define HZ 250
-#define CLOCK_TICK_RATE 19200000
+    if [ ! -f include/generated/autoconf.h ]; then
+        cat > include/generated/autoconf.h << 'EOF'
+/* Minimal autoconf */
 #define CONFIG_ARM 1
 #define CONFIG_CPU_V7 1
 #define CONFIG_ARCH_MSM 1
 #define CONFIG_ARCH_MSM8226 1
+#define HZ 250
+#define CLOCK_TICK_RATE 19200000
 EOF
+    fi
 
-    printf '%s\n' '/* Generated asm-offsets.h */' > include/generated/asm-offsets.h
-    touch include/generated/bounds.h
-
-    # Aplicar patches
+    # Aplicar apenas o patch essencial
     local patches_applied=0
-    echo "=== APLICANDO PATCHES ==="
-    for p in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort -V); do
+    echo "=== APLICANDO PATCH MINIMALISTA ==="
+    for p in $(echo "$source" | tr ' ' '\n' | grep '\.patch$'); do
         if [ -f "$srcdir/$p" ]; then
             if patch -p1 -i "$srcdir/$p" >/dev/null 2>&1; then
                 echo "✓ $p"
                 patches_applied=$((patches_applied + 1))
             else
-                echo "✗ $p (já aplicado ou conflito)"
+                echo "✗ $p (falhou ou já aplicado)"
             fi
-        else
-            echo "⚠ $p (não encontrado)"
         fi
     done
     echo "Patches aplicados: $patches_applied"
@@ -426,75 +80,43 @@ EOF
         echo "✓ Config copiada"
     fi
 
-    # Build inicial preparatório
+    # Build preparatório mínimo
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" scripts_basic >/dev/null 2>&1 || true
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldconfig >/dev/null 2>&1 || true
 
-    echo "✓ Preparação concluída"
+    echo "✓ Preparação minimalista concluída"
 }
 
 build() {
     cd "$builddir"
 
-    echo "=== VERIFICAÇÕES FINAIS ==="
+    echo "=== INICIANDO BUILD MINIMALISTA ==="
 
-    # Verificar se tipos básicos estão disponíveis
-    if grep -q "__u32\|__u16\|__u8\|kernel_ulong_t" include/linux/types.h 2>/dev/null; then
-        echo "✓ Tipos básicos definidos em types.h"
-    else
-        echo "✗ Tipos básicos ausentes em types.h"
-    fi
-
-    # Verificar macro __printf
-    if grep -q "__printf.*format" include/linux/compiler*.h 2>/dev/null; then
-        echo "✓ Macro __printf definida"
-    else
-        echo "✗ Macro __printf ausente"
-    fi
-
-    # Verificar HZ e CLOCK_TICK_RATE
-    if grep -q "HZ.*250\|CLOCK_TICK_RATE.*19200000" include/generated/autoconf.h 2>/dev/null; then
-        echo "✓ HZ e CLOCK_TICK_RATE definidos"
-    else
-        echo "✗ HZ ou CLOCK_TICK_RATE ausentes"
-    fi
-
-    echo ""
-    echo "=== INICIANDO BUILD ==="
-
-    # Build com timeout e mais flags de debug
+    # Build direto sem muitas verificações
     if ! timeout 3600 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC=gcc HOSTCFLAGS="$HOSTCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS" \
-         EXTRA_CFLAGS="$EXTRA_CFLAGS" KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          V=1 -j$(nproc) zImage 2>&1 | tee build.log; then
 
         echo ""
-        echo "=== BUILD FALHOU - ANÁLISE DOS ÚLTIMOS ERROS ==="
+        echo "=== BUILD FALHOU ==="
 
-        # Verificar erros específicos conhecidos
-        if grep -q "unknown type name.*__u32\|__u16\|__u8\|kernel_ulong_t" build.log; then
-            echo "ERRO: Tipos básicos ainda não estão sendo reconhecidos"
-            echo "Verificando include de devicetable-offsets.c..."
-            if [ -f scripts/mod/devicetable-offsets.c ]; then
-                head -10 scripts/mod/devicetable-offsets.c
-            fi
+        # Análise rápida dos erros
+        if grep -q "unknown type name.*__u32\|__u16\|__u8" build.log; then
+            echo "ERRO: Ainda há problemas com tipos básicos"
         fi
 
-        if grep -q "division by zero.*HZ\|CLOCK_TICK_RATE" build.log; then
-            echo "ERRO: HZ ou CLOCK_TICK_RATE não estão definidos corretamente"
+        if grep -q "storage class specified for parameter" build.log; then
+            echo "ERRO: Conflitos de declaração de função/parâmetro"
         fi
 
-        if grep -q "__printf.*expected declaration" build.log; then
-            echo "ERRO: Problema com macro __printf persiste"
-        fi
-
-        if grep -q "string\.h.*No such file" build.log; then
-            echo "ERRO: Headers de string ainda com problemas"
+        if grep -q "expected.*before" build.log; then
+            echo "ERRO: Problemas de sintaxe/parsing"
         fi
 
         echo ""
-        echo "=== ÚLTIMOS 30 ERROS ==="
-        grep -E "(error|Error|fatal)" build.log | tail -30
+        echo "=== ÚLTIMOS 20 ERROS ==="
+        grep -E "(error|Error)" build.log | tail -20
 
         exit 1
     fi
@@ -530,32 +152,5 @@ package() {
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 4eff4dab705a03c3ce5082b00469b1d8728f6cda27a5e79786cc9bdb299f8421d016c74b0aa3e3da39e6849ac39d962b5a11aa7794ba18c5a376161447147c31  config-samsung-matisse3g.armv7
-f3bbc54d1c3433310f701c0da130c165d8baab29d924ad90a7021c40818e767066c10b6c2467b97d92b43191a7d0e1bb389dc056463263c14347e9e4582ae0ca  01-fix-timex-header.patch
-726321e16d16edad715abd4bc83e9f546902e11b5d2c5f5ab1b7076872ad0fceee85d2e512e8007a78c0a956b3454b239b9a844149a87094a342d91030972889  03-fix-defconfig.patch
-7462871c23903b5b061117757adb82da2e80caeadf44f941686ca1bba8c67a337d5d1ffdf94350cdd964ecc7651adec6770cc0801e18e60872b72490e917fa02  04-fix-jffs2-format-warnings.patch
-ce5dd92a66e208c873919aea7f571b72bd7811482b7f846d9bb62e22da5eb7671e941168fc413ee87e2e434d96799843f3a5690789c460651d7120d72dfaf3e3  05-fix-fundamental-headers.patch
-9cdd95f4701f1f659fdeb9aa51529d71c5f0102f6422cfbc6ef1d37b5f6071515be816bf825c7d84ed4fa118c26dc1871aed5a7721e64fb73db8ed5803f65581  06-add-missing-byteorder-headers.patch
-ea9fd7ed6e4ad9f51cf8f852cabe13fe6d725f77f04cb9aff584844156f6355ac55aafed6ae6cfc94cc032c15830057867a08ce1acf2e4985aed8bba4010b132  07-fix-compiler-headers.patch
-c0567e7c8f8458663296a6bdddac021dd8417055f2f17fa96c13ce39cf6502fffa23897eecac9911fce515f4f7f716d0ff394334fe6a36036c67832c378e0f43  08-fix-asm-offsets-simple.patch
-7486b8f2841205e9988719a7cff4508965bd6b5808c57ab0ac3f31cdcdf297234cd3b7ab703c142513bca699d024026577ebbe720e8c2187d821a68808e86cd5  09-fix-memory-and-const.patch
-c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad5099c65137bc230a5f17aaff81f95486ab8a0ff602114e6a24  10-add-gcc15-conservative-flags.patch
-7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
-235a13b089f624f65cf3533c8480fad10bc76bb322a2cdae93ca68115e3eb52a58a97b3dd2ee89cceb79185451d3a8599562d6188c2d172479e2a43846c51bdf  12-fix-proc-v7-assembly.patch
-6d881eb39c17e38b829c8568bcb98960ef570a709731c6b3327c5130c3181cdc555adbd6bb3915a8d6d377c9268e1cc790a78a3a10b682a20d05ea9425f27721  13-fix-bool-redefinitions.patch
-bcaf48edc68de62aeae3c97c0419ae7e78ac3d65ced9d08cb1d397561bc546de9f632c1f398c7b04a4f8326ea01238f3204efdd1f96db860f32122a96c2736d1  14-fix-fs-build-errors.patch
-b31c13237d0f45bc9649be5915d0d37a9d40d3063d53f49b874481cb517d1bb5038af5071470f43ce07b160dcc2df60a65344bc49f9131ccaddab0dc4d55cdce  15-ultimate-macro-redefinition-fix.patch
-068a2b50a9125c8cc23897910edffa3b08fdab5e082679e90937b9f984da8fb3b99d9a415fac9314cfeba85e9729bc0405875627a3b01aa36dfbe2a7f8821de2  16-fix-ext4-strncpy-warnings.patch
-fa48d727a40e0b305bf6c824c0416d9494281b9a5bf00b54074da1ac72002aa4fd25e556bdfee83afc50085d1e424cecf258e5098d25ca654a6777b91dc40be3  22-ultimate-all-offsets-final.patch
-e0bf78d0247d8969cae6c9b18fafddb53dfdcf08155b7c9dfa327ed0ca369f74c7d7801b03595464dba28a93e87c7010c6dce812cc016f67a876a80ae6528c59  23-fix-arm-architecture-detection.patch
-bc7c43f87eec73705a993ff971cf159933e762b0f658a124cdfd717ebe577a063b1d9eac71c51356244f0d579e2afbe75d14b66890d175932eb05d9dc502ccee  24-fix-devicetable-basic-types.patch
-413fb977d4b3cdcc219be6381d9635c2a81da4884754f0c3c2fed9781a1e0ff56aa9715c9b14d16d102a5841a63cdd65febe8c8fa2e3aacde5c96797cd0904c0  25-fix-printf-macro.patch
-ede2e6c6460a01477b4ed8e8e768c758f40459c6e07ed6fc3609fcadb2d51f23d71fd8b0930a7e1fb6aa03156c2e0431690b1af4fe5b86750ad2f15006c9a005  26-fix-string-header-inclusion.patch
-dcd2ab1e0e7d5a6484f6e278328003d2e8fe51aed94bc431b239cd7d63af9189b28d642b794804dfd3d95c9448c366958f25da88d6d9e9ed0befcbc15f4e2c7b  27-fix-fundamental-types-comprehensive.patch
-3bbf210725fc2c835137cbe6c8f255961f724ec2ff6613d15c2168e19989031af7398ee41b0e726ddf2eb3653db38cdb8ccd028b183256874dba87dc69783a84  28-fix-asm-offsets-includes.patch
-6743f44b508c52347042c7b0ad03385196a0e8a1ba074d13c97aa664634760c8f8b765d60e59a9ab1268262b8e8c2ec39a761cf10f9390ee69e2ba0abfa2f5ef  29-fix-devicetable-offsets-comprehensive.patch
-1be347f9d48b9d3a264ebc069da31aa8768d872e9c396a85debdc956df1634d15658d1c76f0126282f8781713f5f65a3ea4b27399e7bfd7679a6a984b173159e  30-fix-hz-clock-definitions.patch
-9d01ce024d40a6b4b3f0be590913b47943630d83e292b9e5b29afbf6dcf7656ea18a8b184a74b84a9123858999a6fdc1fc565bfc4de4a0d874d4f930b168e24b  31-fix-string-headers-complete.patch
-f47201ce0873cf98d313ed24d0f906e456f774d0a4d0be8531ae34e2975b061dd1b852e835baeb3527eb47b56e02bef8b4e99e18bf3df878186977ecb1bae8cf  32-fix-must-check-attributes.patch
-cee50b03afd668be9fee7b32c3d07c5b562fe38c1aa16aef2d974f0900a34a53e768d1a5b4553ea299eb94ca67d08146e84cb799b695ac1af7ee98c05e3973c2  33-fix-ptrdiff_t-type-conflict.patch
-98d9de40cee5e20d437d1050c13f5bc6a5d8877bda3f0b452f7a85599368e98812355eb6e17ad9bcae8cf9e7ea9e8f37a813a1ac42038683dd5da9c6ce8a2e1a  34-fix-types-simple-no-stddef.patch
+SKIP  35-minimal-targeted-fixes.patch
 "
