@@ -1,0 +1,61 @@
+--- a/include/generated/autoconf.h
++++ b/include/generated/autoconf.h
+@@ -1,6 +1,10 @@
+ /* Automatically generated file */
+ #define __LINUX_ARM_ARCH__ 7
+ #define BITS_PER_LONG 32
+-#define HZ 250
+-#define CLOCK_TICK_RATE 19200000
++
++/* Clock definitions for ARM */
++#ifndef HZ
++#define HZ 250
++#endif
++#ifndef CLOCK_TICK_RATE
+ #define CLOCK_TICK_RATE 19200000
++#endif
++
++/* Additional required definitions */
++#define CONFIG_HZ_250 1
++#define CONFIG_HZ 250
++
+ #define CONFIG_ARM 1
+--- a/arch/arm/include/asm/param.h
++++ b/arch/arm/include/asm/param.h
+@@ -9,6 +9,13 @@
+ #ifndef __ASM_PARAM_H
+ #define __ASM_PARAM_H
+ 
++/* Ensure HZ is always defined */
++#ifndef HZ
++# ifdef __KERNEL__
++#  define HZ 250                /* Internal kernel timer frequency */
++# endif
++#endif
++
+ #ifdef __KERNEL__
+ # define HZ            CONFIG_HZ       /* Internal kernel timer frequency */
+ # define USER_HZ       100             /* User interfaces are in "ticks" */
+--- a/include/linux/jiffies.h
++++ b/include/linux/jiffies.h
+@@ -1,5 +1,17 @@
+ #ifndef _LINUX_JIFFIES_H
+ #define _LINUX_JIFFIES_H
++
++/* Ensure basic definitions are available before any calculations */
++#ifndef HZ
++#define HZ 250
++#endif
++
++#ifndef CLOCK_TICK_RATE
++#define CLOCK_TICK_RATE 19200000
++#endif
++
++/* Prevent division by zero */
++#if HZ == 0
++#undef HZ
++#define HZ 250
++#endif
+ 
+ #include <linux/math64.h>
+ #include <linux/kernel.h>
