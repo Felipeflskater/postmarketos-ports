@@ -1,0 +1,33 @@
+--- a/scripts/mod/devicetable-offsets.c
++++ b/scripts/mod/devicetable-offsets.c
+@@ -1,4 +1,14 @@
+ #include <linux/kbuild.h>
++#include <linux/types.h>
++#include <linux/stddef.h>
++
++/* Ensure all basic types are available */
++#ifndef __u8
++typedef unsigned char __u8;
++typedef unsigned short __u16;
++typedef unsigned int __u32;
++typedef unsigned long long __u64;
++#endif
+ #include <linux/mod_devicetable.h>
+ 
+ #define DEFINE(sym, val) \
+--- a/include/linux/mod_devicetable.h
++++ b/include/linux/mod_devicetable.h
+@@ -1,5 +1,13 @@
+ #ifndef LINUX_MOD_DEVICETABLE_H
+ #define LINUX_MOD_DEVICETABLE_H
++
++#include <linux/types.h>
++#include <linux/stddef.h>
++
++#ifndef kernel_ulong_t
++typedef unsigned long kernel_ulong_t;
++#endif
++
+ #ifdef __KERNEL__
+ #include <linux/types.h>
+ #include <linux/uuid.h>
