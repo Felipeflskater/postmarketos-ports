@@ -1,0 +1,64 @@
+--- a/include/linux/string.h
++++ b/include/linux/string.h
+@@ -4,7 +4,7 @@
+ #include <linux/types.h>
+ #include <linux/stddef.h>
+ 
+-#ifdef __ASSEMBLY__
++#ifdef __ASSEMBLY__
+ /* Empty for assembly */
+ #else
+ 
+@@ -32,6 +32,18 @@ extern void * memchr(const void *,int,size_t);
+ extern int memcmp(const void *,const void *,size_t);
+ extern void * memchr(const void *,int,size_t);
+ 
++/* Additional string functions */
++extern char * strcat(char *, const char *);
++extern char * strncat(char *, const char *, size_t);
++extern char * strchr(const char *,int);
++extern char * strrchr(const char *,int);
++extern char * strstr(const char *,const char *);
++extern size_t strspn(const char *,const char *);
++extern size_t strcspn(const char *,const char *);
++extern char * strpbrk(const char *,const char *);
++extern char * strsep(char **,const char *);
++extern void * memscan(void *,int,size_t);
++
+ #endif /* __ASSEMBLY__ */
+ #endif /* _LINUX_STRING_H */
+--- a/arch/arm/kernel/asm-offsets.c
++++ b/arch/arm/kernel/asm-offsets.c
+@@ -12,6 +12,9 @@
+ #include <linux/sched.h>
+ #include <linux/mm.h>
+ #include <linux/dma-mapping.h>
++
++/* Force standard definitions before any problematic includes */
++#include <linux/types.h>
+ #ifdef CONFIG_KVM_ARM_HOST
+ #include <linux/kvm_host.h>
+ #endif
+--- /dev/null
++++ b/include/asm-generic/string.h
+@@ -0,0 +1,20 @@
++#ifndef __ASM_GENERIC_STRING_H
++#define __ASM_GENERIC_STRING_H
++
++/* Generic string function declarations */
++#ifndef __HAVE_ARCH_STRCPY
++extern char * strcpy(char *,const char *);
++#endif
++#ifndef __HAVE_ARCH_STRNCPY
++extern char * strncpy(char *,const char *, size_t);
++#endif
++#ifndef __HAVE_ARCH_STRLEN
++extern size_t strlen(const char *);
++#endif
++
++extern void * memset(void *,int,size_t);
++extern void * memcpy(void *,const void *,size_t);
++extern void * memmove(void *,const void *,size_t);
++extern int memcmp(const void *,const void *,size_t);
++
++#endif /* __ASM_GENERIC_STRING_H */
