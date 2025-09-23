@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=81
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - APKBUILD simplificado sem asm-offsets"
+pkgrel=82
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - APKBUILD corrigido para tipos básicos"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -37,6 +37,12 @@ source="
 	26-fix-string-header-inclusion.patch
 	27-fix-fundamental-types-comprehensive.patch
 	28-fix-asm-offsets-includes.patch
+	29-fix-devicetable-offsets-comprehensive.patch
+	30-fix-hz-clock-definitions.patch
+	31-fix-string-headers-complete.patch
+	32-fix-must-check-attributes.patch
+	33-fix-ptrdiff_t-type-conflict.patch
+	34-fix-types-simple-no-stddef.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -52,115 +58,349 @@ prepare() {
     done
     [ -z "$CROSS_COMPILE" ] && { echo "ERRO: Compilador não encontrado"; exit 1; }
 
-    # Ambiente
+    # Ambiente - Mais restritivo para evitar conflitos
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
     export ARCH=arm SUBARCH=arm HOSTCC=gcc
-    export HOSTCFLAGS="-O1 -w -std=gnu89 -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
-    export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
-    export EXTRA_CFLAGS="-w -Wno-error -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
-    export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32"
+    export HOSTCFLAGS="-O1 -w -std=gnu89 -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32 -DHZ=250 -DCLOCK_TICK_RATE=19200000"
+    export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32 -DHZ=250 -DCLOCK_TICK_RATE=19200000"
+    export EXTRA_CFLAGS="-w -Wno-error -D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32 -DHZ=250 -DCLOCK_TICK_RATE=19200000"
+    export KBUILD_CPPFLAGS="-D__LINUX_ARM_ARCH__=7 -DBITS_PER_LONG=32 -DHZ=250 -DCLOCK_TICK_RATE=19200000"
 
     # Criar estruturas básicas
     mkdir -p include/linux include/asm-generic include/generated include/config scripts/basic scripts/mod
     mkdir -p arch/arm/include/mach arch/arm/include/generated/mach arch/arm/include/generated/asm
 
-    # Headers básicos
-    printf '%s\n' '#ifndef _LINUX_TYPES_H' '#define _LINUX_TYPES_H' '#ifndef __ASSEMBLY__' > include/linux/types.h
-    printf '%s\n' 'typedef unsigned char u8;' 'typedef signed char s8;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned short u16;' 'typedef signed short s16;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned int u32;' 'typedef signed int s32;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned long long u64;' 'typedef signed long long s64;' >> include/linux/types.h
-    printf '%s\n' 'typedef u8 __u8; typedef s8 __s8; typedef u16 __u16; typedef s16 __s16;' >> include/linux/types.h
-    printf '%s\n' 'typedef u32 __u32; typedef s32 __s32; typedef u64 __u64; typedef s64 __s64;' >> include/linux/types.h
-    printf '%s\n' '#ifndef __SIZE_TYPE__' '#define __SIZE_TYPE__ unsigned long' '#endif' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned long kernel_ulong_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef __SIZE_TYPE__ __kernel_size_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef long __kernel_ssize_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef long __kernel_ptrdiff_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef long __kernel_time_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef long __kernel_suseconds_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef int __kernel_pid_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned int __kernel_uid_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned int __kernel_gid_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned long __kernel_ino_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned int __kernel_mode_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned short __kernel_umode_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef long long __kernel_loff_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned int __kernel_dev_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef __kernel_size_t size_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef __kernel_ssize_t ssize_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef __kernel_ptrdiff_t ptrdiff_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef __kernel_time_t time_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef __kernel_mode_t umode_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned int dev_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned int gfp_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef long clock_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned long resource_size_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned long phys_addr_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef int clockid_t;' >> include/linux/types.h
-    printf '%s\n' 'typedef unsigned char bool;' >> include/linux/types.h
-    printf '%s\n' '#ifndef true' '#define true 1' '#endif' >> include/linux/types.h
-    printf '%s\n' '#ifndef false' '#define false 0' '#endif' >> include/linux/types.h
-    printf '%s\n' 'typedef struct { int counter; } atomic_t;' >> include/linux/types.h
-    printf '%s\n' 'struct list_head { struct list_head *next, *prev; };' >> include/linux/types.h
-    printf '%s\n' 'struct hlist_head { struct hlist_node *first; };' >> include/linux/types.h
-    printf '%s\n' 'struct hlist_node { struct hlist_node *next, **pprev; };' >> include/linux/types.h
-    printf '%s\n' '#ifndef BITS_PER_LONG' '#define BITS_PER_LONG 32' '#endif' >> include/linux/types.h
-    printf '%s\n' '#define BITS_TO_LONGS(nr) (((nr) + BITS_PER_LONG - 1) / BITS_PER_LONG)' >> include/linux/types.h
-    printf '%s\n' '#define NSEC_PER_USEC 1000L' '#define NSEC_PER_MSEC 1000000L' >> include/linux/types.h
-    printf '%s\n' '#define USEC_PER_MSEC 1000L' '#define NSEC_PER_SEC 1000000000L' >> include/linux/types.h
-    printf '%s\n' '#define USEC_PER_SEC 1000000L' '#define MSEC_PER_SEC 1000L' >> include/linux/types.h
-    printf '%s\n' '#endif' '#endif' >> include/linux/types.h
+    # Types.h completo com todos os tipos necessários - SEM conflitos com stddef.h
+    cat > include/linux/types.h << 'EOF'
+#ifndef _LINUX_TYPES_H
+#define _LINUX_TYPES_H
 
-    # stddef.h
-    printf '%s\n' '#ifndef _LINUX_STDDEF_H' '#define _LINUX_STDDEF_H' > include/linux/stddef.h
-    printf '%s\n' '#undef NULL' >> include/linux/stddef.h
-    printf '%s\n' '#if defined(__cplusplus)' '#define NULL 0' '#else' '#define NULL ((void *)0)' '#endif' >> include/linux/stddef.h
-    printf '%s\n' '#undef offsetof' >> include/linux/stddef.h
-    printf '%s\n' '#ifdef __compiler_offsetof' >> include/linux/stddef.h
-    printf '%s\n' '#define offsetof(TYPE,MEMBER) __compiler_offsetof(TYPE,MEMBER)' >> include/linux/stddef.h
-    printf '%s\n' '#else' >> include/linux/stddef.h
-    printf '%s\n' '#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)' >> include/linux/stddef.h
-    printf '%s\n' '#endif' '#endif' >> include/linux/stddef.h
+#ifndef __ASSEMBLY__
 
-    # Compiler attributes
-    printf '%s\n' '#ifndef __LINUX_COMPILER_ATTRIBUTES_H' '#define __LINUX_COMPILER_ATTRIBUTES_H' > include/linux/compiler-attributes.h
-    printf '%s\n' '#ifdef __GNUC__' >> include/linux/compiler-attributes.h
-    printf '%s\n' '# define __printf(a, b) __attribute__((format(printf, a, b)))' >> include/linux/compiler-attributes.h
-    printf '%s\n' '# define __scanf(a, b) __attribute__((format(scanf, a, b)))' >> include/linux/compiler-attributes.h
-    printf '%s\n' '# define __attribute_const__ __attribute__((__const__))' >> include/linux/compiler-attributes.h
-    printf '%s\n' '# define __maybe_unused __attribute__((unused))' >> include/linux/compiler-attributes.h
-    printf '%s\n' '#else' >> include/linux/compiler-attributes.h
-    printf '%s\n' '# define __printf(a, b)' '# define __scanf(a, b)' >> include/linux/compiler-attributes.h
-    printf '%s\n' '# define __attribute_const__' '# define __maybe_unused' >> include/linux/compiler-attributes.h
-    printf '%s\n' '#endif' '#endif' >> include/linux/compiler-attributes.h
+/* Basic integer types */
+typedef unsigned char u8;
+typedef signed char s8;
+typedef unsigned short u16;
+typedef signed short s16;
+typedef unsigned int u32;
+typedef signed int s32;
+typedef unsigned long long u64;
+typedef signed long long s64;
 
-    # GCC headers
+/* Kernel types */
+typedef u8 __u8;
+typedef s8 __s8;
+typedef u16 __u16;
+typedef s16 __s16;
+typedef u32 __u32;
+typedef s32 __s32;
+typedef u64 __u64;
+typedef s64 __s64;
+
+/* Size types - use compiler's definitions to avoid conflicts */
+#ifndef __SIZE_TYPE__
+#define __SIZE_TYPE__ unsigned long
+#endif
+
+typedef __SIZE_TYPE__ __kernel_size_t;
+typedef long __kernel_ssize_t;
+
+/* Use GCC's ptrdiff_t definition to avoid conflicts */
+#ifdef __PTRDIFF_TYPE__
+typedef __PTRDIFF_TYPE__ __kernel_ptrdiff_t;
+#else
+typedef int __kernel_ptrdiff_t;
+#endif
+
+typedef long __kernel_time_t;
+typedef long __kernel_suseconds_t;
+typedef int __kernel_pid_t;
+typedef unsigned int __kernel_uid_t;
+typedef unsigned int __kernel_gid_t;
+typedef unsigned long __kernel_ino_t;
+typedef unsigned int __kernel_mode_t;
+typedef unsigned short __kernel_umode_t;
+typedef long long __kernel_loff_t;
+typedef unsigned int __kernel_dev_t;
+typedef long __kernel_long_t;
+typedef unsigned long __kernel_ulong_t;
+
+typedef __kernel_size_t size_t;
+typedef __kernel_ssize_t ssize_t;
+
+/* Only define ptrdiff_t if not already defined by compiler */
+#ifndef _PTRDIFF_T_DEFINED
+#ifndef __PTRDIFF_T
+typedef __kernel_ptrdiff_t ptrdiff_t;
+#endif
+#endif
+
+typedef __kernel_time_t time_t;
+typedef __kernel_mode_t umode_t;
+typedef __kernel_loff_t loff_t;
+typedef unsigned int dev_t;
+typedef unsigned int gfp_t;
+typedef long clock_t;
+typedef unsigned long resource_size_t;
+typedef unsigned long phys_addr_t;
+typedef int clockid_t;
+typedef __kernel_ulong_t kernel_ulong_t;
+
+/* Boolean type */
+#ifndef __cplusplus
+typedef unsigned char bool;
+#ifndef true
+#define true 1
+#endif
+#ifndef false
+#define false 0
+#endif
+#endif
+
+/* Atomic and list structures */
+typedef struct { int counter; } atomic_t;
+struct list_head { struct list_head *next, *prev; };
+struct hlist_head { struct hlist_node *first; };
+struct hlist_node { struct hlist_node *next, **pprev; };
+
+/* Constants */
+#ifndef BITS_PER_LONG
+#define BITS_PER_LONG 32
+#endif
+#define BITS_TO_LONGS(nr) (((nr) + BITS_PER_LONG - 1) / BITS_PER_LONG)
+
+/* Time constants */
+#define NSEC_PER_USEC 1000L
+#define NSEC_PER_MSEC 1000000L
+#define USEC_PER_MSEC 1000L
+#define NSEC_PER_SEC 1000000000L
+#define USEC_PER_SEC 1000000L
+#define MSEC_PER_SEC 1000L
+
+/* NULL definition */
+#undef NULL
+#if defined(__cplusplus)
+#define NULL 0
+#else
+#define NULL ((void *)0)
+#endif
+
+/* Wait queue types - básicos */
+struct __wait_queue_head {
+    void *task_list;
+    void *lock;
+};
+typedef struct __wait_queue_head wait_queue_head_t;
+
+/* VA_LIST forward declaration */
+#ifndef _VA_LIST_DEFINED
+#define _VA_LIST_DEFINED
+typedef __builtin_va_list va_list;
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* _LINUX_TYPES_H */
+EOF
+
+    # stddef.h compatível SEM conflitos
+    cat > include/linux/stddef.h << 'EOF'
+#ifndef _LINUX_STDDEF_H
+#define _LINUX_STDDEF_H
+
+#undef NULL
+#if defined(__cplusplus)
+#define NULL 0
+#else
+#define NULL ((void *)0)
+#endif
+
+#undef offsetof
+#ifdef __compiler_offsetof
+#define offsetof(TYPE,MEMBER) __compiler_offsetof(TYPE,MEMBER)
+#else
+#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#endif
+
+/* Only define types if not already defined by compiler */
+#ifndef __SIZE_TYPE__
+#define __SIZE_TYPE__ unsigned long
+#endif
+
+/* Don't redefine size_t or ptrdiff_t if they're already defined */
+#ifndef _SIZE_T_DEFINED
+#ifndef __SIZE_T
+typedef __SIZE_TYPE__ size_t;
+#endif
+#endif
+
+#endif /* _LINUX_STDDEF_H */
+EOF
+
+    # Compiler attributes completo
+    cat > include/linux/compiler-attributes.h << 'EOF'
+#ifndef __LINUX_COMPILER_ATTRIBUTES_H
+#define __LINUX_COMPILER_ATTRIBUTES_H
+
+#ifdef __GNUC__
+# define __printf(a, b) __attribute__((format(printf, a, b)))
+# define __scanf(a, b) __attribute__((format(scanf, a, b)))
+# define __attribute_const__ __attribute__((__const__))
+# define __maybe_unused __attribute__((unused))
+# define __must_check __attribute__((warn_unused_result))
+# define __used __attribute__((__used__))
+# define __always_inline inline __attribute__((always_inline))
+# define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
+#else
+# define __printf(a, b)
+# define __scanf(a, b)
+# define __attribute_const__
+# define __maybe_unused
+# define __must_check
+# define __used
+# define __always_inline inline
+# define __compiler_offsetof(a,b) ((size_t) &((a *)0)->b)
+#endif
+
+#endif /* __LINUX_COMPILER_ATTRIBUTES_H */
+EOF
+
+    # Compiler.h básico
+    cat > include/linux/compiler.h << 'EOF'
+#ifndef __LINUX_COMPILER_H
+#define __LINUX_COMPILER_H
+
+#include <linux/compiler-attributes.h>
+
+#ifndef __ASSEMBLY__
+
+#ifdef __GNUC__
+#include <linux/compiler-gcc15.h>
+#endif
+
+#ifndef __must_check
+#define __must_check __attribute__((warn_unused_result))
+#endif
+
+#ifndef __printf
+#define __printf(a, b) __attribute__((format(printf, a, b)))
+#endif
+
+#ifndef __used
+#define __used __attribute__((__used__))
+#endif
+
+#ifndef __maybe_unused
+#define __maybe_unused __attribute__((unused))
+#endif
+
+#ifndef __always_inline
+#define __always_inline inline __attribute__((always_inline))
+#endif
+
+#ifndef __compiler_offsetof
+#define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
+#endif
+
+#ifndef likely
+# define likely(x)   __builtin_expect(!!(x), 1)
+# define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
+#ifndef barrier
+# define barrier() __asm__ __volatile__("": : :"memory")
+#endif
+
+#endif /* __ASSEMBLY__ */
+#endif /* __LINUX_COMPILER_H */
+EOF
+
+    # String.h básico sem conflitos
+    cat > include/linux/string.h << 'EOF'
+#ifndef _LINUX_STRING_H
+#define _LINUX_STRING_H
+
+#include <linux/types.h>
+#include <linux/stddef.h>
+
+#ifdef __ASSEMBLY__
+/* Empty for assembly */
+#else
+
+#ifndef __HAVE_ARCH_STRCPY
+extern char * strcpy(char *,const char *);
+#endif
+#ifndef __HAVE_ARCH_STRNCPY
+extern char * strncpy(char *,const char *, size_t);
+#endif
+#ifndef __HAVE_ARCH_STRLEN
+extern size_t strlen(const char *);
+#endif
+#ifndef __HAVE_ARCH_STRCMP
+extern int strcmp(const char *,const char *);
+#endif
+#ifndef __HAVE_ARCH_STRNCMP
+extern int strncmp(const char *,const char *,size_t);
+#endif
+
+extern void * memset(void *,int,size_t);
+extern void * memcpy(void *,const void *,size_t);
+extern void * memmove(void *,const void *,size_t);
+extern int memcmp(const void *,const void *,size_t);
+extern void * memchr(const void *,int,size_t);
+
+#endif /* __ASSEMBLY__ */
+#endif /* _LINUX_STRING_H */
+EOF
+
+    # Headers GCC melhorados
     for v in 14 15 16; do
-        printf '%s\n' '#ifndef __LINUX_COMPILER_H' '#error "Include compiler.h"' '#endif' > include/linux/compiler-gcc${v}.h
-        printf '%s\n' '#define __used __attribute__((__used__))' >> include/linux/compiler-gcc${v}.h
-        printf '%s\n' '#define __must_check __attribute__((warn_unused_result))' >> include/linux/compiler-gcc${v}.h
-        printf '%s\n' '#define __compiler_offsetof(a,b) __builtin_offsetof(a,b)' >> include/linux/compiler-gcc${v}.h
-        printf '%s\n' '#ifndef __printf' >> include/linux/compiler-gcc${v}.h
-        printf '%s\n' '#define __printf(a, b) __attribute__((format(printf, a, b)))' >> include/linux/compiler-gcc${v}.h
-        printf '%s\n' '#endif' >> include/linux/compiler-gcc${v}.h
+        cat > include/linux/compiler-gcc${v}.h << EOF
+#ifndef __LINUX_COMPILER_H
+#error "Include compiler.h"
+#endif
+
+#define __used __attribute__((__used__))
+#define __must_check __attribute__((warn_unused_result))
+#define __compiler_offsetof(a,b) __builtin_offsetof(a,b)
+
+#ifndef __printf
+#define __printf(a, b) __attribute__((format(printf, a, b)))
+#endif
+
+#ifndef __always_inline
+#define __always_inline inline __attribute__((always_inline))
+#endif
+
+#ifndef __maybe_unused
+#define __maybe_unused __attribute__((unused))
+#endif
+EOF
     done
 
-    # Headers ARM
+    # Headers ARM básicos
     printf '%s\n' '#ifndef __ASM_MACH_MEMORY_H' '#define __ASM_MACH_MEMORY_H' > arch/arm/include/mach/memory.h
     printf '%s\n' '#define PLAT_PHYS_OFFSET UL(0x00000000)' >> arch/arm/include/mach/memory.h
     printf '%s\n' '#define MAX_DMA_ADDRESS 0x40000000' >> arch/arm/include/mach/memory.h
     printf '%s\n' '#endif' >> arch/arm/include/mach/memory.h
 
-    # Headers básicos gerados
-    printf '%s\n' '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
-    printf '%s\n' '/* Auto generated */' > include/generated/autoconf.h
-    printf '%s\n' '#define __LINUX_ARM_ARCH__ 7' >> include/generated/autoconf.h
-    printf '%s\n' '#define BITS_PER_LONG 32' >> include/generated/autoconf.h
-    printf '%s\n' '#define HZ 250' >> include/generated/autoconf.h
-    printf '%s\n' '#define CLOCK_TICK_RATE 19200000' >> include/generated/autoconf.h
+    # Generated headers com definições corretas
+    cat > include/generated/utsrelease.h << 'EOF'
+#define UTS_RELEASE "3.4.113"
+EOF
 
-    printf '%s\n' '/* Empty asm-offsets.h */' > include/generated/asm-offsets.h
+    cat > include/generated/autoconf.h << 'EOF'
+/* Automatically generated file */
+#define __LINUX_ARM_ARCH__ 7
+#define BITS_PER_LONG 32
+#define HZ 250
+#define CLOCK_TICK_RATE 19200000
+#define CONFIG_ARM 1
+#define CONFIG_CPU_V7 1
+#define CONFIG_ARCH_MSM 1
+#define CONFIG_ARCH_MSM8226 1
+EOF
+
+    printf '%s\n' '/* Generated asm-offsets.h */' > include/generated/asm-offsets.h
     touch include/generated/bounds.h
 
     # Aplicar patches
@@ -186,9 +426,11 @@ prepare() {
         echo "✓ Config copiada"
     fi
 
-    # Build inicial do sistema
+    # Build inicial preparatório
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" scripts_basic >/dev/null 2>&1 || true
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldconfig >/dev/null 2>&1 || true
+
+    echo "✓ Preparação concluída"
 }
 
 build() {
@@ -196,40 +438,63 @@ build() {
 
     echo "=== VERIFICAÇÕES FINAIS ==="
 
-    if grep -q "printf.*format" include/linux/compiler-gcc*.h 2>/dev/null; then
-        echo "✓ __printf macro definido"
+    # Verificar se tipos básicos estão disponíveis
+    if grep -q "__u32\|__u16\|__u8\|kernel_ulong_t" include/linux/types.h 2>/dev/null; then
+        echo "✓ Tipos básicos definidos em types.h"
     else
-        echo "✗ __printf macro ausente"
+        echo "✗ Tipos básicos ausentes em types.h"
     fi
 
-    if grep -q "__u32" scripts/mod/devicetable-offsets.c 2>/dev/null; then
-        echo "✓ Tipos básicos definidos"
+    # Verificar macro __printf
+    if grep -q "__printf.*format" include/linux/compiler*.h 2>/dev/null; then
+        echo "✓ Macro __printf definida"
     else
-        echo "✗ Tipos básicos ausentes"
+        echo "✗ Macro __printf ausente"
+    fi
+
+    # Verificar HZ e CLOCK_TICK_RATE
+    if grep -q "HZ.*250\|CLOCK_TICK_RATE.*19200000" include/generated/autoconf.h 2>/dev/null; then
+        echo "✓ HZ e CLOCK_TICK_RATE definidos"
+    else
+        echo "✗ HZ ou CLOCK_TICK_RATE ausentes"
     fi
 
     echo ""
     echo "=== INICIANDO BUILD ==="
 
+    # Build com timeout e mais flags de debug
     if ! timeout 3600 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC=gcc HOSTCFLAGS="$HOSTCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" KBUILD_CPPFLAGS="$KBUILD_CPPFLAGS" \
          V=1 -j$(nproc) zImage 2>&1 | tee build.log; then
 
         echo ""
-        echo "=== BUILD FALHOU - ANÁLISE ==="
+        echo "=== BUILD FALHOU - ANÁLISE DOS ÚLTIMOS ERROS ==="
 
-        if grep -q "__printf.*expected declaration" build.log; then
-            echo "ERRO: Problema com macro __printf ainda persiste"
+        # Verificar erros específicos conhecidos
+        if grep -q "unknown type name.*__u32\|__u16\|__u8\|kernel_ulong_t" build.log; then
+            echo "ERRO: Tipos básicos ainda não estão sendo reconhecidos"
+            echo "Verificando include de devicetable-offsets.c..."
+            if [ -f scripts/mod/devicetable-offsets.c ]; then
+                head -10 scripts/mod/devicetable-offsets.c
+            fi
         fi
 
-        if grep -q "OFF_.*_undeclared" build.log; then
-            echo "ERRO: Offsets de devicetable ainda ausentes"
+        if grep -q "division by zero.*HZ\|CLOCK_TICK_RATE" build.log; then
+            echo "ERRO: HZ ou CLOCK_TICK_RATE não estão definidos corretamente"
+        fi
+
+        if grep -q "__printf.*expected declaration" build.log; then
+            echo "ERRO: Problema com macro __printf persiste"
+        fi
+
+        if grep -q "string\.h.*No such file" build.log; then
+            echo "ERRO: Headers de string ainda com problemas"
         fi
 
         echo ""
-        echo "=== CONTEXTO DO ERRO ==="
-        grep -B2 -A2 -E "(error|Error|fatal)" build.log | head -20
+        echo "=== ÚLTIMOS 30 ERROS ==="
+        grep -E "(error|Error|fatal)" build.log | tail -30
 
         exit 1
     fi
@@ -242,6 +507,7 @@ build() {
         exit 1
     fi
 
+    # Build de módulos
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" modules >/dev/null 2>&1 || true
 }
 
@@ -260,6 +526,7 @@ package() {
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 }
 
+# Checksums atualizados
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 4eff4dab705a03c3ce5082b00469b1d8728f6cda27a5e79786cc9bdb299f8421d016c74b0aa3e3da39e6849ac39d962b5a11aa7794ba18c5a376161447147c31  config-samsung-matisse3g.armv7
@@ -285,4 +552,10 @@ bc7c43f87eec73705a993ff971cf159933e762b0f658a124cdfd717ebe577a063b1d9eac71c51356
 ede2e6c6460a01477b4ed8e8e768c758f40459c6e07ed6fc3609fcadb2d51f23d71fd8b0930a7e1fb6aa03156c2e0431690b1af4fe5b86750ad2f15006c9a005  26-fix-string-header-inclusion.patch
 dcd2ab1e0e7d5a6484f6e278328003d2e8fe51aed94bc431b239cd7d63af9189b28d642b794804dfd3d95c9448c366958f25da88d6d9e9ed0befcbc15f4e2c7b  27-fix-fundamental-types-comprehensive.patch
 3bbf210725fc2c835137cbe6c8f255961f724ec2ff6613d15c2168e19989031af7398ee41b0e726ddf2eb3653db38cdb8ccd028b183256874dba87dc69783a84  28-fix-asm-offsets-includes.patch
+6743f44b508c52347042c7b0ad03385196a0e8a1ba074d13c97aa664634760c8f8b765d60e59a9ab1268262b8e8c2ec39a761cf10f9390ee69e2ba0abfa2f5ef  29-fix-devicetable-offsets-comprehensive.patch
+1be347f9d48b9d3a264ebc069da31aa8768d872e9c396a85debdc956df1634d15658d1c76f0126282f8781713f5f65a3ea4b27399e7bfd7679a6a984b173159e  30-fix-hz-clock-definitions.patch
+9d01ce024d40a6b4b3f0be590913b47943630d83e292b9e5b29afbf6dcf7656ea18a8b184a74b84a9123858999a6fdc1fc565bfc4de4a0d874d4f930b168e24b  31-fix-string-headers-complete.patch
+f47201ce0873cf98d313ed24d0f906e456f774d0a4d0be8531ae34e2975b061dd1b852e835baeb3527eb47b56e02bef8b4e99e18bf3df878186977ecb1bae8cf  32-fix-must-check-attributes.patch
+cee50b03afd668be9fee7b32c3d07c5b562fe38c1aa16aef2d974f0900a34a53e768d1a5b4553ea299eb94ca67d08146e84cb799b695ac1af7ee98c05e3973c2  33-fix-ptrdiff_t-type-conflict.patch
+98d9de40cee5e20d437d1050c13f5bc6a5d8877bda3f0b452f7a85599368e98812355eb6e17ad9bcae8cf9e7ea9e8f37a813a1ac42038683dd5da9c6ce8a2e1a  34-fix-types-simple-no-stddef.patch
 "
