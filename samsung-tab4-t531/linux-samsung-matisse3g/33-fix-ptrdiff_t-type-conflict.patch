@@ -1,0 +1,85 @@
+--- a/include/linux/types.h
++++ b/include/linux/types.h
+@@ -2,7 +2,13 @@
+ #define _LINUX_TYPES_H
+ 
+ #ifndef __ASSEMBLY__
++
++/* Don't include stddef.h to avoid type conflicts */
++#ifndef _STDDEF_H
++#define _STDDEF_H
++#endif
++
+ #include <stddef.h>
++#undef _STDDEF_H
+ 
+ /* Basic integer types */
+ typedef unsigned char u8;
+@@ -29,8 +35,15 @@ typedef __SIZE_TYPE__ __kernel_size_t;
+ typedef __kernel_size_t size_t;
+ typedef long __kernel_ssize_t;
+-typedef long __kernel_ptrdiff_t;
++
++/* Use GCC's ptrdiff_t definition to avoid conflicts */
++#ifdef __PTRDIFF_TYPE__
++typedef __PTRDIFF_TYPE__ __kernel_ptrdiff_t;
++#else
++typedef int __kernel_ptrdiff_t;
++#endif
++
+ typedef long __kernel_time_t;
+ typedef long __kernel_suseconds_t;
+ typedef int __kernel_pid_t;
+@@ -47,7 +60,12 @@ typedef unsigned long __kernel_ulong_t;
+ 
+ typedef __kernel_size_t size_t;
+ typedef __kernel_ssize_t ssize_t;
+-typedef __kernel_ptrdiff_t ptrdiff_t;
++
++/* Only define ptrdiff_t if not already defined by compiler */
++#ifndef _PTRDIFF_T_DEFINED
++#define _PTRDIFF_T_DEFINED
++typedef __kernel_ptrdiff_t ptrdiff_t;
++#endif
++
+ typedef __kernel_time_t time_t;
+ typedef __kernel_mode_t umode_t;
+ typedef __kernel_loff_t loff_t;
+--- a/include/linux/stddef.h
++++ b/include/linux/stddef.h
+@@ -1,6 +1,11 @@
+ #ifndef _LINUX_STDDEF_H
+ #define _LINUX_STDDEF_H
+ 
++/* Prevent multiple inclusions and conflicts with compiler stddef.h */
++#ifndef _STDDEF_H
++#define _STDDEF_H
++#endif
++
+ #undef NULL
+ #if defined(__cplusplus)
+ #define NULL 0
+@@ -16,12 +21,18 @@
+ #define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+ #endif
+ 
+-/* Size type */
+-#ifndef _SIZE_T_DEFINED
+-#define _SIZE_T_DEFINED
++/* Size type - only define if not already defined by compiler */
+ #ifndef __SIZE_TYPE__
+ #define __SIZE_TYPE__ unsigned long
+ #endif
++
++#ifndef _SIZE_T_DEFINED
++#define _SIZE_T_DEFINED
+ typedef __SIZE_TYPE__ size_t;
+ #endif
+ 
++/* Ptrdiff type - use compiler definition to avoid conflicts */
++#ifndef _PTRDIFF_T_DEFINED
++#define _PTRDIFF_T_DEFINED
++typedef __PTRDIFF_TYPE__ ptrdiff_t;
++#endif
++
+ #endif /* _LINUX_STDDEF_H */
