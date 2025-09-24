@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=83
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Build minimalista"
+pkgrel=85
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Versão final com correção de tipos"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -15,7 +15,12 @@ _commit="pmos-matisse3g-fixes"
 source="
 	$pkgname-$_commit.tar.gz::https://github.com/Felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/$_commit.tar.gz
 	config-samsung-matisse3g.armv7
-	35-minimal-targeted-fixes.patch
+	01-fix-timex-header.patch
+	03-fix-defconfig.patch
+	08-fix-asm-offsets-simple.patch
+	10-add-gcc15-conservative-flags.patch
+	11-fix-irq-timer-definitions-v2.patch
+	35-minimal-targeted-fixes-v2.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -31,14 +36,14 @@ prepare() {
     done
     [ -z "$CROSS_COMPILE" ] && { echo "ERRO: Compilador não encontrado"; exit 1; }
 
-    # Ambiente básico - SEM modificações drásticas de headers
+    # Ambiente básico
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
     export ARCH=arm SUBARCH=arm HOSTCC=gcc
     export HOSTCFLAGS="-O1 -w -std=gnu89"
     export KBUILD_CFLAGS="-w -Wno-error -std=gnu89"
     export EXTRA_CFLAGS="-w -Wno-error"
 
-    # Criar apenas diretórios básicos necessários
+    # Criar apenas estruturas necessárias
     mkdir -p include/generated include/config scripts/basic scripts/mod
     mkdir -p arch/arm/include/generated/asm
 
@@ -49,50 +54,101 @@ prepare() {
 
     if [ ! -f include/generated/autoconf.h ]; then
         cat > include/generated/autoconf.h << 'EOF'
-/* Minimal autoconf */
+/* Autoconf básico */
+#define HZ 250
+#define CLOCK_TICK_RATE 19200000
 #define CONFIG_ARM 1
 #define CONFIG_CPU_V7 1
 #define CONFIG_ARCH_MSM 1
 #define CONFIG_ARCH_MSM8226 1
-#define HZ 250
-#define CLOCK_TICK_RATE 19200000
 EOF
     fi
 
-    # Aplicar apenas o patch essencial
+    touch include/generated/asm-offsets.h include/generated/bounds.h
+
+    # Aplicar patches essenciais
+    echo "=== APLICANDO PATCHES ESSENCIAIS ==="
     local patches_applied=0
-    echo "=== APLICANDO PATCH MINIMALISTA ==="
-    for p in $(echo "$source" | tr ' ' '\n' | grep '\.patch$'); do
+
+    for p in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort -V); do
         if [ -f "$srcdir/$p" ]; then
-            if patch -p1 -i "$srcdir/$p" >/dev/null 2>&1; then
-                echo "✓ $p"
+            echo -n "Aplicando $p... "
+            if patch -p1 -f -i "$srcdir/$p" >/dev/null 2>&1; then
+                echo "OK"
                 patches_applied=$((patches_applied + 1))
             else
-                echo "✗ $p (falhou ou já aplicado)"
+                echo "FALHOU (pode estar já aplicado)"
             fi
+        else
+            echo "AVISO: $p não encontrado"
         fi
     done
-    echo "Patches aplicados: $patches_applied"
+
+    echo "Total de patches aplicados: $patches_applied"
 
     # Config
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
         cp "$srcdir/config-samsung-matisse3g.armv7" .config
-        echo "✓ Config copiada"
+        echo "Config copiada com sucesso"
     fi
 
-    # Build preparatório mínimo
+    # Preparação básica
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" scripts_basic >/dev/null 2>&1 || true
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldconfig >/dev/null 2>&1 || true
 
-    echo "✓ Preparação minimalista concluída"
+    echo "Preparação concluída"
 }
 
 build() {
     cd "$builddir"
 
-    echo "=== INICIANDO BUILD MINIMALISTA ==="
+    echo "=== VERIFICAÇÃO PRÉ-BUILD ==="
 
-    # Build direto sem muitas verificações
+    # Verificar se o patch de tipos foi aplicado
+    if grep -q "__DEVICETABLE_TYPES_GUARD\|__BOUNDS_TYPES_GUARD" scripts/mod/devicetable-offsets.c kernel/bounds.c 2>/dev/null; then
+        echo "SUCESSO: Correção de tipos básicos aplicada"
+    else
+        echo "ERRO: Correção de tipos básicos não foi aplicada"
+        echo "Tentando aplicação manual..."
+
+        # Aplicação manual de emergência
+        cat > /tmp/fix_types.h << 'EOF'
+/* Emergency type definitions */
+typedef unsigned char __u8;
+typedef unsigned short __u16;
+typedef unsigned int __u32;
+typedef unsigned long long __u64;
+typedef unsigned long kernel_ulong_t;
+typedef unsigned long size_t;
+typedef int ptrdiff_t;
+#ifndef NULL
+#define NULL ((void *)0)
+#endif
+EOF
+
+        # Inserir no início dos arquivos problemáticos
+        for file in scripts/mod/devicetable-offsets.c kernel/bounds.c; do
+            if [ -f "$file" ]; then
+                sed '1i/* Emergency type definitions */\
+typedef unsigned char __u8;\
+typedef unsigned short __u16;\
+typedef unsigned int __u32;\
+typedef unsigned long long __u64;\
+typedef unsigned long kernel_ulong_t;\
+typedef unsigned long size_t;\
+typedef int ptrdiff_t;\
+#ifndef NULL\
+#define NULL ((void *)0)\
+#endif\
+' -i "$file"
+                echo "Aplicação de emergência em $file"
+            fi
+        done
+    fi
+
+    echo ""
+    echo "=== INICIANDO BUILD ==="
+
     if ! timeout 3600 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC=gcc HOSTCFLAGS="$HOSTCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
@@ -100,30 +156,27 @@ build() {
 
         echo ""
         echo "=== BUILD FALHOU ==="
+        echo "ANÁLISE DE ERRO:"
 
-        # Análise rápida dos erros
-        if grep -q "unknown type name.*__u32\|__u16\|__u8" build.log; then
-            echo "ERRO: Ainda há problemas com tipos básicos"
+        # Verificar tipos específicos de erro
+        if grep -q "unknown type name.*__u32\|__u16\|__u8\|kernel_ulong_t" build.log; then
+            echo "❌ TIPOS BÁSICOS: Problema persistente com tipos básicos"
         fi
 
-        if grep -q "storage class specified for parameter" build.log; then
-            echo "ERRO: Conflitos de declaração de função/parâmetro"
-        fi
-
-        if grep -q "expected.*before" build.log; then
-            echo "ERRO: Problemas de sintaxe/parsing"
+        if grep -c "error" build.log | head -1 | xargs -I {} [ {} -gt 100 ]; then
+            echo "❌ MUITOS ERROS: Mais de 100 erros detectados"
         fi
 
         echo ""
-        echo "=== ÚLTIMOS 20 ERROS ==="
-        grep -E "(error|Error)" build.log | tail -20
+        echo "=== PRIMEIROS 10 ERROS ==="
+        grep -E "(error|Error)" build.log | head -10
 
         exit 1
     fi
 
     if [ -f arch/arm/boot/zImage ]; then
         local size=$(stat -c%s arch/arm/boot/zImage)
-        echo "SUCCESS! zImage criado: $size bytes"
+        echo "SUCESSO! zImage criado: $size bytes"
     else
         echo "ERRO: zImage não foi criado"
         exit 1
@@ -152,5 +205,10 @@ package() {
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 4eff4dab705a03c3ce5082b00469b1d8728f6cda27a5e79786cc9bdb299f8421d016c74b0aa3e3da39e6849ac39d962b5a11aa7794ba18c5a376161447147c31  config-samsung-matisse3g.armv7
-SKIP  35-minimal-targeted-fixes.patch
+f3bbc54d1c3433310f701c0da130c165d8baab29d924ad90a7021c40818e767066c10b6c2467b97d92b43191a7d0e1bb389dc056463263c14347e9e4582ae0ca  01-fix-timex-header.patch
+726321e16d16edad715abd4bc83e9f546902e11b5d2c5f5ab1b7076872ad0fceee85d2e512e8007a78c0a956b3454b239b9a844149a87094a342d91030972889  03-fix-defconfig.patch
+c0567e7c8f8458663296a6bdddac021dd8417055f2f17fa96c13ce39cf6502fffa23897eecac9911fce515f4f7f716d0ff394334fe6a36036c67832c378e0f43  08-fix-asm-offsets-simple.patch
+c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad5099c65137bc230a5f17aaff81f95486ab8a0ff602114e6a24  10-add-gcc15-conservative-flags.patch
+7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
+f090fca0926a2a6d56581dfb381a77bc15c5cddb8eeaade5b13da6901d926193d22727353ccf29a06bc85cae20cc81089eed6836c4525dbddb98cea9a1f82d4e  35-minimal-targeted-fixes-v2.patch
 "
