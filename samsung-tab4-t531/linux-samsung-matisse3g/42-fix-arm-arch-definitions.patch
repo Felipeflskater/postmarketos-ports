@@ -1,0 +1,55 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -18,6 +18,14 @@
+ 
+ #include <asm/ptrace.h>
+ #include <asm/domain.h>
++
++/* Define ARM architecture version if not already defined */
++#ifndef __LINUX_ARM_ARCH__
++#if defined(CONFIG_CPU_V7)
++#define __LINUX_ARM_ARCH__ 7
++#elif defined(CONFIG_CPU_V6) || defined(CONFIG_CPU_V6K)
++#define __LINUX_ARM_ARCH__ 6
++#else
+ #define __LINUX_ARM_ARCH__ 5
++#endif
++#endif
+ 
+ /*
+--- a/arch/arm/include/asm/atomic.h
++++ b/arch/arm/include/asm/atomic.h
+@@ -11,6 +11,13 @@
+ 
+ #include <linux/compiler.h>
+ #include <linux/types.h>
++
++/* Define ARM architecture version if not already defined */
++#ifndef __LINUX_ARM_ARCH__
++#if defined(CONFIG_CPU_V7)
++#define __LINUX_ARM_ARCH__ 7
++#else
++#define __LINUX_ARM_ARCH__ 6
++#endif
++#endif
+ #include <linux/irqflags.h>
+ #include <asm/barrier.h>
+ #include <asm/cmpxchg.h>
+--- a/arch/arm/include/asm/div64.h
++++ b/arch/arm/include/asm/div64.h
+@@ -1,6 +1,15 @@
+ #ifndef __ASM_ARM_DIV64
+ #define __ASM_ARM_DIV64
+ 
++/* Define ARM architecture version if not already defined */
++#ifndef __LINUX_ARM_ARCH__
++#if defined(CONFIG_CPU_V7)
++#define __LINUX_ARM_ARCH__ 7
++#elif defined(CONFIG_CPU_V6) || defined(CONFIG_CPU_V6K)
++#define __LINUX_ARM_ARCH__ 6
++#else
++#define __LINUX_ARM_ARCH__ 5
++#endif
++#endif
++
+ #include <asm/compiler.h>
