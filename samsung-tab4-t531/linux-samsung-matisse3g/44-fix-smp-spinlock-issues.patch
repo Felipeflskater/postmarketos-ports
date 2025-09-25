@@ -1,0 +1,37 @@
+--- a/arch/arm/include/asm/spinlock.h
++++ b/arch/arm/include/asm/spinlock.h
+@@ -1,7 +1,10 @@
+ #ifndef __ASM_SPINLOCK_H
+ #define __ASM_SPINLOCK_H
+ 
+-#if __LINUX_ARM_ARCH__ < 6
++/* Force ARM v7 architecture for MSM8226 */
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#elif __LINUX_ARM_ARCH__ < 6
+ #error SMP not supported on pre-ARMv6 CPUs
+ #endif
+ 
+--- a/arch/arm/include/asm/cmpxchg.h
++++ b/arch/arm/include/asm/cmpxchg.h
+@@ -34,6 +34,10 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr, int siz
+ 	unsigned int tmp;
+ #endif
+ 
++	/* Force ARM v7 architecture for MSM8226 */
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
+ 	smp_mb();
+ 
+ 	switch (size) {
+@@ -106,6 +110,9 @@ static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
+ 	}
+ 
+ #ifdef CONFIG_SMP
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
+ #if __LINUX_ARM_ARCH__ < 6
+ #error "SMP is not supported on this platform"
+ #endif
