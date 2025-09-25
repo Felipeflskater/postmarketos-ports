@@ -1,0 +1,17 @@
+--- a/include/linux/compiler-gcc.h
++++ b/include/linux/compiler-gcc.h
+@@ -103,6 +103,14 @@
+ #define __HAVE_BUILTIN_BSWAP16__
+ #endif
+ 
++/* GCC 14+ compatibility - redirect to GCC 13 definitions */
++#if GCC_VERSION >= 140000
++#define gcc_header(x) <linux/compiler-gcc13.h>
++#elif GCC_VERSION >= 130000
++#define gcc_header(x) <linux/compiler-gcc13.h>
++#elif GCC_VERSION >= 120000
++#define gcc_header(x) <linux/compiler-gcc12.h>
++#else
+ #define gcc_header(x) <linux/compiler-gcc ## x ## .h>
++#endif
+ #include gcc_header(__GNUC__)
