@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=85
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Versão final com correção de tipos"
+pkgrel=86
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Versão final com correção GCC14"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -21,26 +21,42 @@ source="
 	10-add-gcc15-conservative-flags.patch
 	11-fix-irq-timer-definitions-v2.patch
 	35-minimal-targeted-fixes-v2.patch
+	39-fix-gcc14-compatibility-simple.patch
+	40-create-compiler-gcc14-header.patch
+	41-fix-size-t-type-conflict.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
 prepare() {
     cd "$builddir"
 
+    # Verificar versão do GCC
+    gcc_version=$(gcc -dumpversion | cut -d. -f1)
+    echo "=== VERSÃO DO GCC DETECTADA: $gcc_version ==="
+
     # Compilador
     for comp in armv7-alpine-linux-musleabihf-gcc arm-linux-gnueabihf-gcc arm-none-eabi-gcc; do
         if command -v "$comp" >/dev/null 2>&1; then
             export CROSS_COMPILE="${comp%-gcc}-"
+            echo "Usando cross-compiler: $CROSS_COMPILE"
             break
         fi
     done
     [ -z "$CROSS_COMPILE" ] && { echo "ERRO: Compilador não encontrado"; exit 1; }
 
-    # Ambiente básico
+    # Ambiente básico mais restritivo para GCC moderno
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
     export ARCH=arm SUBARCH=arm HOSTCC=gcc
-    export HOSTCFLAGS="-O1 -w -std=gnu89"
-    export KBUILD_CFLAGS="-w -Wno-error -std=gnu89"
+
+    # Flags mais conservadoras para GCC 14+
+    if [ "$gcc_version" -ge 14 ]; then
+        export HOSTCFLAGS="-O1 -w -std=gnu89 -fno-strict-aliasing -Wno-unused-but-set-variable -Wno-array-bounds"
+        export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -fno-strict-aliasing -fno-delete-null-pointer-checks"
+    else
+        export HOSTCFLAGS="-O1 -w -std=gnu89"
+        export KBUILD_CFLAGS="-w -Wno-error -std=gnu89"
+    fi
+
     export EXTRA_CFLAGS="-w -Wno-error"
 
     # Criar apenas estruturas necessárias
@@ -104,52 +120,25 @@ build() {
 
     echo "=== VERIFICAÇÃO PRÉ-BUILD ==="
 
-    # Verificar se o patch de tipos foi aplicado
-    if grep -q "__DEVICETABLE_TYPES_GUARD\|__BOUNDS_TYPES_GUARD" scripts/mod/devicetable-offsets.c kernel/bounds.c 2>/dev/null; then
-        echo "SUCESSO: Correção de tipos básicos aplicada"
+    # Verificar se os headers do GCC foram criados
+    if [ -f include/linux/compiler-gcc14.h ]; then
+        echo "SUCESSO: Header compiler-gcc14.h criado"
     else
-        echo "ERRO: Correção de tipos básicos não foi aplicada"
-        echo "Tentando aplicação manual..."
+        echo "AVISO: Header compiler-gcc14.h não encontrado"
+    fi
 
-        # Aplicação manual de emergência
-        cat > /tmp/fix_types.h << 'EOF'
-/* Emergency type definitions */
-typedef unsigned char __u8;
-typedef unsigned short __u16;
-typedef unsigned int __u32;
-typedef unsigned long long __u64;
-typedef unsigned long kernel_ulong_t;
-typedef unsigned long size_t;
-typedef int ptrdiff_t;
-#ifndef NULL
-#define NULL ((void *)0)
-#endif
-EOF
-
-        # Inserir no início dos arquivos problemáticos
-        for file in scripts/mod/devicetable-offsets.c kernel/bounds.c; do
-            if [ -f "$file" ]; then
-                sed '1i/* Emergency type definitions */\
-typedef unsigned char __u8;\
-typedef unsigned short __u16;\
-typedef unsigned int __u32;\
-typedef unsigned long long __u64;\
-typedef unsigned long kernel_ulong_t;\
-typedef unsigned long size_t;\
-typedef int ptrdiff_t;\
-#ifndef NULL\
-#define NULL ((void *)0)\
-#endif\
-' -i "$file"
-                echo "Aplicação de emergência em $file"
-            fi
-        done
+    # Verificar se os patches de tipos foram aplicados corretamente
+    if grep -q "__KERNEL__" scripts/mod/devicetable-offsets.c kernel/bounds.c 2>/dev/null; then
+        echo "SUCESSO: Patch de correção de tipos aplicado"
+    else
+        echo "AVISO: Patch de correção de tipos não detectado"
     fi
 
     echo ""
     echo "=== INICIANDO BUILD ==="
 
-    if ! timeout 3600 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+    # Build mais robusto com timeouts menores e verificação de progresso
+    if ! timeout 1800 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC=gcc HOSTCFLAGS="$HOSTCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          V=1 -j$(nproc) zImage 2>&1 | tee build.log; then
@@ -159,17 +148,21 @@ typedef int ptrdiff_t;\
         echo "ANÁLISE DE ERRO:"
 
         # Verificar tipos específicos de erro
-        if grep -q "unknown type name.*__u32\|__u16\|__u8\|kernel_ulong_t" build.log; then
-            echo "❌ TIPOS BÁSICOS: Problema persistente com tipos básicos"
+        if grep -q "compiler-gcc.*\.h.*No such file" build.log; then
+            echo "❌ GCC HEADERS: Problema com headers de compatibilidade GCC"
         fi
 
-        if grep -c "error" build.log | head -1 | xargs -I {} [ {} -gt 100 ]; then
-            echo "❌ MUITOS ERROS: Mais de 100 erros detectados"
+        if grep -q "unknown type name.*__u32\|__u16\|__u8\|kernel_ulong_t" build.log; then
+            echo "❌ TIPOS BÁSICOS: Problema com tipos básicos"
+        fi
+
+        if grep -c "error" build.log | head -1 | xargs -I {} [ {} -gt 50 ]; then
+            echo "❌ MUITOS ERROS: Mais de 50 erros detectados"
         fi
 
         echo ""
         echo "=== PRIMEIROS 10 ERROS ==="
-        grep -E "(error|Error)" build.log | head -10
+        grep -E "(error|Error|fatal)" build.log | head -10
 
         exit 1
     fi
@@ -201,7 +194,7 @@ package() {
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 }
 
-# Checksums atualizados
+# Checksums atualizados - você precisará calcular os novos checksums dos patches
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 4eff4dab705a03c3ce5082b00469b1d8728f6cda27a5e79786cc9bdb299f8421d016c74b0aa3e3da39e6849ac39d962b5a11aa7794ba18c5a376161447147c31  config-samsung-matisse3g.armv7
@@ -211,4 +204,7 @@ c0567e7c8f8458663296a6bdddac021dd8417055f2f17fa96c13ce39cf6502fffa23897eecac9911
 c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad5099c65137bc230a5f17aaff81f95486ab8a0ff602114e6a24  10-add-gcc15-conservative-flags.patch
 7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
 f090fca0926a2a6d56581dfb381a77bc15c5cddb8eeaade5b13da6901d926193d22727353ccf29a06bc85cae20cc81089eed6836c4525dbddb98cea9a1f82d4e  35-minimal-targeted-fixes-v2.patch
+591b12e743f813cbf615012567d532b32ce23d71ee205ae442b73fb78ede3c5a8ae46c81f8bc8f4b5bf36da11b1763f0ccf349bb02ea4e252ffd74f90bbc3f8b  39-fix-gcc14-compatibility-simple.patch
+9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
+48c82bb459887c8e996f2f6a87aac8a2c94e514e937408d4a9e5743876ec7591377e65f89953a51ab5c124a032a6eacb3d56b07cecc9046bbd819b04ff8892c0  41-fix-size-t-type-conflict.patch
 "
