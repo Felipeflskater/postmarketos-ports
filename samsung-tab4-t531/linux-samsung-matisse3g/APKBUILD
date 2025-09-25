@@ -28,6 +28,7 @@ source="
 	43-fix-msm8226-arch-config.patch
 	44-fix-smp-spinlock-issues.patch
 	45-fix-rcu-builtin-constant-issue.patch
+	46-disable-build-bug-on-gcc14.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -214,5 +215,6 @@ f090fca0926a2a6d56581dfb381a77bc15c5cddb8eeaade5b13da6901d926193d22727353ccf29a0
 80f945f9066b21f19d150a1da629a05a5bdba6ad7bc1c5fe728b2ff9de74224ab1781d87af0338f478f6e5eefe6cf15e0751e86bafd87aa86201fc426a6c2344  42-fix-arm-arch-definitions.patch
 0c5e786630cec2c7b2c6d8781030b865942582689cbbaa725b09dc8c7d836b01382d98ce655ac7028c98c8e936fb1fc2b6a4aabd57f701e3c5037c9753e36c97  43-fix-msm8226-arch-config.patch
 4442209a69edcc7d5acca2a6857bc38e5f2179766bc78d37cf2b66d47026496e8b3c32e1c2b4f3b15da8a55be5e744823bcd9582d4d8c3fa280c9c033ee19b85  44-fix-smp-spinlock-issues.patch
-5c9be6f53b458e8c9b2cf025322fd4a80de000f343bac6e2229b2875372365888a3f30b1e0c5e42bafbc2449bae0874bf4c5e7680092f123255ffae8c1080d99  45-fix-rcu-builtin-constant-issue.patch
+fc2e5c853d17baaf35928c6a38584d3851b8f60648e1014a5647744098e62bcc975ee27749e7b5c5a71c3884f7fc19d44fb68f3e864a6e7ae524b2ad2d6dc3af  45-fix-rcu-builtin-constant-issue.patch
+c62f3e87084d57788a42e0694aa3bf4c4f7f0e36b724b77a592a175c551dccf297b100142e7afe28243783994cd5591017f178b5ff25d366765f64bb49047d5f  46-disable-build-bug-on-gcc14.patch
 "
