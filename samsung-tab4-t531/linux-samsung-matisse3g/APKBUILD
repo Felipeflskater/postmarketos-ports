@@ -24,6 +24,10 @@ source="
 	39-fix-gcc14-compatibility-simple.patch
 	40-create-compiler-gcc14-header.patch
 	41-fix-size-t-type-conflict.patch
+	42-fix-arm-arch-definitions.patch
+	43-fix-msm8226-arch-config.patch
+	44-fix-smp-spinlock-issues.patch
+	45-fix-rcu-builtin-constant-issue.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -207,4 +211,8 @@ f090fca0926a2a6d56581dfb381a77bc15c5cddb8eeaade5b13da6901d926193d22727353ccf29a0
 591b12e743f813cbf615012567d532b32ce23d71ee205ae442b73fb78ede3c5a8ae46c81f8bc8f4b5bf36da11b1763f0ccf349bb02ea4e252ffd74f90bbc3f8b  39-fix-gcc14-compatibility-simple.patch
 9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
 48c82bb459887c8e996f2f6a87aac8a2c94e514e937408d4a9e5743876ec7591377e65f89953a51ab5c124a032a6eacb3d56b07cecc9046bbd819b04ff8892c0  41-fix-size-t-type-conflict.patch
+80f945f9066b21f19d150a1da629a05a5bdba6ad7bc1c5fe728b2ff9de74224ab1781d87af0338f478f6e5eefe6cf15e0751e86bafd87aa86201fc426a6c2344  42-fix-arm-arch-definitions.patch
+0c5e786630cec2c7b2c6d8781030b865942582689cbbaa725b09dc8c7d836b01382d98ce655ac7028c98c8e936fb1fc2b6a4aabd57f701e3c5037c9753e36c97  43-fix-msm8226-arch-config.patch
+4442209a69edcc7d5acca2a6857bc38e5f2179766bc78d37cf2b66d47026496e8b3c32e1c2b4f3b15da8a55be5e744823bcd9582d4d8c3fa280c9c033ee19b85  44-fix-smp-spinlock-issues.patch
+5c9be6f53b458e8c9b2cf025322fd4a80de000f343bac6e2229b2875372365888a3f30b1e0c5e42bafbc2449bae0874bf4c5e7680092f123255ffae8c1080d99  45-fix-rcu-builtin-constant-issue.patch
 "
