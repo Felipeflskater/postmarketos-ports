@@ -1,0 +1,17 @@
+--- a/include/linux/rcupdate.h
++++ b/include/linux/rcupdate.h
+@@ -915,8 +915,13 @@ static inline void __kfree_rcu(struct rcu_head **head, unsigned long offset)
+ {
+ 	typedef void (*rcu_callback_t)(struct rcu_head *);
+ 	rcu_callback_t func = (rcu_callback_t)offset;
+-
++#if defined(__GNUC__) && (__GNUC__ >= 14)
++	/* Skip BUILD_BUG_ON for GCC 14+ due to __builtin_constant_p changes */
++#else
+ 	BUILD_BUG_ON(!__builtin_constant_p(offset));
++#endif
+ 	call_rcu(head, func);
+ }
++
+ #define kfree_rcu(ptr, rcu_head)					\
+ 	__kfree_rcu(&((ptr)->rcu_head), offsetof(typeof(*(ptr)), rcu_head))
