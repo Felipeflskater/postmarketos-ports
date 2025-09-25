@@ -1,0 +1,41 @@
+--- a/arch/arm/Kconfig
++++ b/arch/arm/Kconfig
+@@ -612,6 +612,8 @@ config ARCH_MSM8X60
+ config ARCH_MSM8226
+ 	bool "MSM8226"
+ 	select ARCH_MSM_DT
++	select CPU_V7
++	select SMP
+ 	select ARM_GIC
+ 	select CPU_V7
+ 	select HAVE_SMP
+--- a/arch/arm/mach-msm/Kconfig
++++ b/arch/arm/mach-msm/Kconfig
+@@ -79,6 +79,9 @@ config ARCH_MSM8226
+ 	select SPARSE_IRQ
+ 	select USE_PINCTRL_IRQ
+ 	select PINCTRL
++	select CPU_V7
++	select SMP
++	select HAVE_SMP
+ 	help
+ 	  Support for Qualcomm MSM 8226 chipset.
+ 	  This chipset is also known as Snapdragon 400.
+--- a/arch/arm/include/asm/processor.h
++++ b/arch/arm/include/asm/processor.h
+@@ -16,6 +16,14 @@
+  */
+ #define TASK_SIZE		(UL(CONFIG_PAGE_OFFSET) - UL(SZ_16M))
+ 
++/* Define ARM architecture version for MSM8226/Cortex-A7 */
++#ifndef __LINUX_ARM_ARCH__
++#if defined(CONFIG_ARCH_MSM8226) || defined(CONFIG_CPU_V7)
++#define __LINUX_ARM_ARCH__ 7
++#else
++#define __LINUX_ARM_ARCH__ 6
++#endif
++#endif
++
+ #define TASK_UNMAPPED_BASE	(UL(CONFIG_PAGE_OFFSET) - UL(SZ_128M))
+ 
+ struct debug_info {
