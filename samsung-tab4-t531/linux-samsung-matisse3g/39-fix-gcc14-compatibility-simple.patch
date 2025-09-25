@@ -1,0 +1,25 @@
+--- a/include/linux/compiler-gcc.h
++++ b/include/linux/compiler-gcc.h
+@@ -103,4 +103,22 @@
+ #define __HAVE_BUILTIN_BSWAP16__
+ #endif
+ 
++/* GCC 14+ compatibility - redefine gcc_header to use gcc4.h for newer versions */
++#if GCC_VERSION >= 140000
++#undef gcc_header
++#define gcc_header(x) <linux/compiler-gcc4.h>
++#elif GCC_VERSION >= 130000
++#undef gcc_header  
++#define gcc_header(x) <linux/compiler-gcc4.h>
++#elif GCC_VERSION >= 120000
++#undef gcc_header
++#define gcc_header(x) <linux/compiler-gcc4.h>
++#elif GCC_VERSION >= 110000
++#undef gcc_header
++#define gcc_header(x) <linux/compiler-gcc4.h>
++#elif GCC_VERSION >= 100000
++#undef gcc_header
++#define gcc_header(x) <linux/compiler-gcc4.h>
++#endif
++
+ #include gcc_header(__GNUC__)
