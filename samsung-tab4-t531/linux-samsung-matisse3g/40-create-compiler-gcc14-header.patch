@@ -1,0 +1,9 @@
+--- /dev/null
++++ b/include/linux/compiler-gcc14.h
+@@ -0,0 +1,5 @@
++#ifndef __LINUX_COMPILER_H
++#error "Please don't include <linux/compiler-gcc14.h> directly, include <linux/compiler.h> instead."
++#endif
++
++/* GCC 14 - just include gcc4.h for compatibility */
++#include <linux/compiler-gcc4.h>
