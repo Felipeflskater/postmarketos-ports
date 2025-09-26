@@ -1,0 +1,96 @@
+--- a/arch/arm/include/asm/spinlock.h
++++ b/arch/arm/include/asm/spinlock.h
+@@ -1,7 +1,15 @@
+ #ifndef __ASM_SPINLOCK_H
+ #define __ASM_SPINLOCK_H
+ 
+-#if __LINUX_ARM_ARCH__ < 6
++/* Define ARM architecture for MSM8226/Cortex-A7 if not defined */
++#ifndef __LINUX_ARM_ARCH__
++#if defined(CONFIG_ARCH_MSM8226) || defined(CONFIG_CPU_V7)
++#define __LINUX_ARM_ARCH__ 7
++#else
++#define __LINUX_ARM_ARCH__ 6
++#endif
++#endif
++#if __LINUX_ARM_ARCH__ < 6
+ #error SMP not supported on pre-ARMv6 CPUs
+ #endif
+ 
+--- a/arch/arm/include/asm/atomic.h
++++ b/arch/arm/include/asm/atomic.h
+@@ -11,6 +11,14 @@
+ 
+ #include <linux/compiler.h>
+ #include <linux/types.h>
++
++/* Define ARM architecture for MSM8226/Cortex-A7 if not defined */
++#ifndef __LINUX_ARM_ARCH__
++#if defined(CONFIG_ARCH_MSM8226) || defined(CONFIG_CPU_V7)
++#define __LINUX_ARM_ARCH__ 7
++#else
++#define __LINUX_ARM_ARCH__ 6
++#endif
++#endif
+ #include <linux/irqflags.h>
+ #include <asm/barrier.h>
+ #include <asm/cmpxchg.h>
+@@ -150,6 +158,9 @@ static inline int atomic_add_unless(atomic_t *v, int a, int u)
+ 
+ #define smp_mb__before_atomic_dec()	smp_mb()
+ #define smp_mb__after_atomic_dec()	smp_mb()
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
+ #define smp_mb__before_atomic_inc()	smp_mb()
+ #define smp_mb__after_atomic_inc()	smp_mb()
+ 
+--- a/arch/arm/include/asm/cmpxchg.h
++++ b/arch/arm/include/asm/cmpxchg.h
+@@ -34,6 +34,13 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr, int siz
+ 	unsigned int tmp;
+ #endif
+ 
++	/* Define ARM architecture for MSM8226/Cortex-A7 if not defined */
++#ifndef __LINUX_ARM_ARCH__
++#if defined(CONFIG_ARCH_MSM8226) || defined(CONFIG_CPU_V7)
++#define __LINUX_ARM_ARCH__ 7
++#else
++#define __LINUX_ARM_ARCH__ 6
++#endif
++#endif
+ 	smp_mb();
+ 
+ 	switch (size) {
+@@ -106,6 +113,12 @@ static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
+ 	}
+ 
+ #ifdef CONFIG_SMP
++#ifndef __LINUX_ARM_ARCH__
++#if defined(CONFIG_ARCH_MSM8226) || defined(CONFIG_CPU_V7)
++#define __LINUX_ARM_ARCH__ 7
++#else
++#define __LINUX_ARM_ARCH__ 6
++#endif
++#endif
+ #if __LINUX_ARM_ARCH__ < 6
+ #error "SMP is not supported on this platform"
+ #endif
+--- a/arch/arm/include/asm/div64.h
++++ b/arch/arm/include/asm/div64.h
+@@ -1,6 +1,15 @@
+ #ifndef __ASM_ARM_DIV64
+ #define __ASM_ARM_DIV64
+ 
++/* Define ARM architecture for MSM8226/Cortex-A7 if not defined */
++#ifndef __LINUX_ARM_ARCH__
++#if defined(CONFIG_ARCH_MSM8226) || defined(CONFIG_CPU_V7)
++#define __LINUX_ARM_ARCH__ 7
++#elif defined(CONFIG_CPU_V6) || defined(CONFIG_CPU_V6K)
++#define __LINUX_ARM_ARCH__ 6
++#else
++#define __LINUX_ARM_ARCH__ 5
++#endif
++#endif
++
+ #include <asm/compiler.h>
