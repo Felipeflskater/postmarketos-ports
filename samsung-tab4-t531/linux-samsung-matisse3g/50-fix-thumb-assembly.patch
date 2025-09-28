@@ -1,0 +1,77 @@
+--- a/arch/arm/mach-msm/include/mach/irqs.h.orig
++++ b/arch/arm/mach-msm/include/mach/irqs.h
+@@ -133,7 +133,6 @@
+ #define MSM8226_INT_LPASS_SCSS_GP_HIGH_PRI  (GIC_SPI_START + 234)
+ #define MSM8226_INT_LPASS_SCSS_GP_MEDIUM_PRI  (GIC_SPI_START + 235)
+ #define MSM8226_INT_LPASS_SCSS_GP_LOW_PRI   (GIC_SPI_START + 236)
+-#endif
+ 
+ #define NR_MSM_IRQS 256
+ #define NR_GPIO_IRQS 117
+--- a/arch/arm/vfp/Makefile.orig
++++ b/arch/arm/vfp/Makefile
+@@ -8,6 +8,10 @@
+ # ccflags-y := -DDEBUG
+ # asflags-y := -DDEBUG
+ 
++# Force ARM mode to avoid Thumb conditional instruction issues with modern GCC
++CFLAGS_vfpmodule.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++CFLAGS_vfpsingle.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated  
++CFLAGS_vfpdouble.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++
+ obj-y			+= vfp.o
+ 
+ ifneq ($(CONFIG_VFP),y)
+--- a/arch/arm/kernel/Makefile.orig
++++ b/arch/arm/kernel/Makefile
+@@ -14,6 +14,14 @@
+ # Object file lists.
+ AFLAGS_head.o        := -DTEXT_OFFSET=$(TEXT_OFFSET)
+ 
++# Force ARM mode for specific problematic files
++CFLAGS_ptrace.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++CFLAGS_process.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++CFLAGS_setup.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++CFLAGS_signal.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++AFLAGS_entry-armv.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++AFLAGS_entry-common.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++
+ obj-y		:= elf.o entry-armv.o entry-common.o irq.o opcodes.o \
+ 		   process.o ptrace.o return_address.o setup.o signal.o \
+ 		   sys_arm.o stacktrace.o time.o traps.o
+--- a/arch/arm/mm/Makefile.orig
++++ b/arch/arm/mm/Makefile
+@@ -2,6 +2,11 @@
+ # Makefile for the linux arm-specific parts of the memory manager.
+ #
+ 
++# Force ARM mode for specific problematic files
++CFLAGS_dma-mapping.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++CFLAGS_extable.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++CFLAGS_fault.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++CFLAGS_init.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++
+ obj-y		:= dma-mapping.o extable.o fault.o init.o \
+ 		   iomap.o
+ 
+--- a/arch/arm/mach-msm/Makefile.orig
++++ b/arch/arm/mach-msm/Makefile
+@@ -1,3 +1,6 @@
++# Force ARM mode for MSM timer which has assembly issues
++CFLAGS_timer.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++
+ obj-y += io.o dma.o memory.o timer.o
+ obj-y += acpuclock.o
+ obj-y += devices-msm8x60.o
+--- a/init/Makefile.orig
++++ b/init/Makefile
+@@ -2,6 +2,9 @@
+ # Makefile for the linux kernel.
+ #
+ 
++# Force ARM mode for do_mounts which had assembly issues
++CFLAGS_do_mounts.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
++
+ obj-y                          := main.o version.o mounts.o
+ ifneq ($(CONFIG_BLK_DEV_INITRD),y)
+ obj-y                          += noinitramfs.o
