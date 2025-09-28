@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=86
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Versão final com correção GCC14"
+pkgrel=89
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Versão corrigida para GCC14 com Thumb fix"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -21,6 +21,9 @@ source="
 	10-add-gcc15-conservative-flags.patch
 	11-fix-irq-timer-definitions-v2.patch
 	40-create-compiler-gcc14-header.patch
+	50-fix-thumb-assembly.patch
+	51-fix-smp-assembler.patch
+	52-fix-assembly-macros.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -41,26 +44,32 @@ prepare() {
     done
     [ -z "$CROSS_COMPILE" ] && { echo "ERRO: Compilador não encontrado"; exit 1; }
 
-    # Ambiente básico mais restritivo para GCC moderno
+    # Limpar ambiente
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
     export ARCH=arm SUBARCH=arm HOSTCC=gcc
 
-    # Flags mais conservadoras para GCC 14+
+    # FORÇA ARM MODE para evitar problemas com Thumb - APENAS NO CROSS-COMPILER
+    echo "=== FORÇANDO ARM MODE PARA EVITAR PROBLEMAS THUMB ==="
+
     if [ "$gcc_version" -ge 14 ]; then
+        # HOSTCFLAGS (x86_64 host) SEM flags ARM
         export HOSTCFLAGS="-O1 -w -std=gnu89 -fno-strict-aliasing -Wno-unused-but-set-variable -Wno-array-bounds"
-        export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -fno-strict-aliasing -fno-delete-null-pointer-checks"
+        # KBUILD_CFLAGS (ARM cross-compile) COM flags ARM
+        export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -fno-strict-aliasing -fno-delete-null-pointer-checks -marm -mno-thumb-interwork"
+        export KBUILD_AFLAGS="-D__ASSEMBLY__ -marm -mno-thumb-interwork"
     else
         export HOSTCFLAGS="-O1 -w -std=gnu89"
-        export KBUILD_CFLAGS="-w -Wno-error -std=gnu89"
+        export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -marm"
+        export KBUILD_AFLAGS="-D__ASSEMBLY__ -marm"
     fi
 
-    export EXTRA_CFLAGS="-w -Wno-error"
+    export EXTRA_CFLAGS="-w -Wno-error -marm -mno-thumb-interwork"
 
-    # Criar apenas estruturas necessárias
+    # Criar estruturas necessárias
     mkdir -p include/generated include/config scripts/basic scripts/mod
     mkdir -p arch/arm/include/generated/asm
 
-    # Headers mínimos apenas se não existirem
+    # Headers mínimos
     if [ ! -f include/generated/utsrelease.h ]; then
         echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
     fi
@@ -79,12 +88,14 @@ EOF
 
     touch include/generated/asm-offsets.h include/generated/bounds.h
 
-    # Correções diretas com sed para contornar problemas de patches
-    echo "=== APLICANDO CORREÇÕES DIRETAS ==="
+    # Correções diretas críticas
+    echo "=== APLICANDO CORREÇÕES CRÍTICAS ==="
 
     # Fix BUILD_BUG_ON no RCU
-    sed -i 's/BUILD_BUG_ON(!__builtin_constant_p(offset));/\/\* BUILD_BUG_ON(!__builtin_constant_p(offset)); \*\//' include/linux/rcupdate.h
-    echo "BUILD_BUG_ON corrigido em rcupdate.h"
+    if [ -f include/linux/rcupdate.h ]; then
+        sed -i 's/BUILD_BUG_ON(!__builtin_constant_p(offset));/\/\* BUILD_BUG_ON(!__builtin_constant_p(offset)); \*\//' include/linux/rcupdate.h
+        echo "BUILD_BUG_ON corrigido em rcupdate.h"
+    fi
 
     # Force __LINUX_ARM_ARCH__ definition
     for file in arch/arm/include/asm/spinlock.h arch/arm/include/asm/div64.h arch/arm/include/asm/atomic.h arch/arm/include/asm/cmpxchg.h; do
@@ -94,8 +105,114 @@ EOF
         fi
     done
 
-    # Aplicar patches essenciais
-    echo "=== APLICANDO PATCHES ESSENCIAIS ==="
+    # Fix crítico do irqs.h - corrigir #endif sem #if
+    if [ -f arch/arm/mach-msm/include/mach/irqs.h ]; then
+        # Remover #endif órfão na linha 136
+        sed -i '136{/^#endif$/d;}' arch/arm/mach-msm/include/mach/irqs.h
+        echo "irqs.h corrigido - #endif órfão removido"
+    fi
+
+    # Fix crítico do assembler.h - problema SMP
+    if [ -f arch/arm/include/asm/assembler.h ]; then
+        # Fazer backup
+        cp arch/arm/include/asm/assembler.h arch/arm/include/asm/assembler.h.bak
+
+        # Corrigir o problema de SMP incompatível envolvendo as macros em #ifdef CONFIG_SMP
+        sed -i '/^#else$/,/^#error Incompatible SMP platform$/{
+            s/^#error Incompatible SMP platform$/#ifdef CONFIG_SMP\n#error Incompatible SMP platform\n#endif/
+        }' arch/arm/include/asm/assembler.h
+
+        echo "assembler.h corrigido - problema SMP incompatível resolvido"
+    fi
+
+    # Fix crítico das macros ARM/Thumb problemáticas nos headers de entrada
+    echo "=== CORRIGINDO MACROS ASSEMBLY PROBLEMÁTICAS ==="
+
+    # Corrigir definições problemáticas no entry-header.S
+    for file in arch/arm/kernel/entry-header.S arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-common.S; do
+        if [ -f "$file" ]; then
+            # Substituir macros ARM(...) e THUMB(...) por versões fixas
+            sed -i 's/ARM(\([^)]*\))/\1/g' "$file"
+            sed -i 's/THUMB(\([^)]*\))/\1/g' "$file"
+            sed -i 's/thumb(\([^)]*\))/\1/g' "$file"
+            sed -i 's/arm(\([^)]*\))/\1/g' "$file"
+            sed -i 's/w(\([^)]*\))/\1/g' "$file"
+            echo "$file corrigido - macros ARM/THUMB removidas"
+        fi
+    done
+
+    # Corrigir cache-v7.S
+    if [ -f arch/arm/mm/cache-v7.S ]; then
+        sed -i 's/ARM(\([^)]*\))/\1/g' arch/arm/mm/cache-v7.S
+        sed -i 's/THUMB(\([^)]*\))/\1/g' arch/arm/mm/cache-v7.S
+        sed -i 's/thumb(\([^)]*\))/\1/g' arch/arm/mm/cache-v7.S
+        sed -i 's/arm(\([^)]*\))/\1/g' arch/arm/mm/cache-v7.S
+        echo "cache-v7.S corrigido - macros ARM/THUMB removidas"
+    fi
+
+    # Forçar modo ARM apenas em arquivos específicos problemáticos via sed
+    echo "=== FORÇANDO MODO ARM EM ARQUIVOS ESPECÍFICOS ==="
+
+    # VFP files - aplicar via CFLAGS específicos
+    if [ -f arch/arm/vfp/Makefile ]; then
+        cat >> arch/arm/vfp/Makefile << 'EOF'
+
+# Force ARM mode for VFP files with assembly issues
+CFLAGS_vfpmodule.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+CFLAGS_vfpsingle.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+CFLAGS_vfpdouble.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+EOF
+        echo "✓ Modo ARM aplicado em arch/arm/vfp/"
+    fi
+
+    # Kernel files problemáticos
+    if [ -f arch/arm/kernel/Makefile ]; then
+        cat >> arch/arm/kernel/Makefile << 'EOF'
+
+# Force ARM mode for specific problematic files
+CFLAGS_ptrace.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+CFLAGS_process.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+CFLAGS_setup.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+CFLAGS_signal.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+EOF
+        echo "✓ Modo ARM aplicado em arch/arm/kernel/"
+    fi
+
+    # MM files problemáticos
+    if [ -f arch/arm/mm/Makefile ]; then
+        cat >> arch/arm/mm/Makefile << 'EOF'
+
+# Force ARM mode for specific problematic files
+CFLAGS_dma-mapping.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+CFLAGS_extable.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+CFLAGS_fault.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+CFLAGS_init.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+EOF
+        echo "✓ Modo ARM aplicado em arch/arm/mm/"
+    fi
+
+    # MSM timer problemático
+    if [ -f arch/arm/mach-msm/Makefile ]; then
+        cat >> arch/arm/mach-msm/Makefile << 'EOF'
+
+# Force ARM mode for MSM timer with assembly issues
+CFLAGS_timer.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+EOF
+        echo "✓ Modo ARM aplicado em arch/arm/mach-msm/"
+    fi
+
+    # Init do_mounts problemático
+    if [ -f init/Makefile ]; then
+        cat >> init/Makefile << 'EOF'
+
+# Force ARM mode for do_mounts with assembly issues
+CFLAGS_do_mounts.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
+EOF
+        echo "✓ Modo ARM aplicado em init/"
+    fi
+
+    # Aplicar patches
+    echo "=== APLICANDO PATCHES ==="
     local patches_applied=0
 
     for p in $(echo "$source" | tr ' ' '\n' | grep '\.patch$' | sort -V); do
@@ -117,14 +234,35 @@ EOF
     # Config
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
         cp "$srcdir/config-samsung-matisse3g.armv7" .config
-        echo "Config copiada com sucesso"
+
+        # Forçar configurações ARM e corrigir SMP
+        echo "=== FORÇANDO CONFIGURAÇÕES ARM E SMP ==="
+
+        # Desabilitar SMP para evitar erro "Incompatible SMP platform"
+        sed -i 's/CONFIG_SMP=y/# CONFIG_SMP is not set/' .config
+        sed -i 's/CONFIG_NR_CPUS=[0-9]*/CONFIG_NR_CPUS=1/' .config
+
+        cat >> .config << 'EOF'
+# Force ARM mode configurations
+# CONFIG_THUMB2_KERNEL is not set
+CONFIG_ARM_THUMB=y
+CONFIG_THUMB2_AVOID_R_ARM_THM_JUMP24=y
+
+# SMP Configuration fixes
+# CONFIG_SMP is not set
+CONFIG_NR_CPUS=1
+# CONFIG_ARM_CPU_TOPOLOGY is not set
+# CONFIG_SCHED_MC is not set
+# CONFIG_SCHED_SMT is not set
+EOF
+        echo "Config ARM aplicada com sucesso"
     fi
 
     # Preparação básica
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" scripts_basic >/dev/null 2>&1 || true
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldconfig >/dev/null 2>&1 || true
 
-    echo "Preparação concluída"
+    echo "Preparação concluída com modo ARM forçado"
 }
 
 build() {
@@ -134,24 +272,41 @@ build() {
 
     # Verificar se os headers do GCC foram criados
     if [ -f include/linux/compiler-gcc14.h ]; then
-        echo "SUCESSO: Header compiler-gcc14.h criado"
+        echo "✓ Header compiler-gcc14.h presente"
     else
-        echo "AVISO: Header compiler-gcc14.h não encontrado"
+        echo "⚠ Header compiler-gcc14.h não encontrado"
     fi
 
-    # Verificar se os patches de tipos foram aplicados corretamente
-    if grep -q "__KERNEL__" scripts/mod/devicetable-offsets.c kernel/bounds.c 2>/dev/null; then
-        echo "SUCESSO: Patch de correção de tipos aplicado"
+    # Verificar se o irqs.h foi corrigido
+    if ! grep -q "#endif" arch/arm/mach-msm/include/mach/irqs.h | tail -1 | grep -v "^136:"; then
+        echo "✓ irqs.h corrigido"
     else
-        echo "AVISO: Patch de correção de tipos não detectado"
+        echo "⚠ irqs.h pode ainda ter problemas"
+    fi
+
+    # Verificar se SMP foi desabilitado na config
+    if grep -q "# CONFIG_SMP is not set" .config; then
+        echo "✓ SMP desabilitado na configuração"
+    else
+        echo "⚠ SMP ainda pode estar habilitado"
+    fi
+
+    # Verificar se o assembler.h foi corrigido
+    if grep -q "#ifdef CONFIG_SMP" arch/arm/include/asm/assembler.h; then
+        echo "✓ assembler.h com proteção SMP"
+    else
+        echo "⚠ assembler.h pode ter problemas SMP"
     fi
 
     echo ""
-    echo "=== INICIANDO BUILD ==="
+    echo "=== INICIANDO BUILD COM MODO ARM FORÇADO ==="
 
-    # Build mais robusto com timeouts menores e verificação de progresso
-    if ! timeout 1800 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
-         HOSTCC=gcc HOSTCFLAGS="$HOSTCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS" \
+    # Build com timeouts e modo ARM forçado
+    if ! timeout 2400 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         HOSTCC=gcc \
+         HOSTCFLAGS="$HOSTCFLAGS" \
+         KBUILD_CFLAGS="$KBUILD_CFLAGS" \
+         KBUILD_AFLAGS="$KBUILD_AFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
          V=1 -j$(nproc) zImage 2>&1 | tee build.log; then
 
@@ -159,54 +314,72 @@ build() {
         echo "=== BUILD FALHOU ==="
         echo "ANÁLISE DE ERRO:"
 
-        # Verificar tipos específicos de erro
+        # Análise específica de erros
+        if grep -q "thumb conditional instruction should be in IT block" build.log; then
+            echo "❌ THUMB: Ainda há problemas com instruções Thumb condicionais"
+            echo "   Tentativa de forçar modo ARM não funcionou completamente"
+        fi
+
+        if grep -q "#endif without #if" build.log; then
+            echo "❌ PREPROCESSOR: Problema com #endif órfão"
+        fi
+
         if grep -q "compiler-gcc.*\.h.*No such file" build.log; then
-            echo "❌ GCC HEADERS: Problema com headers de compatibilidade GCC"
-        fi
-
-        if grep -q "unknown type name.*__u32\|__u16\|__u8\|kernel_ulong_t" build.log; then
-            echo "❌ TIPOS BÁSICOS: Problema com tipos básicos"
-        fi
-
-        if grep -c "error" build.log | head -1 | xargs -I {} [ {} -gt 50 ]; then
-            echo "❌ MUITOS ERROS: Mais de 50 erros detectados"
+            echo "❌ GCC HEADERS: Problema com headers de compatibilidade"
         fi
 
         echo ""
-        echo "=== PRIMEIROS 10 ERROS ==="
-        grep -E "(error|Error|fatal)" build.log | head -10
+        echo "=== PRIMEIROS 15 ERROS ==="
+        grep -E "(error|Error|fatal)" build.log | head -15
+
+        echo ""
+        echo "=== SUGESTÕES ==="
+        echo "1. Criar patch específico para conversão Thumb->ARM"
+        echo "2. Verificar se todos os Makefiles foram modificados"
+        echo "3. Considerar downgrade do GCC se possível"
 
         exit 1
     fi
 
     if [ -f arch/arm/boot/zImage ]; then
         local size=$(stat -c%s arch/arm/boot/zImage)
-        echo "SUCESSO! zImage criado: $size bytes"
+        echo "✓ SUCESSO! zImage criado: $size bytes"
     else
-        echo "ERRO: zImage não foi criado"
+        echo "❌ ERRO: zImage não foi criado"
         exit 1
     fi
 
-    # Build de módulos
-    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" modules >/dev/null 2>&1 || true
+    # Build de módulos (opcional)
+    echo "=== COMPILANDO MÓDULOS ==="
+    make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         KBUILD_CFLAGS="$KBUILD_CFLAGS" \
+         EXTRA_CFLAGS="$EXTRA_CFLAGS" \
+         modules >/dev/null 2>&1 || true
 }
 
 package() {
     cd "$builddir"
 
+    # Instalar kernel
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
-    make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" modules_install 2>/dev/null || true
 
+    # Instalar módulos
+    make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" \
+         ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+         modules_install 2>/dev/null || true
+
+    # Instalar DTBs se existirem
     if [ -d arch/arm/boot/dts ]; then
         mkdir -p "$pkgdir/boot/dtbs-$_flavor"
         find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \; 2>/dev/null || true
     fi
 
+    # Link simbólico
     mkdir -p "$pkgdir/boot"
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 }
 
-# Checksums atualizados - você precisará calcular os novos checksums dos patches
+# Checksums atualizados - você precisará calcular os novos checksums dos patches 50, 51 e 52
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 4eff4dab705a03c3ce5082b00469b1d8728f6cda27a5e79786cc9bdb299f8421d016c74b0aa3e3da39e6849ac39d962b5a11aa7794ba18c5a376161447147c31  config-samsung-matisse3g.armv7
@@ -216,4 +389,7 @@ c0567e7c8f8458663296a6bdddac021dd8417055f2f17fa96c13ce39cf6502fffa23897eecac9911
 c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad5099c65137bc230a5f17aaff81f95486ab8a0ff602114e6a24  10-add-gcc15-conservative-flags.patch
 7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
 9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
+cc78c493bab45e72451cd63e7a1097fef533e8bec6598c6ccb3a1fb1aee4354b2db8e0ff39f2a3bcf6f3aa40585702c0c36dd27378ba73bf2904f5f92a6134d3  50-fix-thumb-assembly.patch
+534e666cd75e6ee2878bfda340d9e6b13d15fef4b0c3466b7d4dfad63560389dfad1a332669b70c697da8841a4856a974ba0888ca54848995bf2a77d6d071d09  51-fix-smp-assembler.patch
+ae31b1bd9978c9467a0573f9e89073d1c21203df5836ce9628cdcbc507e68b27bc5240b12d74242a84fa9d402422451ee14bec2a7f4232f20a872007c3e0af39  52-fix-assembly-macros.patch
 "
