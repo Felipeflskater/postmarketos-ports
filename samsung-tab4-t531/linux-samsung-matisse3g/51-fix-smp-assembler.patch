@@ -1,0 +1,28 @@
+--- a/arch/arm/include/asm/assembler.h.orig
++++ b/arch/arm/include/asm/assembler.h
+@@ -217,10 +217,12 @@
+ 	.endm
+ #else
+ 	.macro	sev
++#ifdef CONFIG_SMP
+ #if __LINUX_ARM_ARCH__ >= 7
+ 	sev
+ #else
+ #error Incompatible SMP platform
++#endif
+ #endif
+ 	.endm
+ 
+@@ -232,10 +234,12 @@
+ 	.endm
+ #else
+ 	.macro	wfe
++#ifdef CONFIG_SMP
+ #if __LINUX_ARM_ARCH__ >= 7
+ 	wfe
+ #else
+ #error Incompatible SMP platform
++#endif
+ #endif
+ 	.endm
+ #endif
