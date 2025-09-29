@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=89
+pkgrel=90
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Versão corrigida para GCC14 com Thumb fix"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -24,6 +24,7 @@ source="
 	50-fix-thumb-assembly.patch
 	51-fix-smp-assembler.patch
 	52-fix-assembly-macros.patch
+	53-comprehensive-assembly-fix.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -128,26 +129,47 @@ EOF
     # Fix crítico das macros ARM/Thumb problemáticas nos headers de entrada
     echo "=== CORRIGINDO MACROS ASSEMBLY PROBLEMÁTICAS ==="
 
-    # Corrigir definições problemáticas no entry-header.S
-    for file in arch/arm/kernel/entry-header.S arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-common.S; do
+    # Corrigir definições problemáticas em todos os arquivos assembly
+    for file in arch/arm/kernel/entry-header.S arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-common.S arch/arm/mm/cache-v7.S arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7-2level.S; do
         if [ -f "$file" ]; then
+            # Criar backup
+            cp "$file" "$file.backup"
+
             # Substituir macros ARM(...) e THUMB(...) por versões fixas
             sed -i 's/ARM(\([^)]*\))/\1/g' "$file"
             sed -i 's/THUMB(\([^)]*\))/\1/g' "$file"
             sed -i 's/thumb(\([^)]*\))/\1/g' "$file"
             sed -i 's/arm(\([^)]*\))/\1/g' "$file"
             sed -i 's/w(\([^)]*\))/\1/g' "$file"
+            sed -i 's/W(\([^)]*\))/\1/g' "$file"
+
+            # Substituir BSYM() por apenas o símbolo (forçar ARM)
+            sed -i 's/BSYM(\([^)]*\))/\1/g' "$file"
+
+            # Corrigir instruções swi problemáticas
+            sed -i 's/swi\s\+__ARM_NR_cacheflush/swi #(__ARM_NR_cacheflush)/g' "$file"
+
+            # Forçar modo ARM em seções críticas
+            sed -i '/vector_rst\|vector_und\|vector_pabt\|vector_dabt\|vector_irq\|vector_fiq/i\.arm' "$file"
+
+            # Corrigir problemas de sintaxe Thumb
+            sed -i 's/ldr\s\+pc,\s*__vectors_start\s*+\s*0x1000/ldr pc, [pc, #0x1000 - 8]/g' "$file"
+
             echo "$file corrigido - macros ARM/THUMB removidas"
         fi
     done
 
-    # Corrigir cache-v7.S
-    if [ -f arch/arm/mm/cache-v7.S ]; then
-        sed -i 's/ARM(\([^)]*\))/\1/g' arch/arm/mm/cache-v7.S
-        sed -i 's/THUMB(\([^)]*\))/\1/g' arch/arm/mm/cache-v7.S
-        sed -i 's/thumb(\([^)]*\))/\1/g' arch/arm/mm/cache-v7.S
-        sed -i 's/arm(\([^)]*\))/\1/g' arch/arm/mm/cache-v7.S
-        echo "cache-v7.S corrigido - macros ARM/THUMB removidas"
+    # Correções específicas para problemas de registradores em modo Thumb
+    if [ -f arch/arm/kernel/entry-armv.S ]; then
+        # Força ARM mode em seções específicas problemáticas
+        sed -i '/\.__und_\|vector_\|__pabt_\|call_fpe\|fpundefinstr/i\.arm' arch/arm/kernel/entry-armv.S
+
+        # Corrige problemas específicos do Thumb
+        sed -i 's/adr\s\+r0,\s*1f/adrl r0, 1f/g' arch/arm/kernel/entry-armv.S
+        sed -i 's/sub\s\+lr,\s*lr,\s*#4/.arm\n\tsub lr, lr, #4/g' arch/arm/kernel/entry-armv.S
+        sed -i 's/sub\s\+lr,\s*lr,\s*#8/.arm\n\tsub lr, lr, #8/g' arch/arm/kernel/entry-armv.S
+
+        echo "entry-armv.S: correções específicas de Thumb aplicadas"
     fi
 
     # Forçar modo ARM apenas em arquivos específicos problemáticos via sed
@@ -242,6 +264,7 @@ EOF
         sed -i 's/CONFIG_SMP=y/# CONFIG_SMP is not set/' .config
         sed -i 's/CONFIG_NR_CPUS=[0-9]*/CONFIG_NR_CPUS=1/' .config
 
+        # Desabilitar recursos dependentes de SMP
         cat >> .config << 'EOF'
 # Force ARM mode configurations
 # CONFIG_THUMB2_KERNEL is not set
@@ -254,6 +277,14 @@ CONFIG_NR_CPUS=1
 # CONFIG_ARM_CPU_TOPOLOGY is not set
 # CONFIG_SCHED_MC is not set
 # CONFIG_SCHED_SMT is not set
+
+# Disable SMP-dependent features
+# CONFIG_ARM_TICKET_LOCKS is not set
+# CONFIG_ARCH_HAS_CPUFREQ is not set
+
+# Force ARM instruction set
+# CONFIG_THUMB2_KERNEL is not set
+CONFIG_ARM_UNWIND=y
 EOF
         echo "Config ARM aplicada com sucesso"
     fi
@@ -379,7 +410,7 @@ package() {
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 }
 
-# Checksums atualizados - você precisará calcular os novos checksums dos patches 50, 51 e 52
+# Checksums atualizados - você precisará calcular os novos checksums dos patches 50, 51, 52 e 53
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 4eff4dab705a03c3ce5082b00469b1d8728f6cda27a5e79786cc9bdb299f8421d016c74b0aa3e3da39e6849ac39d962b5a11aa7794ba18c5a376161447147c31  config-samsung-matisse3g.armv7
@@ -392,4 +423,5 @@ c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad50
 cc78c493bab45e72451cd63e7a1097fef533e8bec6598c6ccb3a1fb1aee4354b2db8e0ff39f2a3bcf6f3aa40585702c0c36dd27378ba73bf2904f5f92a6134d3  50-fix-thumb-assembly.patch
 534e666cd75e6ee2878bfda340d9e6b13d15fef4b0c3466b7d4dfad63560389dfad1a332669b70c697da8841a4856a974ba0888ca54848995bf2a77d6d071d09  51-fix-smp-assembler.patch
 ae31b1bd9978c9467a0573f9e89073d1c21203df5836ce9628cdcbc507e68b27bc5240b12d74242a84fa9d402422451ee14bec2a7f4232f20a872007c3e0af39  52-fix-assembly-macros.patch
+6fdf6de484e8a4817b9e8a1283977598deaa0960d82a94c230018fbe6c926f299c5f9d07e063eb8c8d19c8e387a3d5bc069e84ed5ebdc32bdcc0faebe94c576f  53-comprehensive-assembly-fix.patch
 "
