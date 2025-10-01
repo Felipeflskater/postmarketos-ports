@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=94
+pkgrel=95
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Versão corrigida para GCC14 com Thumb fix"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -264,10 +264,12 @@ EOF
     echo "=== CORRIGINDO PROBLEMAS DE module_param COM BOOL (GLOBAL) ==="
 
     # Usar find para pegar TODOS os arquivos .c recursivamente
-    find . -name "*.c" -type f -exec grep -l "module_param.*bool" {} \; 2>/dev/null | while read file; do
-        if [ -f "$file" ]; then
-            sed -i 's/module_param(\([^,]*\),[ ]*bool,/module_param_named(\1, \1, int,/g' "$file"
-            sed -i 's/module_param_named(\([^,]*\),[ ]*\([^,]*\),[ ]*bool,/module_param_named(\1, \2, int,/g' "$file"
+    find . -name "*.c" -type f -print0 2>/dev/null | while IFS= read -r -d '' file; do
+        if grep -q "module_param.*bool" "$file" 2>/dev/null; then
+            # Correção para module_param com espaços
+            sed -i 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param_named(\1, \1, int,/g' "$file"
+            # Correção para module_param_named com bool
+            sed -i 's/module_param_named[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param_named(\1, \2, int,/g' "$file"
         fi
     done
 
@@ -277,8 +279,12 @@ EOF
     echo "=== CORRIGINDO PROBLEMA DE smd_private.h (AGRESSIVO) ==="
 
     if [ -f arch/arm/mach-msm/smd_init_plat.c ]; then
-        # Remover completamente o include problemático e criar stub
-        cat > arch/arm/mach-msm/smd_init_plat.c.new << 'EOF'
+        # Backup original
+        cp arch/arm/mach-msm/smd_init_plat.c arch/arm/mach-msm/smd_init_plat.c.orig 2>/dev/null || true
+
+        # Criar arquivo completamente novo sem a dependência problemática
+        cat > arch/arm/mach-msm/smd_init_plat.c << 'EOF'
+/* Stub for smd_init_plat - original header unavailable */
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -287,21 +293,25 @@ EOF
 #include <linux/delay.h>
 #include <linux/platform_device.h>
 
-/* SMD header conditionally included */
-#ifdef CONFIG_MSM_SMD
-#include <smd_private.h>
-#else
-/* Stub for non-SMD builds */
-static inline int __init smd_core_init(void) { return 0; }
-#endif
-
 #include <mach/msm_iomap.h>
 #include <mach/system.h>
+
+/* Stub implementation */
+int __init smd_core_init(void)
+{
+    return 0;
+}
+
+static int __init msm_smd_driver_init(void)
+{
+    return smd_core_init();
+}
+
+module_init(msm_smd_driver_init);
+MODULE_DESCRIPTION("MSM SMD Init Platform - Stub");
+MODULE_LICENSE("GPL v2");
 EOF
-        # Anexar o resto do arquivo original (pular os primeiros 24 linhas de includes)
-        tail -n +25 arch/arm/mach-msm/smd_init_plat.c >> arch/arm/mach-msm/smd_init_plat.c.new
-        mv arch/arm/mach-msm/smd_init_plat.c.new arch/arm/mach-msm/smd_init_plat.c
-        echo "smd_init_plat.c: reescrito com stub condicional"
+        echo "smd_init_plat.c: completamente reescrito como stub"
     fi
 
     # Correção para PROC_PID_INIT_INO não definido
@@ -310,12 +320,22 @@ EOF
     if [ -f include/linux/proc_fs.h ]; then
         # Adicionar definição se não existir
         if ! grep -q "PROC_PID_INIT_INO" include/linux/proc_fs.h; then
-            sed -i '/^#define PROC_ROOT_INO/a\
-#ifndef PROC_PID_INIT_INO\n\
-#define PROC_PID_INIT_INO 0xEFFFFFFFU\n\
+            # Encontrar a linha com PROC_ROOT_INO e adicionar depois dela
+            sed -i '/^#define PROC_ROOT_INO[[:space:]]/a\
+#ifndef PROC_PID_INIT_INO\
+#define PROC_PID_INIT_INO 0xEFFFFFFFU\
 #endif' include/linux/proc_fs.h
             echo "PROC_PID_INIT_INO definido em proc_fs.h"
         fi
+    fi
+
+    # Se não encontrou PROC_ROOT_INO, adicionar no início
+    if [ -f include/linux/proc_fs.h ] && ! grep -q "PROC_PID_INIT_INO" include/linux/proc_fs.h; then
+        sed -i '1a\
+#ifndef PROC_PID_INIT_INO\
+#define PROC_PID_INIT_INO 0xEFFFFFFFU\
+#endif' include/linux/proc_fs.h
+        echo "PROC_PID_INIT_INO adicionado no início de proc_fs.h"
     fi
 
     # CORREÇÃO CRÍTICA: Forçar head.S e head-common.S para modo ARM puro
@@ -323,12 +343,26 @@ EOF
 
     for file in arch/arm/kernel/head.S arch/arm/kernel/head-common.S; do
         if [ -f "$file" ]; then
-            # Adicionar diretiva .arm no início do arquivo
-            sed -i '1i\.arm\n.syntax unified' "$file"
-            # Adicionar .arm antes de cada função
+            # Criar backup
+            cp "$file" "$file.arm_backup" 2>/dev/null || true
+
+            # Remover qualquer diretiva .thumb existente
+            sed -i '/\.thumb/d' "$file"
+
+            # Adicionar .arm no topo ANTES de qualquer outra coisa
+            sed -i '1i\.arm' "$file"
+            sed -i '2i\.syntax unified' "$file"
+
+            # Adicionar .arm antes de TODAS as funções, labels e ENTRYs
             sed -i '/^ENTRY(/i\.arm' "$file"
+            sed -i '/^END(/i\.arm' "$file"
             sed -i '/^__.*:/i\.arm' "$file"
-            echo "$file: diretivas .arm adicionadas"
+            sed -i '/^[a-z_][a-z0-9_]*:/i\.arm' "$file"
+
+            # Adicionar .arm antes de cada macro
+            sed -i '/^[[:space:]]*\.macro/i\.arm' "$file"
+
+            echo "$file: forçado para modo ARM com diretivas abrangentes"
         fi
     done
 
