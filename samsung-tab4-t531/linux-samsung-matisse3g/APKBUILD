@@ -1,8 +1,8 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=98
-pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Versão corrigida para GCC14 com Thumb fix"
+pkgrel=100
+pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Versão corrigida para GCC14"
 arch="armv7"
 _flavor="samsung-matisse3g"
 url="https://github.com/felipeflskater/android_kernel_samsung_msm8226"
@@ -26,6 +26,10 @@ source="
 	52-fix-assembly-macros.patch
 	53-comprehensive-assembly-fix.patch
 	54-final-assembly-fix.patch
+	55-fix-proc-pid-init-ino.patch
+	56-fix-board-8226-of-dev-auxdata.patch
+	57-fix-lpm-levels-redefinition.patch
+	58-fix-entry-armv-jump-tables.patch
 "
 builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
@@ -50,13 +54,11 @@ prepare() {
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS KBUILD_AFLAGS KBUILD_CFLAGS EXTRA_CFLAGS KBUILD_CPPFLAGS KBUILD_LDFLAGS
     export ARCH=arm SUBARCH=arm HOSTCC=gcc
 
-    # FORÇA ARM MODE para evitar problemas com Thumb - APENAS NO CROSS-COMPILER
-    echo "=== FORÇANDO ARM MODE PARA EVITAR PROBLEMAS THUMB ==="
+    # FORÇA ARM MODE
+    echo "=== FORÇANDO ARM MODE ==="
 
     if [ "$gcc_version" -ge 14 ]; then
-        # HOSTCFLAGS (x86_64 host) SEM flags ARM
         export HOSTCFLAGS="-O1 -w -std=gnu89 -fno-strict-aliasing -Wno-unused-but-set-variable -Wno-array-bounds"
-        # KBUILD_CFLAGS (ARM cross-compile) COM flags ARM
         export KBUILD_CFLAGS="-w -Wno-error -std=gnu89 -fno-strict-aliasing -fno-delete-null-pointer-checks -marm -mno-thumb-interwork"
         export KBUILD_AFLAGS="-D__ASSEMBLY__ -marm -mno-thumb-interwork"
     else
@@ -78,7 +80,6 @@ prepare() {
 
     if [ ! -f include/generated/autoconf.h ]; then
         cat > include/generated/autoconf.h << 'EOF'
-/* Autoconf básico */
 #define HZ 250
 #define CLOCK_TICK_RATE 19200000
 #define CONFIG_ARM 1
@@ -96,180 +97,65 @@ EOF
     # Fix BUILD_BUG_ON no RCU
     if [ -f include/linux/rcupdate.h ]; then
         sed -i 's/BUILD_BUG_ON(!__builtin_constant_p(offset));/\/\* BUILD_BUG_ON(!__builtin_constant_p(offset)); \*\//' include/linux/rcupdate.h
-        echo "BUILD_BUG_ON corrigido em rcupdate.h"
+        echo "✓ BUILD_BUG_ON corrigido em rcupdate.h"
     fi
 
     # Force __LINUX_ARM_ARCH__ definition
     for file in arch/arm/include/asm/spinlock.h arch/arm/include/asm/div64.h arch/arm/include/asm/atomic.h arch/arm/include/asm/cmpxchg.h; do
         if [ -f "$file" ]; then
             sed -i '1i #ifndef __LINUX_ARM_ARCH__\n#define __LINUX_ARM_ARCH__ 7\n#endif' "$file"
-            echo "__LINUX_ARM_ARCH__ definido em $file"
+            echo "✓ __LINUX_ARM_ARCH__ definido em $file"
         fi
     done
 
-    # Fix crítico do irqs.h - corrigir #endif sem #if
+    # Fix crítico do irqs.h
     if [ -f arch/arm/mach-msm/include/mach/irqs.h ]; then
-        # Remover #endif órfão na linha 136
         sed -i '136{/^#endif$/d;}' arch/arm/mach-msm/include/mach/irqs.h
-        echo "irqs.h corrigido - #endif órfão removido"
+        echo "✓ irqs.h corrigido"
     fi
 
-    # Fix crítico do assembler.h - problema SMP
+    # Fix crítico do assembler.h
     if [ -f arch/arm/include/asm/assembler.h ]; then
-        # Fazer backup
         cp arch/arm/include/asm/assembler.h arch/arm/include/asm/assembler.h.bak
-
-        # Corrigir o problema de SMP incompatível envolvendo as macros em #ifdef CONFIG_SMP
         sed -i '/^#else$/,/^#error Incompatible SMP platform$/{
             s/^#error Incompatible SMP platform$/#ifdef CONFIG_SMP\n#error Incompatible SMP platform\n#endif/
         }' arch/arm/include/asm/assembler.h
-
-        echo "assembler.h corrigido - problema SMP incompatível resolvido"
+        echo "✓ assembler.h corrigido"
     fi
 
-    # Fix crítico das macros ARM/Thumb problemáticas nos headers de entrada
-    echo "=== CORRIGINDO MACROS ASSEMBLY PROBLEMÁTICAS ==="
+    # Fix macros ARM/Thumb
+    echo "=== CORRIGINDO MACROS ASSEMBLY ==="
 
-    # Corrigir definições problemáticas em todos os arquivos assembly
-    for file in arch/arm/kernel/entry-header.S arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-common.S arch/arm/mm/cache-v7.S arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7-2level.S arch/arm/kernel/head.S arch/arm/kernel/head-common.S arch/arm/lib/*.S; do
+    for file in arch/arm/kernel/entry-header.S arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-common.S \
+                arch/arm/mm/cache-v7.S arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7-2level.S \
+                arch/arm/kernel/head.S arch/arm/kernel/head-common.S arch/arm/lib/*.S; do
         if [ -f "$file" ]; then
-            # Criar backup
-            cp "$file" "$file.backup"
+            cp "$file" "$file.backup" 2>/dev/null || true
 
-            # Substituir macros ARM(...) e THUMB(...) por versões fixas
             sed -i 's/ARM(\([^)]*\))/\1/g' "$file"
             sed -i 's/THUMB(\([^)]*\))/\1/g' "$file"
             sed -i 's/thumb(\([^)]*\))/\1/g' "$file"
             sed -i 's/arm(\([^)]*\))/\1/g' "$file"
             sed -i 's/w(\([^)]*\))/\1/g' "$file"
             sed -i 's/W(\([^)]*\))/\1/g' "$file"
-
-            # Substituir BSYM() por apenas o símbolo (forçar ARM)
             sed -i 's/BSYM(\([^)]*\))/\1/g' "$file"
-
-            # Corrigir instruções swi problemáticas
             sed -i 's/swi\s\+__ARM_NR_cacheflush/swi #(__ARM_NR_cacheflush)/g' "$file"
-
-            # Forçar modo ARM em seções críticas
             sed -i '/vector_rst\|vector_und\|vector_pabt\|vector_dabt\|vector_irq\|vector_fiq/i\.arm' "$file"
 
-            # Corrigir problemas de sintaxe Thumb
-            sed -i 's/ldr\s\+pc,\s*__vectors_start\s*+\s*0x1000/ldr pc, [pc, #0x1000 - 8]/g' "$file"
-
-            echo "$file corrigido - macros ARM/THUMB removidas"
+            echo "✓ $file corrigido"
         fi
     done
 
-    # Correções específicas para problemas de registradores em modo Thumb
+    # Correções específicas entry-armv.S
     if [ -f arch/arm/kernel/entry-armv.S ]; then
-        # Força ARM mode em seções específicas problemáticas
         sed -i '/\.__und_\|vector_\|__pabt_\|call_fpe\|fpundefinstr/i\.arm' arch/arm/kernel/entry-armv.S
-
-        # Corrige problemas específicos do Thumb
         sed -i 's/adr\s\+r0,\s*1f/adrl r0, 1f/g' arch/arm/kernel/entry-armv.S
-        sed -i 's/sub\s\+lr,\s*lr,\s*#4/.arm\n\tsub lr, lr, #4/g' arch/arm/kernel/entry-armv.S
-        sed -i 's/sub\s\+lr,\s*lr,\s*#8/.arm\n\tsub lr, lr, #8/g' arch/arm/kernel/entry-armv.S
-
-        echo "entry-armv.S: correções específicas de Thumb aplicadas"
+        echo "✓ entry-armv.S: correções específicas aplicadas"
     fi
 
-    # Correções específicas para os erros do log atual - ABORDAGEM AGRESSIVA
-    echo "=== APLICANDO CORREÇÕES AGRESSIVAS DOS ERROS ATUAIS ==="
-
-    if [ -f arch/arm/kernel/entry-armv.S ]; then
-        # Remover completamente as linhas problemáticas que causam operações inválidas
-        # Linhas com expressões do tipo "symbol + (0xXXX^0xYYY|PSR_ISETSTATE)"
-
-        # Backup do arquivo original
-        cp arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-armv.S.problem
-
-        # Substituir todas as expressões problemáticas por versões simplificadas
-        sed -i '/\.long.*+.*\^.*PSR_ISETSTATE/c\
-        .long   __sys_trace\
-        .long   __sys_trace_return\
-        .long   __pabt_usr\
-        .long   __pabt_usr' arch/arm/kernel/entry-armv.S
-
-        # Alternativa mais específica - remover as linhas exatas problemáticas
-        sed -i '1179s/.*/        .long   __sys_trace/' arch/arm/kernel/entry-armv.S
-        sed -i '1203s/.*/        .long   __sys_trace/' arch/arm/kernel/entry-armv.S
-        sed -i '1227s/.*/        .long   __sys_trace/' arch/arm/kernel/entry-armv.S
-        sed -i '1267s/.*/        .long   __sys_trace/' arch/arm/kernel/entry-armv.S
-
-        echo "entry-armv.S: linhas problemáticas das seções substituídas completamente"
-    fi
-
-    if [ -f arch/arm/mm/proc-v7.S ]; then
-        # Backup do arquivo original
-        cp arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7.S.problem
-
-        # Remover completamente a linha 346 problemática
-        sed -i '346d' arch/arm/mm/proc-v7.S
-
-        # Ou substituir por comentário válido
-        sed -i '346s/.*/        @ MULTI_CPU_SECONDARY/' arch/arm/mm/proc-v7.S
-
-        # Corrigir outros problemas de sintaxe de macro
-        sed -i 's/\(__v7_proc.*\), initfunc = \([^,]*\)/\1, \2/g' arch/arm/mm/proc-v7.S
-
-        echo "proc-v7.S: linha problemática removida/substituída"
-    fi
-
-    # Se os problemas persistem, criar versões mínimas dos arquivos problemáticos
-    if [ -f arch/arm/kernel/entry-armv.S.problem ]; then
-        echo "=== CRIANDO VERSÕES MÍNIMAS DOS ARQUIVOS PROBLEMÁTICOS ==="
-
-        # Criar uma versão simplificada das tabelas de salto problemáticas
-        cat >> /tmp/entry-armv-fix.sed << 'EOF'
-# Fix jump tables by removing complex expressions
-/^[[:space:]]*\.long.*__sys_trace.*+.*(.*\^.*PSR_ISETSTATE.*)/c\
-        .long   __sys_trace
-/^[[:space:]]*\.long.*__sys_trace_return.*+.*(.*\^.*PSR_ISETSTATE.*)/c\
-        .long   __sys_trace_return
-/^[[:space:]]*\.long.*__pabt_usr.*+.*(.*\^.*PSR_ISETSTATE.*)/c\
-        .long   __pabt_usr
-EOF
-        sed -f /tmp/entry-armv-fix.sed -i arch/arm/kernel/entry-armv.S
-        rm -f /tmp/entry-armv-fix.sed
-    fi
-
-    # OPÇÃO NUCLEAR: Substituir completamente as seções problemáticas
-    echo "=== APLICANDO CORREÇÃO NUCLEAR SE NECESSÁRIO ==="
-
-    # Verificar se ainda há problemas e aplicar correção mais drástica
-    if grep -q "PSR_ISETSTATE" arch/arm/kernel/entry-armv.S 2>/dev/null; then
-        echo "Ainda há referencias PSR_ISETSTATE - aplicando correção nuclear"
-
-        # Substituir toda a seção problemática por uma versão simplificada
-        cat > /tmp/jump_table_fix.awk << 'EOF'
-# AWK script para substituir tabelas de salto problemáticas
-/\.long.*PSR_ISETSTATE/ {
-    if (/__sys_trace[^_]/) print "\t.long\t__sys_trace"
-    else if (/__sys_trace_return/) print "\t.long\t__sys_trace_return"
-    else if (/__pabt_usr/) print "\t.long\t__pabt_usr"
-    else print "\t.long\t0"
-    next
-}
-{ print }
-EOF
-
-        awk -f /tmp/jump_table_fix.awk arch/arm/kernel/entry-armv.S > /tmp/entry-armv-fixed.S
-        mv /tmp/entry-armv-fixed.S arch/arm/kernel/entry-armv.S
-        rm -f /tmp/jump_table_fix.awk
-
-        echo "Tabelas de salto completamente substituídas"
-    fi
-
-    # Correção para smd_private.h ausente - MAIS AGRESSIVA
-    echo "=== CORRIGINDO PROBLEMA DE smd_private.h (AGRESSIVO) ==="
-
+    # Correção smd_private.h
     if [ -f arch/arm/mach-msm/smd_init_plat.c ]; then
-        # Backup original
-        cp arch/arm/mach-msm/smd_init_plat.c arch/arm/mach-msm/smd_init_plat.c.orig 2>/dev/null || true
-
-        # Criar arquivo completamente novo sem a dependência problemática
         cat > arch/arm/mach-msm/smd_init_plat.c << 'EOF'
-/* Stub for smd_init_plat - original header unavailable */
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -277,11 +163,9 @@ EOF
 #include <linux/io.h>
 #include <linux/delay.h>
 #include <linux/platform_device.h>
-
 #include <mach/msm_iomap.h>
 #include <mach/system.h>
 
-/* Stub implementation */
 int __init smd_core_init(void)
 {
     return 0;
@@ -296,96 +180,74 @@ module_init(msm_smd_driver_init);
 MODULE_DESCRIPTION("MSM SMD Init Platform - Stub");
 MODULE_LICENSE("GPL v2");
 EOF
-        echo "smd_init_plat.c: completamente reescrito como stub"
+        echo "✓ smd_init_plat.c: reescrito como stub"
     fi
 
-    # CORREÇÃO CRÍTICA: Forçar head.S e head-common.S para modo ARM puro
-    echo "=== FORÇANDO MODO ARM PURO EM head.S E head-common.S ==="
-
+    # Forçar modo ARM em head.S
     for file in arch/arm/kernel/head.S arch/arm/kernel/head-common.S; do
         if [ -f "$file" ]; then
-            # Criar backup
             cp "$file" "$file.arm_backup" 2>/dev/null || true
-
-            # Remover qualquer diretiva .thumb existente
             sed -i '/\.thumb/d' "$file"
-
-            # Adicionar .arm no topo ANTES de qualquer outra coisa
             sed -i '1i\.arm' "$file"
             sed -i '2i\.syntax unified' "$file"
-
-            # Adicionar .arm antes de TODAS as funções, labels e ENTRYs
             sed -i '/^ENTRY(/i\.arm' "$file"
             sed -i '/^END(/i\.arm' "$file"
             sed -i '/^__.*:/i\.arm' "$file"
             sed -i '/^[a-z_][a-z0-9_]*:/i\.arm' "$file"
-
-            # Adicionar .arm antes de cada macro
             sed -i '/^[[:space:]]*\.macro/i\.arm' "$file"
-
-            echo "$file: forçado para modo ARM com diretivas abrangentes"
+            echo "✓ $file: modo ARM forçado"
         fi
     done
 
-    # Forçar modo ARM apenas em arquivos específicos problemáticos via sed
-    echo "=== FORÇANDO MODO ARM EM ARQUIVOS ESPECÍFICOS ==="
+    # Forçar ARM via Makefiles
+    echo "=== FORÇANDO ARM EM MAKEFILES ==="
 
-    # VFP files - aplicar via CFLAGS específicos
     if [ -f arch/arm/vfp/Makefile ]; then
         cat >> arch/arm/vfp/Makefile << 'EOF'
 
-# Force ARM mode for VFP files with assembly issues
 CFLAGS_vfpmodule.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 CFLAGS_vfpsingle.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 CFLAGS_vfpdouble.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 EOF
-        echo "✓ Modo ARM aplicado em arch/arm/vfp/"
+        echo "✓ arch/arm/vfp/"
     fi
 
-    # Kernel files problemáticos
     if [ -f arch/arm/kernel/Makefile ]; then
         cat >> arch/arm/kernel/Makefile << 'EOF'
 
-# Force ARM mode for specific problematic files
 CFLAGS_ptrace.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 CFLAGS_process.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 CFLAGS_setup.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 CFLAGS_signal.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 EOF
-        echo "✓ Modo ARM aplicado em arch/arm/kernel/"
+        echo "✓ arch/arm/kernel/"
     fi
 
-    # MM files problemáticos
     if [ -f arch/arm/mm/Makefile ]; then
         cat >> arch/arm/mm/Makefile << 'EOF'
 
-# Force ARM mode for specific problematic files
 CFLAGS_dma-mapping.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 CFLAGS_extable.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 CFLAGS_fault.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 CFLAGS_init.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 EOF
-        echo "✓ Modo ARM aplicado em arch/arm/mm/"
+        echo "✓ arch/arm/mm/"
     fi
 
-    # MSM timer problemático
     if [ -f arch/arm/mach-msm/Makefile ]; then
         cat >> arch/arm/mach-msm/Makefile << 'EOF'
 
-# Force ARM mode for MSM timer with assembly issues
 CFLAGS_timer.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 EOF
-        echo "✓ Modo ARM aplicado em arch/arm/mach-msm/"
+        echo "✓ arch/arm/mach-msm/"
     fi
 
-    # Init do_mounts problemático
     if [ -f init/Makefile ]; then
         cat >> init/Makefile << 'EOF'
 
-# Force ARM mode for do_mounts with assembly issues
 CFLAGS_do_mounts.o += -marm -mno-thumb-interwork -Wa,-mno-warn-deprecated
 EOF
-        echo "✓ Modo ARM aplicado em init/"
+        echo "✓ init/"
     fi
 
     # Aplicar patches
@@ -401,87 +263,50 @@ EOF
             else
                 echo "FALHOU (pode estar já aplicado)"
             fi
-        else
-            echo "AVISO: $p não encontrado"
         fi
     done
 
     echo "Total de patches aplicados: $patches_applied"
 
-    # Correções APÓS patches - quando os arquivos já existem
-    echo "=== APLICANDO CORREÇÕES FINAIS PÓS-PATCHES ==="
+    # Correções finais
+    echo "=== CORREÇÕES FINAIS ==="
 
-    # Correção global de module_param com bool
-    echo "Corrigindo module_param com bool globalmente..."
+    # module_param com bool
     find . -name "*.c" -type f -print0 2>/dev/null | while IFS= read -r -d '' file; do
         if grep -q "module_param.*bool" "$file" 2>/dev/null; then
             sed -i 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param_named(\1, \1, int,/g' "$file"
             sed -i 's/module_param_named[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param_named(\1, \2, int,/g' "$file"
         fi
     done
-    echo "✓ module_param com bool corrigidos"
-
-    # Correção para PROC_PID_INIT_INO - direto no arquivo
-    if [ -f kernel/pid.c ]; then
-        if ! grep -q "PROC_PID_INIT_INO" kernel/pid.c; then
-            sed -i '1a\
-#ifndef PROC_PID_INIT_INO\
-#define PROC_PID_INIT_INO 0xEFFFFFFFU\
-#endif' kernel/pid.c
-            echo "✓ PROC_PID_INIT_INO definido em kernel/pid.c"
-        fi
-    fi
-
-    # Correção para board-8226.c - adicionar include no início
-    if [ -f arch/arm/mach-msm/board-8226.c ]; then
-        if ! grep -q "linux/of_platform.h" arch/arm/mach-msm/board-8226.c; then
-            sed -i '1i\
-#include <linux/of_platform.h>' arch/arm/mach-msm/board-8226.c
-            echo "✓ of_platform.h incluído em board-8226.c"
-        fi
-    fi
+    echo "✓ module_param corrigidos"
 
     # Config
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
         cp "$srcdir/config-samsung-matisse3g.armv7" .config
 
-        # Forçar configurações ARM e corrigir SMP
-        echo "=== FORÇANDO CONFIGURAÇÕES ARM E SMP ==="
-
-        # Desabilitar SMP para evitar erro "Incompatible SMP platform"
         sed -i 's/CONFIG_SMP=y/# CONFIG_SMP is not set/' .config
         sed -i 's/CONFIG_NR_CPUS=[0-9]*/CONFIG_NR_CPUS=1/' .config
 
-        # Desabilitar recursos dependentes de SMP
         cat >> .config << 'EOF'
-# Force ARM mode configurations
 # CONFIG_THUMB2_KERNEL is not set
 CONFIG_ARM_THUMB=y
 CONFIG_THUMB2_AVOID_R_ARM_THM_JUMP24=y
-
-# SMP Configuration fixes
 # CONFIG_SMP is not set
 CONFIG_NR_CPUS=1
 # CONFIG_ARM_CPU_TOPOLOGY is not set
 # CONFIG_SCHED_MC is not set
 # CONFIG_SCHED_SMT is not set
-
-# Disable SMP-dependent features
 # CONFIG_ARM_TICKET_LOCKS is not set
 # CONFIG_ARCH_HAS_CPUFREQ is not set
-
-# Force ARM instruction set
-# CONFIG_THUMB2_KERNEL is not set
 CONFIG_ARM_UNWIND=y
 EOF
-        echo "Config ARM aplicada com sucesso"
+        echo "✓ Config aplicada"
     fi
 
-    # Preparação básica
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" scripts_basic >/dev/null 2>&1 || true
     yes "" | make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldconfig >/dev/null 2>&1 || true
 
-    echo "Preparação concluída com modo ARM forçado"
+    echo "✅ Preparação concluída"
 }
 
 build() {
@@ -489,38 +314,17 @@ build() {
 
     echo "=== VERIFICAÇÃO PRÉ-BUILD ==="
 
-    # Verificar se os headers do GCC foram criados
     if [ -f include/linux/compiler-gcc14.h ]; then
-        echo "✓ Header compiler-gcc14.h presente"
-    else
-        echo "⚠ Header compiler-gcc14.h não encontrado"
+        echo "✓ compiler-gcc14.h presente"
     fi
 
-    # Verificar se o irqs.h foi corrigido
-    if ! grep -q "#endif" arch/arm/mach-msm/include/mach/irqs.h | tail -1 | grep -v "^136:"; then
-        echo "✓ irqs.h corrigido"
-    else
-        echo "⚠ irqs.h pode ainda ter problemas"
-    fi
-
-    # Verificar se SMP foi desabilitado na config
     if grep -q "# CONFIG_SMP is not set" .config; then
-        echo "✓ SMP desabilitado na configuração"
-    else
-        echo "⚠ SMP ainda pode estar habilitado"
-    fi
-
-    # Verificar se o assembler.h foi corrigido
-    if grep -q "#ifdef CONFIG_SMP" arch/arm/include/asm/assembler.h; then
-        echo "✓ assembler.h com proteção SMP"
-    else
-        echo "⚠ assembler.h pode ter problemas SMP"
+        echo "✓ SMP desabilitado"
     fi
 
     echo ""
-    echo "=== INICIANDO BUILD COM MODO ARM FORÇADO ==="
+    echo "=== BUILD ==="
 
-    # Build com timeouts e modo ARM forçado
     if ! timeout 2400 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          HOSTCC=gcc \
          HOSTCFLAGS="$HOSTCFLAGS" \
@@ -531,45 +335,21 @@ build() {
 
         echo ""
         echo "=== BUILD FALHOU ==="
-        echo "ANÁLISE DE ERRO:"
-
-        # Análise específica de erros
-        if grep -q "thumb conditional instruction should be in IT block" build.log; then
-            echo "❌ THUMB: Ainda há problemas com instruções Thumb condicionais"
-            echo "   Tentativa de forçar modo ARM não funcionou completamente"
-        fi
-
-        if grep -q "#endif without #if" build.log; then
-            echo "❌ PREPROCESSOR: Problema com #endif órfão"
-        fi
-
-        if grep -q "compiler-gcc.*\.h.*No such file" build.log; then
-            echo "❌ GCC HEADERS: Problema com headers de compatibilidade"
-        fi
-
-        echo ""
-        echo "=== PRIMEIROS 15 ERROS ==="
-        grep -E "(error|Error|fatal)" build.log | head -15
-
-        echo ""
-        echo "=== SUGESTÕES ==="
-        echo "1. Criar patch específico para conversão Thumb->ARM"
-        echo "2. Verificar se todos os Makefiles foram modificados"
-        echo "3. Considerar downgrade do GCC se possível"
+        echo "PRIMEIROS 20 ERROS:"
+        grep -E "(error|Error|fatal)" build.log | head -20
 
         exit 1
     fi
 
     if [ -f arch/arm/boot/zImage ]; then
         local size=$(stat -c%s arch/arm/boot/zImage)
-        echo "✓ SUCESSO! zImage criado: $size bytes"
+        echo "✅ SUCESSO! zImage: $size bytes"
     else
-        echo "❌ ERRO: zImage não foi criado"
+        echo "❌ ERRO: zImage não criado"
         exit 1
     fi
 
-    # Build de módulos (opcional)
-    echo "=== COMPILANDO MÓDULOS ==="
+    echo "=== MÓDULOS ==="
     make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          KBUILD_CFLAGS="$KBUILD_CFLAGS" \
          EXTRA_CFLAGS="$EXTRA_CFLAGS" \
@@ -579,26 +359,21 @@ build() {
 package() {
     cd "$builddir"
 
-    # Instalar kernel
     install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
 
-    # Instalar módulos
     make DESTDIR="$pkgdir" INSTALL_MOD_PATH="$pkgdir" \
          ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
          modules_install 2>/dev/null || true
 
-    # Instalar DTBs se existirem
     if [ -d arch/arm/boot/dts ]; then
         mkdir -p "$pkgdir/boot/dtbs-$_flavor"
         find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \; 2>/dev/null || true
     fi
 
-    # Link simbólico
     mkdir -p "$pkgdir/boot"
     ln -sf "vmlinuz-$_flavor" "$pkgdir/boot/vmlinuz" || true
 }
 
-# Checksums atualizados - você precisará calcular os novos checksums dos patches 50, 51, 52, 53 e 54
 sha512sums="
 7fa4253037e154e2f245e12b4d7999887d6fcf99c9e7d30601ecf53a2fe5d47f1a423dd9483dac9eec86b7e5a9daf0b48e8ddde7311cd091a66630ff0656bd45  linux-samsung-matisse3g-pmos-matisse3g-fixes.tar.gz
 4eff4dab705a03c3ce5082b00469b1d8728f6cda27a5e79786cc9bdb299f8421d016c74b0aa3e3da39e6849ac39d962b5a11aa7794ba18c5a376161447147c31  config-samsung-matisse3g.armv7
@@ -613,4 +388,8 @@ cc78c493bab45e72451cd63e7a1097fef533e8bec6598c6ccb3a1fb1aee4354b2db8e0ff39f2a3bc
 ae31b1bd9978c9467a0573f9e89073d1c21203df5836ce9628cdcbc507e68b27bc5240b12d74242a84fa9d402422451ee14bec2a7f4232f20a872007c3e0af39  52-fix-assembly-macros.patch
 6fdf6de484e8a4817b9e8a1283977598deaa0960d82a94c230018fbe6c926f299c5f9d07e063eb8c8d19c8e387a3d5bc069e84ed5ebdc32bdcc0faebe94c576f  53-comprehensive-assembly-fix.patch
 4cfe0f8e3647e2fca4558c6dca4a646cc15a6bdb02815723e05090bdb3be832a6461e96bd29b34476eb0b7bc97a338870f00ec4fa5aa267e476fb7173e1798b3  54-final-assembly-fix.patch
+1e4a630a8d83663304568c1fe676a952212131e2d9b0b7f09c5008c25beea8b24b0d2d9e451707cfa66f1055d96b669f4f6d854fafada08d9e14ca08d4199f40  55-fix-proc-pid-init-ino.patch
+8aa269fe7f29bbbef33b88262850fe21dd77775b0cf51fa5d54a9327072ca73349cbcef0ce686fe3b97dd14aa70e6978235d8b62a0d4960f4fb52b5f9b962d7d  56-fix-board-8226-of-dev-auxdata.patch
+3be948e06e479f2a48b44e7133ab13e67fd264e8c9cb66f9d7cc3c7e9b1f9291c10ab19629c0122dbf316791851491a41bd75d1d82f824df55edc25c6912fd6a  57-fix-lpm-levels-redefinition.patch
+84d8b3d95866ffcf68d5d3d7cc09f8ebf98e1f5409d18f97359bae7bfe49f86883aadf6a8a8f6f5621791c7c014093edd20a550325faeb5a4e2ce8f04b4d59c0  58-fix-entry-armv-jump-tables.patch
 "
