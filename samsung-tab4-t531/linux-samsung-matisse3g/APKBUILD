@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=95
+pkgrel=98
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531) - Versão corrigida para GCC14 com Thumb fix"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -131,7 +131,7 @@ EOF
     echo "=== CORRIGINDO MACROS ASSEMBLY PROBLEMÁTICAS ==="
 
     # Corrigir definições problemáticas em todos os arquivos assembly
-    for file in arch/arm/kernel/entry-header.S arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-common.S arch/arm/mm/cache-v7.S arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7-2level.S arch/arm/kernel/head.S arch/arm/kernel/head-common.S; do
+    for file in arch/arm/kernel/entry-header.S arch/arm/kernel/entry-armv.S arch/arm/kernel/entry-common.S arch/arm/mm/cache-v7.S arch/arm/mm/proc-v7.S arch/arm/mm/proc-v7-2level.S arch/arm/kernel/head.S arch/arm/kernel/head-common.S arch/arm/lib/*.S; do
         if [ -f "$file" ]; then
             # Criar backup
             cp "$file" "$file.backup"
@@ -260,21 +260,6 @@ EOF
         echo "Tabelas de salto completamente substituídas"
     fi
 
-    # Correções para problemas module_param com bool (GCC 14) - ABRANGENTE
-    echo "=== CORRIGINDO PROBLEMAS DE module_param COM BOOL (GLOBAL) ==="
-
-    # Usar find para pegar TODOS os arquivos .c recursivamente
-    find . -name "*.c" -type f -print0 2>/dev/null | while IFS= read -r -d '' file; do
-        if grep -q "module_param.*bool" "$file" 2>/dev/null; then
-            # Correção para module_param com espaços
-            sed -i 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param_named(\1, \1, int,/g' "$file"
-            # Correção para module_param_named com bool
-            sed -i 's/module_param_named[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param_named(\1, \2, int,/g' "$file"
-        fi
-    done
-
-    echo "Todos os module_param com bool foram corrigidos para int"
-
     # Correção para smd_private.h ausente - MAIS AGRESSIVA
     echo "=== CORRIGINDO PROBLEMA DE smd_private.h (AGRESSIVO) ==="
 
@@ -312,30 +297,6 @@ MODULE_DESCRIPTION("MSM SMD Init Platform - Stub");
 MODULE_LICENSE("GPL v2");
 EOF
         echo "smd_init_plat.c: completamente reescrito como stub"
-    fi
-
-    # Correção para PROC_PID_INIT_INO não definido
-    echo "=== CORRIGINDO PROC_PID_INIT_INO ==="
-
-    if [ -f include/linux/proc_fs.h ]; then
-        # Adicionar definição se não existir
-        if ! grep -q "PROC_PID_INIT_INO" include/linux/proc_fs.h; then
-            # Encontrar a linha com PROC_ROOT_INO e adicionar depois dela
-            sed -i '/^#define PROC_ROOT_INO[[:space:]]/a\
-#ifndef PROC_PID_INIT_INO\
-#define PROC_PID_INIT_INO 0xEFFFFFFFU\
-#endif' include/linux/proc_fs.h
-            echo "PROC_PID_INIT_INO definido em proc_fs.h"
-        fi
-    fi
-
-    # Se não encontrou PROC_ROOT_INO, adicionar no início
-    if [ -f include/linux/proc_fs.h ] && ! grep -q "PROC_PID_INIT_INO" include/linux/proc_fs.h; then
-        sed -i '1a\
-#ifndef PROC_PID_INIT_INO\
-#define PROC_PID_INIT_INO 0xEFFFFFFFU\
-#endif' include/linux/proc_fs.h
-        echo "PROC_PID_INIT_INO adicionado no início de proc_fs.h"
     fi
 
     # CORREÇÃO CRÍTICA: Forçar head.S e head-common.S para modo ARM puro
@@ -446,6 +407,39 @@ EOF
     done
 
     echo "Total de patches aplicados: $patches_applied"
+
+    # Correções APÓS patches - quando os arquivos já existem
+    echo "=== APLICANDO CORREÇÕES FINAIS PÓS-PATCHES ==="
+
+    # Correção global de module_param com bool
+    echo "Corrigindo module_param com bool globalmente..."
+    find . -name "*.c" -type f -print0 2>/dev/null | while IFS= read -r -d '' file; do
+        if grep -q "module_param.*bool" "$file" 2>/dev/null; then
+            sed -i 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param_named(\1, \1, int,/g' "$file"
+            sed -i 's/module_param_named[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param_named(\1, \2, int,/g' "$file"
+        fi
+    done
+    echo "✓ module_param com bool corrigidos"
+
+    # Correção para PROC_PID_INIT_INO - direto no arquivo
+    if [ -f kernel/pid.c ]; then
+        if ! grep -q "PROC_PID_INIT_INO" kernel/pid.c; then
+            sed -i '1a\
+#ifndef PROC_PID_INIT_INO\
+#define PROC_PID_INIT_INO 0xEFFFFFFFU\
+#endif' kernel/pid.c
+            echo "✓ PROC_PID_INIT_INO definido em kernel/pid.c"
+        fi
+    fi
+
+    # Correção para board-8226.c - adicionar include no início
+    if [ -f arch/arm/mach-msm/board-8226.c ]; then
+        if ! grep -q "linux/of_platform.h" arch/arm/mach-msm/board-8226.c; then
+            sed -i '1i\
+#include <linux/of_platform.h>' arch/arm/mach-msm/board-8226.c
+            echo "✓ of_platform.h incluído em board-8226.c"
+        fi
+    fi
 
     # Config
     if [ -f "$srcdir/config-samsung-matisse3g.armv7" ]; then
