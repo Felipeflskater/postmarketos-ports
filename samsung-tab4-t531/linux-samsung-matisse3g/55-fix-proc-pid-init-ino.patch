@@ -1,0 +1,11 @@
+--- a/kernel/pid.c
++++ b/kernel/pid.c
+@@ -38,6 +38,11 @@
+ #include <linux/pid_namespace.h>
+ #include <linux/init_task.h>
+ #include <linux/syscalls.h>
++#include <linux/proc_fs.h>
++
++#ifndef PROC_PID_INIT_INO
++#define PROC_PID_INIT_INO 0xEFFFFFFFU
++#endif
