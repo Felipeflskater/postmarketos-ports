@@ -1,0 +1,15 @@
+--- a/arch/arm/mach-msm/lpm_levels.c
++++ b/arch/arm/mach-msm/lpm_levels.c
+@@ -454,6 +454,7 @@ void lpm_cpu_hotplug_enter(unsigned int cpu)
+ 	spin_unlock(&bc_timer_lock);
+ }
+ 
++#ifndef CONFIG_SMP
+ s32 msm_cpuidle_get_deep_idle_latency(void)
+ {
+ 	int i;
+@@ -474,6 +475,7 @@ s32 msm_cpuidle_get_deep_idle_latency(void)
+ 
+ 	return 0;
+ }
++#endif
