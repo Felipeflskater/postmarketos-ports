@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=104
+pkgrel=108
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -104,25 +104,41 @@ HEADER_END
             -e '/vector_/i\.arm' "$f"
     done
 
-    # 6. entry-armv.S - Correções específicas
+    # 6. entry-armv.S - Correções específicas das linhas problemáticas
     if [ -f arch/arm/kernel/entry-armv.S ]; then
-        # Remover linhas problemáticas com operações inválidas
-        sed -i \
-            -e '1163s/.*/\t.long\t__sys_trace/' \
-            -e '1186s/.*/\t.long\t__sys_trace_return/' \
-            -e '1209s/.*/\t.long\t__pabt_usr/' \
-            -e '1232s/.*/\t.long\t__dabt_usr/' \
-            arch/arm/kernel/entry-armv.S
+        echo "Corrigindo entry-armv.S..."
+        # Essas linhas contêm operações inválidas com | em seções incompatíveis
+        # Substituir por valores diretos
+        sed -i '1168s/.*/\t.long\t__sys_trace/' arch/arm/kernel/entry-armv.S
+        sed -i '1192s/.*/\t.long\t__sys_trace_return/' arch/arm/kernel/entry-armv.S
+        sed -i '1216s/.*/\t.long\t__pabt_usr/' arch/arm/kernel/entry-armv.S
+        sed -i '1240s/.*/\t.long\t__dabt_usr/' arch/arm/kernel/entry-armv.S
     fi
 
     # 7. proc-v7.S - Remover linha 346
     sed -i '346d' arch/arm/mm/proc-v7.S 2>/dev/null
 
-    # 8. board-8226.c - Adicionar include
+    # 8. board-8226.c - Forçar include of_platform.h de forma robusta
     if [ -f arch/arm/mach-msm/board-8226.c ]; then
-        if ! grep -q "linux/of_platform.h" arch/arm/mach-msm/board-8226.c; then
-            sed -i '/#include <linux\/bootmem.h>/a#include <linux/of_platform.h>' \
-                arch/arm/mach-msm/board-8226.c
+        echo "Corrigindo board-8226.c..."
+
+        # Verificar se já existe
+        if grep -q "of_platform.h" arch/arm/mach-msm/board-8226.c; then
+            echo "  - of_platform.h já existe, removendo..."
+            sed -i '/of_platform\.h/d' arch/arm/mach-msm/board-8226.c
+        fi
+
+        # Adicionar no início da seção de includes (após a primeira linha de include)
+        sed -i '0,/^#include/s//\#include <linux\/of_platform.h>\n\#include/' \
+            arch/arm/mach-msm/board-8226.c
+
+        # Verificar
+        if grep -q "of_platform.h" arch/arm/mach-msm/board-8226.c; then
+            echo "  ✓ of_platform.h adicionado"
+        else
+            echo "  ✗ FALHA - tentando método alternativo"
+            # Método alternativo: adicionar após a linha de copyright
+            sed -i '/^ \*/a #include <linux/of_platform.h>' arch/arm/mach-msm/board-8226.c
         fi
     fi
 
@@ -161,8 +177,12 @@ CFLAGS_fault.o += -marm
 CFLAGS_init.o += -marm
 EOF
 
-    # 12. module_param bool
-    find . -name "*.c" -exec sed -i 's/module_param(\([^,]*\), *bool,/module_param(\1, int,/g' {} \; 2>/dev/null
+    # 12. module_param bool - Mais abrangente
+    echo "Corrigindo module_param bool..."
+    find . -name "*.c" -type f -exec sed -i \
+        -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param(\1, int,/g' \
+        -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*_Bool[[:space:]]*,/module_param(\1, int,/g' \
+        {} \; 2>/dev/null
 
     # Config
     cp "$srcdir/config-samsung-matisse3g.armv7" .config
