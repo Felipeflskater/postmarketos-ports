@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=108
+pkgrel=110
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -49,7 +49,7 @@ prepare() {
 EOF
     touch include/generated/asm-offsets.h include/generated/bounds.h
 
-    # Patches bases (apenas os que aplicam)
+    # Patches bases
     for p in 01-fix-timex-header.patch 03-fix-defconfig.patch \
              08-fix-asm-offsets-simple.patch 10-add-gcc15-conservative-flags.patch \
              11-fix-irq-timer-definitions-v2.patch 40-create-compiler-gcc14-header.patch \
@@ -57,26 +57,22 @@ EOF
         [ -f "$srcdir/$p" ] && patch -p1 -s -i "$srcdir/$p" 2>/dev/null
     done
 
-    # CORREÇÕES MANUAIS COMPLETAS
     echo "Aplicando correções manuais..."
 
     # 1. BUILD_BUG_ON
     sed -i 's/BUILD_BUG_ON(!__builtin_constant_p(offset));/\/\*BUILD_BUG_ON\*\//' include/linux/rcupdate.h 2>/dev/null
 
-    # 2. __LINUX_ARM_ARCH__ - Abordagem direta
+    # 2. __LINUX_ARM_ARCH__
     echo "Definindo __LINUX_ARM_ARCH__..."
     for f in arch/arm/include/asm/spinlock.h arch/arm/include/asm/div64.h \
              arch/arm/include/asm/atomic.h arch/arm/include/asm/cmpxchg.h; do
         if [ -f "$f" ]; then
-            # Criar arquivo temporário com a definição no início
             cat > "${f}.tmp" << 'HEADER_END'
 #ifndef __LINUX_ARM_ARCH__
 #define __LINUX_ARM_ARCH__ 7
 #endif
 HEADER_END
-            # Adicionar o conteúdo original
             cat "$f" >> "${f}.tmp"
-            # Substituir o original
             mv "${f}.tmp" "$f"
             echo "  - $f"
         fi
@@ -85,16 +81,15 @@ HEADER_END
     # 3. irqs.h
     sed -i '136{/^#endif$/d;}' arch/arm/mach-msm/include/mach/irqs.h 2>/dev/null
 
-    # 4. assembler.h - SMP error
+    # 4. assembler.h
     if [ -f arch/arm/include/asm/assembler.h ]; then
         sed -i 's/^#error Incompatible SMP platform$/#ifdef CONFIG_SMP\n#error Incompatible SMP platform\n#endif/' \
             arch/arm/include/asm/assembler.h
     fi
 
-    # 5. REMOVER TODAS AS MACROS PROBLEMÁTICAS - VERSÃO AGRESSIVA
+    # 5. Remover macros assembly
     echo "Removendo macros assembly..."
     find arch/arm/kernel arch/arm/mm arch/arm/lib -name "*.S" -type f 2>/dev/null | while read f; do
-        # Remover macros ARM/THUMB/BSYM/W/w
         sed -i \
             -e 's/\<ARM(\([^)]*\))/\1/g' \
             -e 's/\<THUMB(\([^)]*\))/\/\* \1 \*\//g' \
@@ -104,45 +99,43 @@ HEADER_END
             -e '/vector_/i\.arm' "$f"
     done
 
-    # 6. entry-armv.S - Correções específicas das linhas problemáticas
+    # 6. entry-armv.S
     if [ -f arch/arm/kernel/entry-armv.S ]; then
         echo "Corrigindo entry-armv.S..."
-        # Essas linhas contêm operações inválidas com | em seções incompatíveis
-        # Substituir por valores diretos
         sed -i '1168s/.*/\t.long\t__sys_trace/' arch/arm/kernel/entry-armv.S
         sed -i '1192s/.*/\t.long\t__sys_trace_return/' arch/arm/kernel/entry-armv.S
         sed -i '1216s/.*/\t.long\t__pabt_usr/' arch/arm/kernel/entry-armv.S
         sed -i '1240s/.*/\t.long\t__dabt_usr/' arch/arm/kernel/entry-armv.S
     fi
 
-    # 7. proc-v7.S - Remover linha 346
+    # 7. proc-v7.S
     sed -i '346d' arch/arm/mm/proc-v7.S 2>/dev/null
 
-    # 8. board-8226.c - Forçar include of_platform.h de forma robusta
+    # 8. board-8226.c - Adicionar includes de forma mais específica
     if [ -f arch/arm/mach-msm/board-8226.c ]; then
         echo "Corrigindo board-8226.c..."
 
-        # Verificar se já existe
-        if grep -q "of_platform.h" arch/arm/mach-msm/board-8226.c; then
-            echo "  - of_platform.h já existe, removendo..."
-            sed -i '/of_platform\.h/d' arch/arm/mach-msm/board-8226.c
-        fi
+        # Remover includes existentes
+        sed -i '/of_platform\.h/d; /linux\/errno\.h/d' arch/arm/mach-msm/board-8226.c
 
-        # Adicionar no início da seção de includes (após a primeira linha de include)
-        sed -i '0,/^#include/s//\#include <linux\/of_platform.h>\n\#include/' \
+        # Adicionar após a última linha de #include antes das definições
+        # Procurar por #include e adicionar nossos includes no final da seção
+        sed -i '/^#include.*bootmem/a #include <linux/errno.h>\n#include <linux/of_platform.h>' \
             arch/arm/mach-msm/board-8226.c
 
         # Verificar
-        if grep -q "of_platform.h" arch/arm/mach-msm/board-8226.c; then
-            echo "  ✓ of_platform.h adicionado"
+        if grep -q "of_platform.h" arch/arm/mach-msm/board-8226.c && \
+           grep -q "linux/errno.h" arch/arm/mach-msm/board-8226.c; then
+            echo "  ✓ errno.h e of_platform.h adicionados"
         else
             echo "  ✗ FALHA - tentando método alternativo"
-            # Método alternativo: adicionar após a linha de copyright
-            sed -i '/^ \*/a #include <linux/of_platform.h>' arch/arm/mach-msm/board-8226.c
+            # Método alternativo: adicionar após mach/
+            sed -i '/^#include <mach\//a #include <linux/errno.h>\n#include <linux/of_platform.h>' \
+                arch/arm/mach-msm/board-8226.c
         fi
     fi
 
-    # 9. smd_init_plat.c stub
+    # 9. smd_init_plat.c
     cat > arch/arm/mach-msm/smd_init_plat.c << 'EOF'
 #include <linux/module.h>
 #include <linux/init.h>
@@ -152,7 +145,7 @@ module_init(msm_smd_driver_init);
 MODULE_LICENSE("GPL v2");
 EOF
 
-    # 10. head.S - forçar ARM
+    # 10. head.S
     for f in arch/arm/kernel/head.S arch/arm/kernel/head-common.S; do
         [ -f "$f" ] && sed -i '1i\.arm\n.syntax unified' "$f"
     done
@@ -177,7 +170,7 @@ CFLAGS_fault.o += -marm
 CFLAGS_init.o += -marm
 EOF
 
-    # 12. module_param bool - Mais abrangente
+    # 12. module_param bool
     echo "Corrigindo module_param bool..."
     find . -name "*.c" -type f -exec sed -i \
         -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param(\1, int,/g' \
