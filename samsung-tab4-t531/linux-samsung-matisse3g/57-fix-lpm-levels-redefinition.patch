@@ -1,15 +1,37 @@
+--- a/arch/arm/mach-msm/include/mach/cpuidle.h
++++ b/arch/arm/mach-msm/include/mach/cpuidle.h
+@@ -25,11 +25,16 @@ struct msm_cpuidle_state {
+ };
+ 
+ #ifdef CONFIG_MSM_PM
++/* Declarações - implementação em lpm_levels.c */
+ int msm_cpuidle_init(void);
++s32 msm_cpuidle_get_deep_idle_latency(void);
+ #else
+-static inline s32 msm_cpuidle_get_deep_idle_latency(void) { return 0; }
++/* Stubs para quando CONFIG_MSM_PM não está definido */
+ static inline int msm_cpuidle_init(void) { return -ENOSYS; }
++static inline s32 msm_cpuidle_get_deep_idle_latency(void) { return 0; }
+ #endif
+ 
++/* Fim das declarações cpuidle */
++
+ #endif
 --- a/arch/arm/mach-msm/lpm_levels.c
 +++ b/arch/arm/mach-msm/lpm_levels.c
-@@ -454,6 +454,7 @@ void lpm_cpu_hotplug_enter(unsigned int cpu)
- 	spin_unlock(&bc_timer_lock);
+@@ -455,6 +455,7 @@ static int lpm_cpu_callback(struct notifier_block *cpu_nb,
+ 	return NOTIFY_OK;
  }
  
-+#ifndef CONFIG_SMP
++#ifdef CONFIG_MSM_PM
  s32 msm_cpuidle_get_deep_idle_latency(void)
  {
  	int i;
-@@ -474,6 +475,7 @@ s32 msm_cpuidle_get_deep_idle_latency(void)
+@@ -476,6 +477,7 @@ s32 msm_cpuidle_get_deep_idle_latency(void)
  
  	return 0;
  }
 +#endif
+ 
+ static int __devinit lpm_probe(struct platform_device *pdev)
+ {
