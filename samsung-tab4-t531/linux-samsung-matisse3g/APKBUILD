@@ -264,19 +264,35 @@ CPUIDLE_EOF
     done
 
     echo "  Criando definição única em header..."
-    # Criar header com a função
+    # Criar header com a função - NÃO redefinir o enum se pm.h já foi incluído
     cat > arch/arm/mach-msm/pm-check-mode.h << 'PMCHECK_EOF'
 #ifndef __MSM_PM_CHECK_MODE_H
 #define __MSM_PM_CHECK_MODE_H
 
 #include <linux/types.h>
 
-/* Stub para msm_cpu_pm_check_mode - evita múltiplas definições */
-static inline bool msm_cpu_pm_check_mode(unsigned int cpu, unsigned int mode)
+/*
+ * Este header fornece um stub para msm_cpu_pm_check_mode.
+ * Se pm.h for incluído, ele terá a declaração real da função.
+ * Este stub é usado apenas quando pm.h não está disponível.
+ */
+
+/* Apenas declare o enum se pm.h não foi incluído */
+#ifndef _ARCH_ARM_MACH_MSM_PM_H_
+enum msm_pm_sleep_mode {
+    MSM_PM_SLEEP_MODE_WAIT_FOR_INTERRUPT = 0,
+    MSM_PM_SLEEP_MODE_POWER_COLLAPSE = 1,
+    MSM_PM_SLEEP_MODE_NR = 2,
+};
+
+/* Stub inline - será usado apenas se pm.h não definiu a função */
+static inline bool msm_cpu_pm_check_mode(unsigned int cpu,
+                                          enum msm_pm_sleep_mode mode,
+                                          bool from_idle)
 {
-    /* Stub simples que sempre retorna true */
     return true;
 }
+#endif /* _ARCH_ARM_MACH_MSM_PM_H_ */
 
 #endif /* __MSM_PM_CHECK_MODE_H */
 PMCHECK_EOF
@@ -290,11 +306,12 @@ PMCHECK_EOF
              arch/arm/mach-msm/pm-stats.c \
              arch/arm/mach-msm/msm-pm.c; do
         if [ -f "$f" ]; then
-            # Remover includes antigos de pm.h que podem ter a função
-            sed -i '/^#include.*pm\.h/d' "$f"
             # Adicionar nosso header no topo (após os includes do sistema)
-            sed -i '/#include <linux\//a\#include "pm-check-mode.h"' "$f"
-            echo "    ✓ $f"
+            # Usar um marcador único para evitar duplicação
+            if ! grep -q "pm-check-mode.h" "$f"; then
+                sed -i '/#include <linux\//a\#include "pm-check-mode.h"' "$f"
+                echo "    ✓ $f"
+            fi
         fi
     done
 
