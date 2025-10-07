@@ -243,75 +243,41 @@ CPUIDLE_EOF
     # 14. FIX CRÍTICO: msm_cpu_pm_check_mode múltiplas definições
     echo "Corrigindo msm_cpu_pm_check_mode..."
 
-    # Abordagem nuclear: remover TODAS as definições da função de todos os arquivos .c
-    # e criar uma única definição em um header stub
+    # O problema real é que pm.h tem uma definição inline mas sem "static"
+    # Precisamos adicionar "static" à declaração inline em pm.h
 
-    echo "  Removendo todas as definições..."
+    echo "  Corrigindo pm.h para usar static inline..."
+    if [ -f arch/arm/mach-msm/pm.h ]; then
+        # Procurar pela declaração/definição da função e adicionar static
+        sed -i 's/^inline bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' \
+            arch/arm/mach-msm/pm.h
+        sed -i 's/^inline int msm_cpu_pm_check_mode/static inline int msm_cpu_pm_check_mode/g' \
+            arch/arm/mach-msm/pm.h
+        # Também procurar por definições sem inline
+        sed -i 's/^bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' \
+            arch/arm/mach-msm/pm.h
+        echo "  ✓ pm.h corrigido"
+    fi
+
+    # Também procurar em include/mach/pm.h
+    if [ -f arch/arm/mach-msm/include/mach/pm.h ]; then
+        sed -i 's/^inline bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' \
+            arch/arm/mach-msm/include/mach/pm.h
+        sed -i 's/^bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' \
+            arch/arm/mach-msm/include/mach/pm.h
+        echo "  ✓ include/mach/pm.h corrigido"
+    fi
+
+    echo "  Removendo todas as definições de .c..."
     for f in arch/arm/mach-msm/*.c; do
         if [ -f "$f" ]; then
-            # Remover definições bool
+            # Remover todas as possíveis definições
             sed -i '/^bool msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-            # Remover definições int
             sed -i '/^int msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-            # Remover definições inline bool
             sed -i '/^inline bool msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-            # Remover definições inline int
             sed -i '/^inline int msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-            # Remover definições static inline
             sed -i '/^static inline bool msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
             sed -i '/^static inline int msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-        fi
-    done
-
-    echo "  Criando definição única em header..."
-    # Criar header com a função - NÃO redefinir o enum se pm.h já foi incluído
-    cat > arch/arm/mach-msm/pm-check-mode.h << 'PMCHECK_EOF'
-#ifndef __MSM_PM_CHECK_MODE_H
-#define __MSM_PM_CHECK_MODE_H
-
-#include <linux/types.h>
-
-/*
- * Este header fornece um stub para msm_cpu_pm_check_mode.
- * Se pm.h for incluído, ele terá a declaração real da função.
- * Este stub é usado apenas quando pm.h não está disponível.
- */
-
-/* Apenas declare o enum se pm.h não foi incluído */
-#ifndef _ARCH_ARM_MACH_MSM_PM_H_
-enum msm_pm_sleep_mode {
-    MSM_PM_SLEEP_MODE_WAIT_FOR_INTERRUPT = 0,
-    MSM_PM_SLEEP_MODE_POWER_COLLAPSE = 1,
-    MSM_PM_SLEEP_MODE_NR = 2,
-};
-
-/* Stub inline - será usado apenas se pm.h não definiu a função */
-static inline bool msm_cpu_pm_check_mode(unsigned int cpu,
-                                          enum msm_pm_sleep_mode mode,
-                                          bool from_idle)
-{
-    return true;
-}
-#endif /* _ARCH_ARM_MACH_MSM_PM_H_ */
-
-#endif /* __MSM_PM_CHECK_MODE_H */
-PMCHECK_EOF
-
-    # Adicionar include nos arquivos problemáticos
-    echo "  Adicionando include nos arquivos..."
-    for f in arch/arm/mach-msm/no-pm.c \
-             arch/arm/mach-msm/board-8226.c \
-             arch/arm/mach-msm/clock-rpm.c \
-             arch/arm/mach-msm/lpm_levels.c \
-             arch/arm/mach-msm/pm-stats.c \
-             arch/arm/mach-msm/msm-pm.c; do
-        if [ -f "$f" ]; then
-            # Adicionar nosso header no topo (após os includes do sistema)
-            # Usar um marcador único para evitar duplicação
-            if ! grep -q "pm-check-mode.h" "$f"; then
-                sed -i '/#include <linux\//a\#include "pm-check-mode.h"' "$f"
-                echo "    ✓ $f"
-            fi
         fi
     done
 
