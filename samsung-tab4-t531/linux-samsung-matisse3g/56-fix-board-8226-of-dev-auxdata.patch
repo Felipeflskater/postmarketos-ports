@@ -1,8 +1,0 @@
---- a/arch/arm/mach-msm/board-8226.c
-+++ b/arch/arm/mach-msm/board-8226.c
-@@ -30,6 +30,7 @@
- #include <linux/msm_tsens.h>
- #include <linux/qpnp/qpnp-adc.h>
- #include <linux/bootmem.h>
-+#include <linux/of_platform.h>
- #include <asm/mach/map.h>
