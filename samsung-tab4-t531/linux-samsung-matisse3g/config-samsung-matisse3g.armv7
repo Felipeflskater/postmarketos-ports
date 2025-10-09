@@ -559,3 +559,13 @@ CONFIG_QMI_ENCDEC_DEBUG=n
 
 # MSM Timer fix - Definir interrupts
 CONFIG_MSM_LEGACY_TIMER=y
+
+# ============ STACK PROTECTOR - DISABLED FOR MUSL COMPATIBILITY ============
+# Stack protector causes undefined references to __stack_chk_guard and __stack_chk_fail
+# These symbols are not available in musl libc for old kernels
+CONFIG_CC_STACKPROTECTOR=n
+CONFIG_CC_STACKPROTECTOR_REGULAR=n
+CONFIG_CC_STACKPROTECTOR_STRONG=n
+CONFIG_STACKPROTECTOR=n
+CONFIG_STACKPROTECTOR_STRONG=n
+CONFIG_HAVE_CC_STACKPROTECTOR=n
