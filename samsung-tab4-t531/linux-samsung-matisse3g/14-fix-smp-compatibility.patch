@@ -1,0 +1,197 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -219,9 +219,6 @@
+ 	str	\first, [\base, \tmp]
+ 	.endm
+ 
+-#ifdef CONFIG_SMP
+-#error Incompatible SMP platform
+-#endif
+ 
+ 	.macro	enable_irq_notrace
+ 	cpsie	i
+--- a/arch/arm/mach-msm/platsmp.c
++++ b/arch/arm/mach-msm/platsmp.c
+@@ -377,9 +377,6 @@ struct smp_operations msm_smp_ops __initdata = {
+ 	.smp_prepare_cpus = msm_smp_prepare_cpus,
+ 	.smp_boot_secondary = msm_boot_secondary,
+ #ifdef CONFIG_HOTPLUG_CPU
+-	.cpu_kill = platform_cpu_kill,
+-	.cpu_die = platform_cpu_die,
+-	.cpu_disable = platform_cpu_disable
+ #endif
+ };
+ 
+@@ -387,9 +384,6 @@ struct smp_operations msm8974_smp_ops __initdata = {
+ 	.smp_prepare_cpus = msm8974_smp_prepare_cpus,
+ 	.smp_boot_secondary = msm_boot_secondary,
+ #ifdef CONFIG_HOTPLUG_CPU
+-	.cpu_kill = platform_cpu_kill,
+-	.cpu_die = platform_cpu_die,
+-	.cpu_disable = platform_cpu_disable
+ #endif
+ };
+ 
+@@ -397,9 +391,6 @@ struct smp_operations msm8960_smp_ops __initdata = {
+ 	.smp_prepare_cpus = msm8960_smp_prepare_cpus,
+ 	.smp_boot_secondary = msm_boot_secondary,
+ #ifdef CONFIG_HOTPLUG_CPU
+-	.cpu_kill = platform_cpu_kill,
+-	.cpu_die = platform_cpu_die,
+-	.cpu_disable = platform_cpu_disable
+ #endif
+ };
+ 
+@@ -407,9 +398,6 @@ struct smp_operations msm8226_smp_ops __initdata = {
+ 	.smp_prepare_cpus = msm8974_smp_prepare_cpus,
+ 	.smp_boot_secondary = msm_boot_secondary,
+ #ifdef CONFIG_HOTPLUG_CPU
+-	.cpu_kill = platform_cpu_kill,
+-	.cpu_die = platform_cpu_die,
+-	.cpu_disable = platform_cpu_disable
+ #endif
+ };
+ 
+@@ -417,9 +405,6 @@ struct smp_operations msm8610_smp_ops __initdata = {
+ 	.smp_prepare_cpus = msm8974_smp_prepare_cpus,
+ 	.smp_boot_secondary = msm_boot_secondary,
+ #ifdef CONFIG_HOTPLUG_CPU
+-	.cpu_kill = platform_cpu_kill,
+-	.cpu_die = platform_cpu_die,
+-	.cpu_disable = platform_cpu_disable
+ #endif
+ };
+ 
+--- /dev/null
++++ b/arch/arm/lib/lib1funcs_stub.c
+@@ -0,0 +1,23 @@
++#include <linux/module.h>
++#include <linux/kernel.h>
++
++long long __aeabi_ldivmod(long long n, long long d)
++{
++	return n / d;
++}
++EXPORT_SYMBOL(__aeabi_ldivmod);
++
++unsigned long long __aeabi_uldivmod(unsigned long long n, unsigned long long d)
++{
++	return n / d;
++}
++EXPORT_SYMBOL(__aeabi_uldivmod);
++
++void __bad_cmpxchg(volatile void *ptr, int size)
++{
++	printk(KERN_ERR "Bad cmpxchg size %d at %p\n", size, ptr);
++	BUG();
++}
++EXPORT_SYMBOL(__bad_cmpxchg);
++
++
+--- a/arch/arm/lib/Makefile
++++ b/arch/arm/lib/Makefile
+@@ -13,6 +13,7 @@ lib-y		:= backtrace.o changebit.o csumipv6.o csumpartial.o   \
+ 		   testchangebit.o testclearbit.o testsetbit.o	      \
+ 		   ashldi3.o ashrdi3.o lshrdi3.o muldi3.o             \
+ 		   ucmpdi2.o lib1funcs.o div64.o sha1.o	      \
++		   lib1funcs_stub.o				      \
+ 		   io-readsb.o io-writesb.o io-readsl.o io-writesl.o
+ 
+ obj-y += $(lib-y)
+--- a/arch/arm/mach-msm/Makefile
++++ b/arch/arm/mach-msm/Makefile
+@@ -1,5 +1,6 @@
+ obj-y += io.o timer.o
+ obj-y += clock.o
++obj-y += stubs.o
+ 
+ obj-$(CONFIG_ARCH_MSM8960) += board-msm8960.o devices-msm8960.o
+ obj-$(CONFIG_ARCH_MSM8X60) += board-msm8x60.o
+--- /dev/null
++++ b/arch/arm/mach-msm/stubs.c
+@@ -0,0 +1,85 @@
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <linux/of.h>
++#include <linux/of_fdt.h>
++
++int __init of_scan_flat_dt(int (*it)(unsigned long node, const char *uname, 
++				     int depth, void *data), void *data)
++{
++	return 0;
++}
++EXPORT_SYMBOL(of_scan_flat_dt);
++
++int __init msm_scan_dt_map_imem(unsigned long node, const char *uname,
++				int depth, void *data)
++{
++	return 0;
++}
++EXPORT_SYMBOL(msm_scan_dt_map_imem);
++
++void __init board_dt_populate(struct of_dev_auxdata *adata)
++{
++}
++EXPORT_SYMBOL(board_dt_populate);
++
++void __init setup_sched_clock(u32 (*read)(void), int bits, unsigned long rate)
++{
++}
++EXPORT_SYMBOL(setup_sched_clock);
++
++void __init msm_dt_init_irq(void)
++{
++}
++EXPORT_SYMBOL(msm_dt_init_irq);
++
++int __init msm_smd_driver_register(void)
++{
++	return 0;
++}
++EXPORT_SYMBOL(msm_smd_driver_register);
++
++int of_property_match_string(struct device_node *np, const char *propname,
++			      const char *string)
++{
++	return -ENODEV;
++}
++EXPORT_SYMBOL(of_property_match_string);
++
++void regulator_showall_enabled(void)
++{
++}
++EXPORT_SYMBOL(regulator_showall_enabled);
++
++int poweroff_charging = 0;
++EXPORT_SYMBOL(poweroff_charging);
++
++int spmi_dfs_create_file(void *data, const char *name, void *parent)
++{
++	return 0;
++}
++EXPORT_SYMBOL(spmi_dfs_create_file);
++
++void *rt6_lookup(void *net, void *daddr, void *saddr, int oif, int flags)
++{
++	return NULL;
++}
++EXPORT_SYMBOL(rt6_lookup);
++
++struct in6_addr {
++	union {
++		__u8 u6_addr8[16];
++	} in6_u;
++};
++
++struct in6_addr in6addr_any = { { { 0 } } };
++EXPORT_SYMBOL(in6addr_any);
++
++void sec_gaf_supply_rqinfo(void) {}
++EXPORT_SYMBOL(sec_gaf_supply_rqinfo);
++
++int MSM_GPIO_TO_INT(int gpio)
++{
++	return gpio + 32;
++}
++EXPORT_SYMBOL(MSM_GPIO_TO_INT);
