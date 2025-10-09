@@ -1,0 +1,38 @@
+--- a/Makefile
++++ b/Makefile
+@@ -371,6 +371,13 @@ LDFLAGS_MODULE  =
+ CFLAGS_KERNEL	=
+ AFLAGS_KERNEL	=
+ CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
++
++# Force disable stack protector at multiple levels
++# This prevents __stack_chk_guard and __stack_chk_fail linking errors with musl
++KBUILD_CFLAGS := $(filter-out -fstack-protector%,$(KBUILD_CFLAGS))
++KBUILD_CFLAGS += -fno-stack-protector
++KBUILD_AFLAGS := $(filter-out -fstack-protector%,$(KBUILD_AFLAGS))
++KBUILD_AFLAGS += -fno-stack-protector
+ 
+ 
+ # Use USERINCLUDE when you must reference the UAPI directories only.
+@@ -598,6 +605,10 @@ else
+ KBUILD_CFLAGS	+= -O2
+ endif
+ 
++# Ensure stack protector is disabled even if set by arch
++KBUILD_CFLAGS := $(filter-out -fstack-protector%,$(KBUILD_CFLAGS))
++KBUILD_CFLAGS += -fno-stack-protector
++
+ include $(srctree)/arch/$(SRCARCH)/Makefile
+ 
+ ifneq ($(CONFIG_FRAME_WARN),0)
+@@ -615,6 +626,10 @@ KBUILD_CFLAGS += $(stackp-flag)
+ endif
+ endif
+ 
++# Final override to disable stack protector
++KBUILD_CFLAGS := $(filter-out -fstack-protector%,$(KBUILD_CFLAGS))
++KBUILD_CFLAGS += -fno-stack-protector
++
+ ifdef CONFIG_FRAME_POINTER
+ KBUILD_CFLAGS	+= -fno-omit-frame-pointer -fno-optimize-sibling-calls
+ else
