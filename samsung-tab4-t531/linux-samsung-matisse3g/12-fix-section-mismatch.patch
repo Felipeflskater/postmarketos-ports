@@ -1,0 +1,13 @@
+--- a/Makefile
++++ b/Makefile
+@@ -371,6 +371,10 @@ LDFLAGS_MODULE  =
+ CFLAGS_KERNEL	=
+ AFLAGS_KERNEL	=
+ CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
++
++# Disable section mismatch errors for old kernel with modern GCC
++LDFLAGS_vmlinux += --no-warn-mismatch
++KBUILD_CFLAGS += -Wno-error
+ 
+ 
+ # Use USERINCLUDE when you must reference the UAPI directories only.
