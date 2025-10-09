@@ -1,0 +1,181 @@
+--- a/arch/arm/kernel/entry-armv.S
++++ b/arch/arm/kernel/entry-armv.S
+@@ -1167,10 +1167,10 @@ ENDPROC(__pabt_svc)
+ 	.align	5
+ __dabt_svc:
+ 	svc_entry
+-	mov	r0, sp
+ 
+ 	@
+ 	@ get ready to re-enable interrupts if appropriate
++	mov	r0, sp
+ 	@
+ 	mrs	r9, cpsr
+ 	tst	r3, #PSR_I_BIT
+--- a/arch/arm/mm/proc-macros.S
++++ b/arch/arm/mm/proc-macros.S
+@@ -60,6 +60,16 @@
+ 	.size	\name , . - \name
+ 	.endm
+ 
++/*
++ * Define cpu_tlb structure for v7 processors
++ */
++	.type	cpu_tlb, #object
++ENTRY(cpu_tlb)
++	.long	v7wbi_flush_user_tlb_range
++	.long	v7wbi_flush_kern_tlb_range
++	.long	v7wbi_tlb_flags
++	.size	cpu_tlb, . - cpu_tlb
++
+ 	.macro	define_tlb_functions name:req, flags_up:req, flags_smp
+ 	.type	\name\()_tlb_fns, #object
+ ENTRY(\name\()_tlb_fns)
+--- /dev/null
++++ b/arch/arm/lib/lib1funcs_stub.c
+@@ -0,0 +1,29 @@
++/*
++ * Stub implementations for missing libgcc functions
++ * Required for linking with musl libc
++ */
++
++#include <linux/module.h>
++#include <linux/kernel.h>
++
++/* 64-bit division stubs */
++long long __aeabi_ldivmod(long long n, long long d)
++{
++	return n / d;
++}
++EXPORT_SYMBOL(__aeabi_ldivmod);
++
++unsigned long long __aeabi_uldivmod(unsigned long long n, unsigned long long d)
++{
++	return n / d;
++}
++EXPORT_SYMBOL(__aeabi_uldivmod);
++
++/* These are handled by hardware on ARMv7 but may be needed for linking */
++void __bad_cmpxchg(volatile void *ptr, int size)
++{
++	printk(KERN_ERR "Bad cmpxchg size %d at %p\n", size, ptr);
++	BUG();
++}
++EXPORT_SYMBOL(__bad_cmpxchg);
++
+--- a/arch/arm/lib/Makefile
++++ b/arch/arm/lib/Makefile
+@@ -13,6 +13,8 @@ lib-y		:= backtrace.o changebit.o csumipv6.o csumpartial.o   \
+ 		   testchangebit.o testclearbit.o testsetbit.o	      \
+ 		   ashldi3.o ashrdi3.o lshrdi3.o muldi3.o             \
+ 		   ucmpdi2.o lib1funcs.o div64.o sha1.o	      \
++		   lib1funcs_stub.o				      \
+ 		   io-readsb.o io-writesb.o io-readsl.o io-writesl.o
+ 
++obj-y		+= lib1funcs_stub.o
++
+--- a/arch/arm/mach-msm/Makefile
++++ b/arch/arm/mach-msm/Makefile
+@@ -1,5 +1,6 @@
+ obj-y += io.o timer.o
+ obj-y += clock.o
++obj-y += stubs.o
+ 
+ obj-$(CONFIG_ARCH_MSM8960) += board-msm8960.o devices-msm8960.o
+ obj-$(CONFIG_ARCH_MSM8X60) += board-msm8x60.o devices-msm8x60.o
+--- /dev/null
++++ b/arch/arm/mach-msm/stubs.c
+@@ -0,0 +1,92 @@
++/*
++ * Stub implementations for missing MSM-specific functions
++ */
++
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <linux/of.h>
++#include <linux/of_fdt.h>
++#include <linux/regulator/consumer.h>
++
++/* Device tree stubs */
++int __init of_scan_flat_dt(int (*it)(unsigned long node, const char *uname, 
++				     int depth, void *data), void *data)
++{
++	return 0;
++}
++EXPORT_SYMBOL(of_scan_flat_dt);
++
++int __init msm_scan_dt_map_imem(unsigned long node, const char *uname,
++				int depth, void *data)
++{
++	return 0;
++}
++EXPORT_SYMBOL(msm_scan_dt_map_imem);
++
++void __init board_dt_populate(struct of_dev_auxdata *adata)
++{
++	/* Stub - device tree population */
++}
++EXPORT_SYMBOL(board_dt_populate);
++
++/* Timer stubs */
++void __init setup_sched_clock(u32 (*read)(void), int bits, unsigned long rate)
++{
++	/* Stub - scheduler clock setup */
++}
++EXPORT_SYMBOL(setup_sched_clock);
++
++/* IRQ stubs */
++void __init msm_dt_init_irq(void)
++{
++	/* Stub - IRQ initialization */
++}
++EXPORT_SYMBOL(msm_dt_init_irq);
++
++/* SMD stubs */
++int __init msm_smd_driver_register(void)
++{
++	return 0;
++}
++EXPORT_SYMBOL(msm_smd_driver_register);
++
++/* Property matching stub */
++int of_property_match_string(struct device_node *np, const char *propname,
++			      const char *string)
++{
++	return -ENODEV;
++}
++EXPORT_SYMBOL(of_property_match_string);
++
++/* Regulator stub */
++void regulator_showall_enabled(void)
++{
++	/* Stub */
++}
++EXPORT_SYMBOL(regulator_showall_enabled);
++
++/* Power off charging stub */
++int poweroff_charging = 0;
++EXPORT_SYMBOL(poweroff_charging);
++
++/* SPMI stub */
++int spmi_dfs_create_file(void *data, const char *name, void *parent)
++{
++	return 0;
++}
++EXPORT_SYMBOL(spmi_dfs_create_file);
++
++/* IPv6 routing stub */
++void *rt6_lookup(void *net, void *daddr, void *saddr, int oif, int flags)
++{
++	return NULL;
++}
++EXPORT_SYMBOL(rt6_lookup);
++
++/* IPv6 address stub */
++struct in6_addr in6addr_any = { { { 0 } } };
++EXPORT_SYMBOL(in6addr_any);
++
++/* GAF stub */
++void sec_gaf_supply_rqinfo(void) {}
++EXPORT_SYMBOL(sec_gaf_supply_rqinfo);
