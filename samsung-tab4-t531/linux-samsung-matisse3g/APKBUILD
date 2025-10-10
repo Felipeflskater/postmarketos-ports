@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=115
+pkgrel=117
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -22,6 +22,7 @@ source="
 	11-fix-irq-timer-definitions-v2.patch
 	12-fix-section-mismatch.patch
 	13-disable-stack-protector.patch
+	15-fix-assembler-double-include.patch
 	40-create-compiler-gcc14-header.patch
 	55-fix-proc-pid-init-ino.patch
 "
@@ -60,6 +61,7 @@ EOF
              11-fix-irq-timer-definitions-v2.patch \
              12-fix-section-mismatch.patch \
              13-disable-stack-protector.patch \
+             15-fix-assembler-double-include.patch \
              40-create-compiler-gcc14-header.patch \
              55-fix-proc-pid-init-ino.patch; do
         if [ -f "$srcdir/$p" ]; then
@@ -73,51 +75,51 @@ EOF
 
     echo "Aplicando correções manuais..."
 
-    # 1. BUILD_BUG_ON
-    sed -i 's/BUILD_BUG_ON(!__builtin_constant_p(offset));/\/\*BUILD_BUG_ON\*\//' include/linux/rcupdate.h 2>/dev/null
+    # 0. Adicionar #endif no final do assembler.h
+    echo "" >> arch/arm/include/asm/assembler.h
+    echo "#endif /* __ASM_ASSEMBLER_H__ */" >> arch/arm/include/asm/assembler.h
 
-    # 2. __LINUX_ARM_ARCH__
-    echo "Definindo __LINUX_ARM_ARCH__..."
-    for f in arch/arm/include/asm/spinlock.h arch/arm/include/asm/div64.h \
-             arch/arm/include/asm/atomic.h arch/arm/include/asm/cmpxchg.h; do
-        if [ -f "$f" ]; then
-            cat > "${f}.tmp" << 'HEADER_END'
-#ifndef __LINUX_ARM_ARCH__
-#define __LINUX_ARM_ARCH__ 7
-#endif
-HEADER_END
-            cat "$f" >> "${f}.tmp"
-            mv "${f}.tmp" "$f"
-            echo "  - $f"
+    # 0b. Definir __LINUX_ARM_ARCH__ em todos os headers ARM necessários
+    echo "Definindo __LINUX_ARM_ARCH__ em headers ARM..."
+    for f in arch/arm/include/asm/spinlock.h \
+             arch/arm/include/asm/div64.h \
+             arch/arm/include/asm/atomic.h \
+             arch/arm/include/asm/cmpxchg.h; do
+        if [ -f "$f" ] && ! grep -q "^#define __LINUX_ARM_ARCH__" "$f"; then
+            sed -i '1i#ifndef __LINUX_ARM_ARCH__\n#define __LINUX_ARM_ARCH__ 7\n#endif' "$f"
+            echo "  ✓ $f"
         fi
     done
 
-    # 3. irqs.h
+    # 1. BUILD_BUG_ON
+    sed -i 's/BUILD_BUG_ON(!__builtin_constant_p(offset));/\/\*BUILD_BUG_ON\*\//' include/linux/rcupdate.h 2>/dev/null
+
+    # 2. irqs.h
     sed -i '136{/^#endif$/d;}' arch/arm/mach-msm/include/mach/irqs.h 2>/dev/null
 
-    # 4. assembler.h - remover COMPLETAMENTE o bloco CONFIG_SMP problemático
-    if [ -f arch/arm/include/asm/assembler.h ]; then
-        echo "  Corrigindo assembler.h..."
-        # Remove o bloco inteiro: #ifdef CONFIG_SMP até seu #endif correspondente
-        # Procura pelo padrão específico e remove 3 linhas
-        sed -i '/^#ifdef CONFIG_SMP$/,/^#endif$/{ /^#ifdef CONFIG_SMP$/d; /^#error Incompatible SMP platform$/d; /^#endif$/d; }' \
-            arch/arm/include/asm/assembler.h
-        echo "  ✓ assembler.h corrigido"
-    fi
-
-    # 5. Remover macros assembly
-    echo "Removendo macros assembly..."
-    find arch/arm/kernel arch/arm/mm arch/arm/lib -name "*.S" -type f 2>/dev/null | while read f; do
+    # 3. Remover macros assembly - NÃO REMOVE string
+    echo "Removendo macros assembly específicas..."
+    find arch/arm/kernel arch/arm/lib -name "*.S" -type f 2>/dev/null | while read f; do
         sed -i \
             -e 's/\<ARM(\([^)]*\))/\1/g' \
             -e 's/\<THUMB(\([^)]*\))/\/\* \1 \*\//g' \
             -e 's/\<BSYM(\([^)]*\))/\1/g' \
-            -e 's/\<W(\([^)]*\))/\1/g' \
-            -e 's/\<w(\([^)]*\))/\1/g' \
             -e '/vector_/i\.arm' "$f"
     done
 
-    # 6. entry-armv.S
+    # 4. proc-v7.S - Substituir macro string
+    if [ -f arch/arm/mm/proc-v7.S ]; then
+        echo "Corrigindo proc-v7.S..."
+        # Substituir string cpu_v7_name
+        sed -i '/string cpu_v7_name/c\	.ascii	"ARMv7 Processor"\n	.size	cpu_v7_name, . - cpu_v7_name' arch/arm/mm/proc-v7.S
+        # Substituir string cpu_arch_name
+        sed -i '/string cpu_arch_name/c\	.type	cpu_arch_name, #object\ncpu_arch_name:\n	.ascii	"armv7"\n	.size	cpu_arch_name, . - cpu_arch_name' arch/arm/mm/proc-v7.S
+        # Substituir string cpu_elf_name
+        sed -i '/string cpu_elf_name/c\	.type	cpu_elf_name, #object\ncpu_elf_name:\n	.ascii	"v7"\n	.size	cpu_elf_name, . - cpu_elf_name' arch/arm/mm/proc-v7.S
+        echo "  ✓ proc-v7.S corrigido"
+    fi
+
+    # 5. entry-armv.S
     if [ -f arch/arm/kernel/entry-armv.S ]; then
         echo "Corrigindo entry-armv.S..."
         sed -i '1168s/.*/\t.long\t__sys_trace/' arch/arm/kernel/entry-armv.S
@@ -126,24 +128,17 @@ HEADER_END
         sed -i '1240s/.*/\t.long\t__dabt_usr/' arch/arm/kernel/entry-armv.S
     fi
 
-    # 7. proc-v7.S
-    sed -i '346d' arch/arm/mm/proc-v7.S 2>/dev/null
-
-    # 8. board-8226.c - REESCREVER COMPLETAMENTE como arrays vazios
+    # 6. board-8226.c
     if [ -f arch/arm/mach-msm/board-8226.c ]; then
         echo "Corrigindo board-8226.c (stub)..."
         sed -i '/^static struct of_dev_auxdata msm_hsic_host_adata/,/^};/c\
-/* Stubbed out - of_dev_auxdata not available */\
 static void *msm_hsic_host_adata = NULL;' arch/arm/mach-msm/board-8226.c
 
         sed -i '/^static struct of_dev_auxdata msm8226_auxdata_lookup/,/^};/c\
-/* Stubbed out - of_dev_auxdata not available */\
 static void *msm8226_auxdata_lookup = NULL;' arch/arm/mach-msm/board-8226.c
-
-        echo "  ✓ board-8226.c stubbed"
     fi
 
-    # 9. smd_init_plat.c
+    # 7. smd_init_plat.c
     cat > arch/arm/mach-msm/smd_init_plat.c << 'EOF'
 #include <linux/module.h>
 #include <linux/init.h>
@@ -153,12 +148,12 @@ module_init(msm_smd_driver_init);
 MODULE_LICENSE("GPL v2");
 EOF
 
-    # 10. head.S
+    # 8. head.S
     for f in arch/arm/kernel/head.S arch/arm/kernel/head-common.S; do
         [ -f "$f" ] && sed -i '1i\.arm\n.syntax unified' "$f"
     done
 
-    # 11. Makefiles
+    # 9. Makefiles
     cat >> arch/arm/vfp/Makefile << 'EOF'
 
 CFLAGS_vfpmodule.o += -marm
@@ -178,34 +173,26 @@ CFLAGS_fault.o += -marm
 CFLAGS_init.o += -marm
 EOF
 
-    # 12. module_param bool
-    echo "Corrigindo module_param bool..."
+    # 10. module_param bool
     find . -name "*.c" -type f -exec sed -i \
         -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param(\1, int,/g' \
         -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*_Bool[[:space:]]*,/module_param(\1, int,/g' \
         {} \; 2>/dev/null
 
-    # 13. FIX CRÍTICO: lpm_levels redefinition
-    echo "Corrigindo lpm_levels.c e cpuidle.h..."
-
+    # 11. lpm_levels
     if [ -f arch/arm/mach-msm/include/mach/cpuidle.h ]; then
         cat > arch/arm/mach-msm/include/mach/cpuidle.h.new << 'CPUIDLE_EOF'
 #ifndef __MACH_CPUIDLE_H
 #define __MACH_CPUIDLE_H
-
 #ifdef CONFIG_CPU_IDLE
-
 struct msm_cpuidle_state {
 	unsigned int cpu;
 	int state_nr;
 	char *name;
 	char *desc;
 };
-
 int msm_cpuidle_init(void);
-
 #endif
-
 #ifdef CONFIG_MSM_PM
 int msm_cpuidle_init(void);
 s32 msm_cpuidle_get_deep_idle_latency(void);
@@ -213,19 +200,15 @@ s32 msm_cpuidle_get_deep_idle_latency(void);
 static inline int msm_cpuidle_init(void) { return -ENOSYS; }
 static inline s32 msm_cpuidle_get_deep_idle_latency(void) { return 0; }
 #endif
-
 #endif
 CPUIDLE_EOF
         mv arch/arm/mach-msm/include/mach/cpuidle.h.new \
            arch/arm/mach-msm/include/mach/cpuidle.h
-
-        echo "  ✓ cpuidle.h corrigido"
     fi
 
     if [ -f arch/arm/mach-msm/lpm_levels.c ]; then
         sed -i '/^s32 msm_cpuidle_get_deep_idle_latency(void)$/i\
 #ifdef CONFIG_MSM_PM' arch/arm/mach-msm/lpm_levels.c
-
         awk '
             /^s32 msm_cpuidle_get_deep_idle_latency\(void\)/ { in_func=1 }
             in_func && /^}$/ && !done {
@@ -238,209 +221,103 @@ CPUIDLE_EOF
             { print }
         ' arch/arm/mach-msm/lpm_levels.c > lpm_levels.c.tmp
         mv lpm_levels.c.tmp arch/arm/mach-msm/lpm_levels.c
-
-        echo "  ✓ lpm_levels.c corrigido"
     fi
 
-    # 14. FIX CRÍTICO: msm_cpu_pm_check_mode múltiplas definições
-    echo "Corrigindo msm_cpu_pm_check_mode..."
-
+    # 12. msm_cpu_pm_check_mode
     if [ -f arch/arm/mach-msm/pm.h ]; then
-        sed -i 's/^inline bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' \
-            arch/arm/mach-msm/pm.h
-        sed -i 's/^inline int msm_cpu_pm_check_mode/static inline int msm_cpu_pm_check_mode/g' \
-            arch/arm/mach-msm/pm.h
-        sed -i 's/^bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' \
-            arch/arm/mach-msm/pm.h
-        echo "  ✓ pm.h corrigido"
+        sed -i 's/^inline bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' arch/arm/mach-msm/pm.h
+        sed -i 's/^bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' arch/arm/mach-msm/pm.h
     fi
 
     if [ -f arch/arm/mach-msm/include/mach/pm.h ]; then
-        sed -i 's/^inline bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' \
-            arch/arm/mach-msm/include/mach/pm.h
-        sed -i 's/^bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' \
-            arch/arm/mach-msm/include/mach/pm.h
-        echo "  ✓ include/mach/pm.h corrigido"
+        sed -i 's/^inline bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' arch/arm/mach-msm/include/mach/pm.h
+        sed -i 's/^bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' arch/arm/mach-msm/include/mach/pm.h
     fi
 
-    echo "  Removendo todas as definições de .c..."
     for f in arch/arm/mach-msm/*.c; do
-        if [ -f "$f" ]; then
-            sed -i '/^bool msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-            sed -i '/^int msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-            sed -i '/^inline bool msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-            sed -i '/^inline int msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-            sed -i '/^static inline bool msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-            sed -i '/^static inline int msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
-        fi
+        [ -f "$f" ] && sed -i '/^bool msm_cpu_pm_check_mode/,/^}/d; /^inline bool msm_cpu_pm_check_mode/,/^}/d; /^static inline bool msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
     done
 
-    echo "  ✓ msm_cpu_pm_check_mode corrigido"
-
-    # 15. FIX: platsmp.c - remover cpu_kill, cpu_die, cpu_disable
-    echo "Corrigindo platsmp.c hotplug..."
+    # 13. platsmp.c
     if [ -f arch/arm/mach-msm/platsmp.c ]; then
-        sed -i '/\.cpu_kill[[:space:]]*=/d' arch/arm/mach-msm/platsmp.c
-        sed -i '/\.cpu_die[[:space:]]*=/d' arch/arm/mach-msm/platsmp.c
-        sed -i '/\.cpu_disable[[:space:]]*=/d' arch/arm/mach-msm/platsmp.c
-        echo "  ✓ platsmp.c corrigido"
+        sed -i '/\.cpu_kill[[:space:]]*=/d; /\.cpu_die[[:space:]]*=/d; /\.cpu_disable[[:space:]]*=/d' arch/arm/mach-msm/platsmp.c
     fi
 
-    # 16. Criar lib1funcs_stub.c
-    echo "Criando lib1funcs_stub.c..."
+    # 14. lib1funcs_stub.c
     cat > arch/arm/lib/lib1funcs_stub.c << 'STUBEOF'
 #include <linux/module.h>
 #include <linux/kernel.h>
-
-long long __aeabi_ldivmod(long long n, long long d)
-{
-	return n / d;
-}
+long long __aeabi_ldivmod(long long n, long long d) { return n / d; }
 EXPORT_SYMBOL(__aeabi_ldivmod);
-
-unsigned long long __aeabi_uldivmod(unsigned long long n, unsigned long long d)
-{
-	return n / d;
-}
+unsigned long long __aeabi_uldivmod(unsigned long long n, unsigned long long d) { return n / d; }
 EXPORT_SYMBOL(__aeabi_uldivmod);
-
-void __bad_cmpxchg(volatile void *ptr, int size)
-{
-	printk(KERN_ERR "Bad cmpxchg size %d at %p\n", size, ptr);
-	BUG();
-}
+void __bad_cmpxchg(volatile void *ptr, int size) { printk(KERN_ERR "Bad cmpxchg\n"); BUG(); }
 EXPORT_SYMBOL(__bad_cmpxchg);
 STUBEOF
 
-    # Adicionar ao Makefile do lib
     if ! grep -q "lib1funcs_stub.o" arch/arm/lib/Makefile; then
-        sed -i '/ucmpdi2.o lib1funcs.o div64.o sha1.o/s/$/ \\\n\t\t   lib1funcs_stub.o/' \
-            arch/arm/lib/Makefile
-        echo "  ✓ lib1funcs_stub.c adicionado ao Makefile"
+        sed -i '/ucmpdi2.o lib1funcs.o div64.o sha1.o/s/$/ \\\n\t\t   lib1funcs_stub.o/' arch/arm/lib/Makefile
     fi
 
-    # 17. Criar stubs.c para MSM
-    echo "Criando stubs.c..."
+    # 15. stubs.c
     cat > arch/arm/mach-msm/stubs.c << 'MSMSTUBEOF'
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/of.h>
 #include <linux/of_fdt.h>
-
-int __init of_scan_flat_dt(int (*it)(unsigned long node, const char *uname,
-				     int depth, void *data), void *data)
-{
-	return 0;
-}
+int __init of_scan_flat_dt(int (*it)(unsigned long node, const char *uname, int depth, void *data), void *data) { return 0; }
 EXPORT_SYMBOL(of_scan_flat_dt);
-
-int __init msm_scan_dt_map_imem(unsigned long node, const char *uname,
-				int depth, void *data)
-{
-	return 0;
-}
+int __init msm_scan_dt_map_imem(unsigned long node, const char *uname, int depth, void *data) { return 0; }
 EXPORT_SYMBOL(msm_scan_dt_map_imem);
-
 void __init board_dt_populate(struct of_dev_auxdata *adata) {}
 EXPORT_SYMBOL(board_dt_populate);
-
 void __init setup_sched_clock(u32 (*read)(void), int bits, unsigned long rate) {}
 EXPORT_SYMBOL(setup_sched_clock);
-
 void __init msm_dt_init_irq(void) {}
 EXPORT_SYMBOL(msm_dt_init_irq);
-
-int __init msm_smd_driver_register(void)
-{
-	return 0;
-}
+int __init msm_smd_driver_register(void) { return 0; }
 EXPORT_SYMBOL(msm_smd_driver_register);
-
-int of_property_match_string(struct device_node *np, const char *propname,
-			      const char *string)
-{
-	return -ENODEV;
-}
+int of_property_match_string(struct device_node *np, const char *propname, const char *string) { return -ENODEV; }
 EXPORT_SYMBOL(of_property_match_string);
-
 void regulator_showall_enabled(void) {}
 EXPORT_SYMBOL(regulator_showall_enabled);
-
 int poweroff_charging = 0;
 EXPORT_SYMBOL(poweroff_charging);
-
-int spmi_dfs_create_file(void *data, const char *name, void *parent)
-{
-	return 0;
-}
+int spmi_dfs_create_file(void *data, const char *name, void *parent) { return 0; }
 EXPORT_SYMBOL(spmi_dfs_create_file);
-
-void *rt6_lookup(void *net, void *daddr, void *saddr, int oif, int flags)
-{
-	return NULL;
-}
+void *rt6_lookup(void *net, void *daddr, void *saddr, int oif, int flags) { return NULL; }
 EXPORT_SYMBOL(rt6_lookup);
-
-struct in6_addr {
-	union {
-		__u8 u6_addr8[16];
-	} in6_u;
-};
-
+struct in6_addr { union { __u8 u6_addr8[16]; } in6_u; };
 struct in6_addr in6addr_any = { { { 0 } } };
 EXPORT_SYMBOL(in6addr_any);
-
 void sec_gaf_supply_rqinfo(void) {}
 EXPORT_SYMBOL(sec_gaf_supply_rqinfo);
-
-int MSM_GPIO_TO_INT(int gpio)
-{
-	return gpio + 32;
-}
+int MSM_GPIO_TO_INT(int gpio) { return gpio + 32; }
 EXPORT_SYMBOL(MSM_GPIO_TO_INT);
 MSMSTUBEOF
 
-    # Adicionar ao Makefile do mach-msm
     if ! grep -q "stubs.o" arch/arm/mach-msm/Makefile; then
         sed -i '2i obj-y += stubs.o' arch/arm/mach-msm/Makefile
-        echo "  ✓ stubs.c adicionado ao Makefile"
     fi
 
-    echo "  ✓ Stubs criados com sucesso"
-
-    # 15. FIX: GPU sysfs Kbuild
-    echo "Corrigindo GPU sysfs Kbuild..."
+    # 16. GPU sysfs
     if [ -f drivers/gpu/gpu_sysfs/Kbuild ]; then
-        # Comentar a linha que causa erro
-        sed -i 's/^\$(error \*\*\*\* Make sure target file is defined/#\$(error \*\*\*\* Make sure target file is defined/' \
-            drivers/gpu/gpu_sysfs/Kbuild
-        echo "  ✓ GPU sysfs Kbuild corrigido"
+        sed -i 's/^\$(error \*\*\*\* Make sure target file is defined/#\$(error/' drivers/gpu/gpu_sysfs/Kbuild
     fi
 
     # Config
     cp "$srcdir/config-samsung-matisse3g.armv7" .config
-
-    # Enable SMP - required for proper compilation
     sed -i 's/# CONFIG_SMP is not set/CONFIG_SMP=y/' .config
     sed -i 's/CONFIG_NR_CPUS=1/CONFIG_NR_CPUS=4/' .config
 
     cat >> .config << 'EOF'
-# CONFIG_THUMB2_KERNEL is not set
 CONFIG_SMP=y
 CONFIG_NR_CPUS=4
 CONFIG_ARM_UNWIND=y
 CONFIG_MSM_PM=y
-# Disable section mismatch errors for build
 CONFIG_DEBUG_SECTION_MISMATCH=n
 CONFIG_NO_ERROR_ON_MISMATCH=y
-# Disable stack protector - causes linking errors with musl
-# CONFIG_CC_STACKPROTECTOR is not set
-# CONFIG_CC_STACKPROTECTOR_REGULAR is not set
-# CONFIG_CC_STACKPROTECTOR_STRONG is not set
-# CONFIG_STACKPROTECTOR is not set
-# CONFIG_STACKPROTECTOR_STRONG is not set
-# SMP configurations
 CONFIG_HAVE_SMP=y
 CONFIG_SMP_ON_UP=y
 CONFIG_ARM_CPU_TOPOLOGY=y
@@ -456,9 +333,8 @@ build() {
     timeout 2400 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
         HOSTCFLAGS="$HOSTCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS" \
         KBUILD_AFLAGS="$KBUILD_AFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS" \
-        CONFIG_NO_ERROR_ON_MISMATCH=y \
-        KCFLAGS="-fno-stack-protector" \
-        -j$(nproc) zImage || { grep -E "error:" build.log 2>/dev/null | head -10; exit 1; }
+        CONFIG_NO_ERROR_ON_MISMATCH=y KCFLAGS="-fno-stack-protector" \
+        -j$(nproc) zImage || exit 1
     [ -f arch/arm/boot/zImage ] || exit 1
     make modules 2>/dev/null || true
 }
@@ -483,6 +359,7 @@ c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad50
 7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
 3df086eb955c08fa770b43a16008a4eee7753ff9f1a47780a5528f3fda96f1cfb8f705c6931c83cb2ac2b9b6d20737998f99d13ae4c8e88f958d762237c2dc47  12-fix-section-mismatch.patch
 b738038c3aa96ddd210277626ccba22a1047d74b5a958f222f0983ba9771dab2210b2c39dc348398dce213d079e63c554379ddeacf071ad84d88a283c383c834  13-disable-stack-protector.patch
+ea6fe4df1252cba0117cdaf75f37917b21de1fd878c4e6c14f7962852d4e68db42102ee34c55b16f5d9c22ecb44e0abd8203f2beb2d6fd41b7e8b00559407b8f  15-fix-assembler-double-include.patch
 9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
 1e4a630a8d83663304568c1fe676a952212131e2d9b0b7f09c5008c25beea8b24b0d2d9e451707cfa66f1055d96b669f4f6d854fafada08d9e14ca08d4199f40  55-fix-proc-pid-init-ino.patch
 "
