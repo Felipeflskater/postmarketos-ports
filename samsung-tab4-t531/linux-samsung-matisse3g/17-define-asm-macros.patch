@@ -1,0 +1,87 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -23,6 +23,84 @@
+ #define __LINUX_ARM_ARCH__ 7
+ #endif
+ 
++/*
++ * Include ptrace.h for processor mode constants
++ */
++#include <asm/ptrace.h>
++
++/*
++ * Define ARM/THUMB macros for unified assembly syntax
++ */
++#ifdef CONFIG_THUMB2_KERNEL
++	.macro arm, instr:vararg
++	.endm
++	.macro thumb, instr:vararg
++	\instr
++	.endm
++#else
++	.macro arm, instr:vararg
++	\instr
++	.endm
++	.macro thumb, instr:vararg
++	.endm
++#endif
++
++/*
++ * Define W macro for wide instructions
++ */
++	.macro w, instr:vararg
++	\instr
++	.endm
++
++/*
++ * BSYM for symbol addressing in Thumb-2
++ */
++#ifdef CONFIG_THUMB2_KERNEL
++#define BSYM(sym) sym + 1
++#else
++#define BSYM(sym) sym
++#endif
++
++/*
++ * SMP alternates macros
++ */
++#ifdef CONFIG_SMP
++	.macro alt_smp, instr:vararg
++	\instr
++	.endm
++	.macro alt_up, instr:vararg
++	.endm
++	.macro alt_up_b, label:req
++	.endm
++#else
++	.macro alt_smp, instr:vararg
++	.endm
++	.macro alt_up, instr:vararg
++	\instr
++	.endm
++	.macro alt_up_b, label:req
++	b \label
++	.endm
++#endif
++
++/*
++ * User access macros
++ */
++	.macro user, instr:vararg
++	\instr
++	.endm
++
++/*
++ * IRQ control macros
++ */
++	.macro disable_irq_notrace
++	cpsid i
++	.endm
++
++	.macro enable_irq
++	cpsie i
++	.endm
++
+ /*
+  * Endian independent macros for shifting bytes within registers.
+  */
