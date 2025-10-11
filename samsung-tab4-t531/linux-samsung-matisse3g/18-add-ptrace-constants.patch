@@ -1,0 +1,32 @@
+--- a/arch/arm/include/asm/ptrace.h
++++ b/arch/arm/include/asm/ptrace.h
+@@ -26,6 +26,13 @@
+ #define PSR_I_BIT	0x00000080
+ #define PSR_A_BIT	0x00000100
+ #define PSR_E_BIT	0x00000200
++
++/* Additional PSR bits needed for assembly */
++#ifndef PSR_T_BIT
++#define PSR_T_BIT	0x00000020
++#endif
++#define PSR_F_BIT	0x00000040
++
+ #define PSR_J_BIT	0x01000000
+ #define PSR_Q_BIT	0x08000000
+ #define PSR_V_BIT	0x10000000
+@@ -44,6 +51,15 @@
+ #define MODE_SVC	0x00000013
+ #define MODE_ABT	0x00000017
+ #define MODE_UND	0x0000001b
++
++/* Mode aliases */
++#ifndef USR_MODE
++#define USR_MODE	MODE_USR
++#endif
++#ifndef MODE_MASK
++#define MODE_MASK	0x0000001f
++#endif
++
+ #define MODE_SYSTEM	0x0000001f
+ #define MODE32_BIT	0x00000010
+ #define MODE_THUMB	0x00000020
