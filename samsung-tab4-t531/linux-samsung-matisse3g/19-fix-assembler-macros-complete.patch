@@ -1,140 +1,70 @@
 --- a/arch/arm/include/asm/assembler.h
 +++ b/arch/arm/include/asm/assembler.h
-@@ -20,6 +20,7 @@
- #endif
- 
- #include <asm/ptrace.h>
-+#include <asm/domain.h>
- 
- #ifndef __LINUX_ARM_ARCH__
- #define __LINUX_ARM_ARCH__ 7
-@@ -27,6 +28,137 @@
+@@ -28,6 +28,98 @@
  
  #define IOMEM(x)	(x)
  
-+/*
-+ * Endian independent macros for shifting bytes within registers.
-+ */
 +#ifndef __ARMEB__
-+#define pull            lsr
-+#define push            lsl
-+#define get_byte_0      lsl #0
-+#define get_byte_1      lsr #8
-+#define get_byte_2      lsr #16
-+#define get_byte_3      lsr #24
-+#define put_byte_0      lsl #0
-+#define put_byte_1      lsl #8
-+#define put_byte_2      lsl #16
-+#define put_byte_3      lsl #24
++#define pull lsr
++#define push lsl
 +#else
-+#define pull            lsl
-+#define push            lsr
-+#define get_byte_0      lsr #24
-+#define get_byte_1      lsr #16
-+#define get_byte_2      lsr #8
-+#define get_byte_3      lsl #0
-+#define put_byte_0      lsl #24
-+#define put_byte_1      lsl #16
-+#define put_byte_2      lsl #8
-+#define put_byte_3      lsl #0
++#define pull lsl
++#define push lsr
 +#endif
 +
-+/*
-+ * Data preload for architectures that support it
-+ */
 +#if __LINUX_ARM_ARCH__ >= 5
-+#define PLD(code...)	code
++#define PLD(code...) code
 +#else
 +#define PLD(code...)
 +#endif
 +
-+/*
-+ * This can be used to enable code to cacheline align the destination
-+ * pointer when bulk writing to memory.  Experiments on StrongARM and
-+ * XScale didn't show this a worthwhile thing to do when the cache is not
-+ * set to write-allocate (this would need further testing on XScale when WA
-+ * is used).
-+ *
-+ * On Cortex-A9 at least, this is likely to be useful.
-+ */
 +#ifdef CONFIG_CPU_CACHE_VIPT
 +#define CALGN(code...) code
 +#else
 +#define CALGN(code...)
 +#endif
 +
-+/*
-+ * Enable and disable interrupts
-+ */
 +#if __LINUX_ARM_ARCH__ >= 6
-+	.macro	disable_irq_notrace
-+	cpsid	i
++	.macro disable_irq_notrace
++	cpsid i
 +	.endm
-+
-+	.macro	enable_irq_notrace
-+	cpsie	i
++	.macro enable_irq_notrace
++	cpsie i
 +	.endm
 +#else
-+	.macro	disable_irq_notrace
-+	msr	cpsr_c, #PSR_I_BIT | SVC_MODE
++	.macro disable_irq_notrace
++	msr cpsr_c, #PSR_I_BIT | SVC_MODE
 +	.endm
-+
-+	.macro	enable_irq_notrace
-+	msr	cpsr_c, #SVC_MODE
++	.macro enable_irq_notrace
++	msr cpsr_c, #SVC_MODE
 +	.endm
 +#endif
 +
-+	.macro	disable_irq
++	.macro disable_irq
 +	disable_irq_notrace
 +	.endm
 +
-+	.macro	enable_irq
++	.macro enable_irq
 +	enable_irq_notrace
 +	.endm
 +
-+/*
-+ * Save the current IRQ state and disable IRQs.  Note that this macro
-+ * assumes FIQs are enabled, and that the processor is in SVC mode.
-+ */
-+	.macro	save_and_disable_irqs, oldcpsr
-+	mrs	\oldcpsr, cpsr
-+	disable_irq
-+	.endm
-+
-+	.macro	save_and_disable_irqs_notrace, oldcpsr
-+	mrs	\oldcpsr, cpsr
-+	disable_irq_notrace
-+	.endm
-+
-+/*
-+ * Restore interrupt state previously stored in a register.  We don't
-+ * guarantee that this will preserve the flags.
-+ */
-+	.macro	restore_irqs_notrace, oldcpsr
-+	msr	cpsr_c, \oldcpsr
-+	.endm
-+
-+	.macro	restore_irqs, oldcpsr
-+	restore_irqs_notrace \oldcpsr
-+	.endm
-+
-+#define USER(x...)				\
-+9999:	x;					\
-+	.pushsection __ex_table,"a";		\
-+	.align	3;				\
-+	.long	9999b,9001f;			\
++#define USER(x...) \
++9999: x; \
++	.pushsection __ex_table,"a"; \
++	.align 3; \
++	.long 9999b,9001f; \
 +	.popsection
 +
 +#ifdef CONFIG_SMP
-+#define ALT_SMP(instr...)					\
-+9998:	instr
-+#define ALT_UP(instr...)					\
-+	.pushsection ".alt.smp.init", "a"			;\
-+	.long	9998b						;\
-+9997:	instr							;\
-+	.if . - 9997b != 4					;\
-+		.error "ALT_UP() content must assemble to exactly 4 bytes";\
-+	.endif							;\
++#define ALT_SMP(instr...) \
++9998: instr
++#define ALT_UP(instr...) \
++	.pushsection ".alt.smp.init", "a"; \
++	.long 9998b; \
++9997: instr; \
++	.if . - 9997b != 4; \
++		.error "ALT_UP() must be 4 bytes"; \
++	.endif; \
 +	.popsection
 +#define alt_smp(instr...) ALT_SMP(instr)
 +#define alt_up(instr...) ALT_UP(instr)
@@ -145,257 +75,115 @@
 +#define alt_up(instr...) instr
 +#endif
 +
-+	.macro	smp_dmb mode
-+	ALT_SMP(dmb)
-+	ALT_UP(nop)
++	.macro smp_dmb mode
++#ifdef CONFIG_SMP
++	dmb \mode
++#else
++	nop
++#endif
 +	.endm
 +
- /*
-  * Instruction barrier
-  */
-@@ -52,6 +184,76 @@
- #endif
- 	.endm
- 
 +#ifdef CONFIG_THUMB2_KERNEL
-+	.macro	setmode, mode, reg
-+	mov	\reg, #\mode
-+	msr	cpsr_c, \reg
++	.macro setmode, mode, reg
++	mov \reg, #\mode
++	msr cpsr_c, \reg
 +	.endm
 +#else
-+	.macro	setmode, mode, reg
-+	msr	cpsr_c, #\mode
-+	.endm
-+#endif
-+
-+/*
-+ * Helper macro to enter SVC mode cleanly and mask interrupts. reg is
-+ * a scratch register for the macro to overwrite.
-+ *
-+ * This macro is intended for forcing the CPU into SVC mode at boot time.
-+ * you cannot return to the original mode.
-+ */
-+.macro safe_svcmode_maskall reg:req
-+#if __LINUX_ARM_ARCH__ >= 6
-+	mrs	\reg , cpsr
-+	eor	\reg, \reg, #HYP_MODE
-+	tst	\reg, #MODE_MASK
-+	bic	\reg , \reg , #MODE_MASK
-+	orr	\reg , \reg , #PSR_I_BIT | PSR_F_BIT | SVC_MODE
-+THUMB(	orr	\reg , \reg , #PSR_T_BIT	)
-+	bne	1f
-+	orr	\reg, \reg, #PSR_A_BIT
-+	adr	lr, BSYM(2f)
-+	msr	spsr_cxsf, \reg
-+	__MSR_ELR_HYP(14)
-+	__ERET
-+1:	msr	cpsr_c, \reg
-+2:
-+#else
-+	msr	cpsr_c, #PSR_F_BIT | PSR_I_BIT | SVC_MODE
-+#endif
-+.endm
-+
-+/*
-+ * STRT/LDRT access macros with ARM and Thumb-2 variants
-+ */
-+#ifdef CONFIG_THUMB2_KERNEL
-+
-+	.macro	usraccoff, instr, reg, ptr, inc, off, cond, abort, t=TUSER()
-+9999:
-+	.if	\inc == 1
-+	\instr\cond\()b\()\t\().w \reg, [\ptr, #\off]
-+	.elseif	\inc == 4
-+	\instr\cond\()\t\().w \reg, [\ptr, #\off]
-+	.else
-+	.error	"Unsupported inc macro argument"
-+	.endif
-+
-+	.pushsection __ex_table,"a"
-+	.align	3
-+	.long	9999b, \abort
-+	.popsection
-+	.endm
-+
-+	.macro	usracc, instr, reg, ptr, inc, cond, rept, abort
-+	@ Slightly optimised to avoid incrementing the pointer twice
-+	usraccoff \instr, \reg, \ptr, \inc, 0, \cond, \abort
-+	.if	\rept == 2
-+	usraccoff \instr, \reg, \ptr, \inc, \inc, \cond, \abort
-+	.endif
-+
-+	add\cond \ptr, #\rept * \inc
-+	.endm
-+
- #else	/* CONFIG_THUMB2_KERNEL */
- 
- 	.macro	usracc, instr, reg, ptr, inc, cond, rept, abort, t=TUSER()
-@@ -67,6 +269,8 @@
- 	.popsection
- 	.endr
- 	.endm
-+
-+#endif	/* CONFIG_THUMB2_KERNEL */
- 
- 	.macro	strusr, reg, ptr, inc, cond=al, rept=1, abort=9001f
- 	usracc	str, \reg, \ptr, \inc, \cond, \rept, \abort
-@@ -76,4 +280,162 @@
- 	usracc	ldr, \reg, \ptr, \inc, \cond, \rept, \abort
- 	.endm
- 
-+/* Utility macro for declaring string literals */
-+	.macro	string name:req, string
-+	.type \name , #object
-+\name:
-+	.asciz "\string"
-+	.size \name , . - \name
-+	.endm
-+
-+	.macro check_uaccess, addr:req, size:req, limit:req, tmp:req, bad:req
-+#ifndef CONFIG_CPU_USE_DOMAINS
-+	adds	\tmp, \addr, #\size - 1
-+	sbcccs	\tmp, \tmp, \limit
-+	bcs	\bad
-+#endif
-+	.endm
-+
-+#ifndef CONFIG_THUMB2_KERNEL
-+	.macro	ldst, load:req, w, b, reg, base
-+	.if	\w
-+	\load\()r\b	\reg, [\base], #4
-+	.else
-+	\load\()r\b	\reg, [\base]
-+	.endif
-+	.endm
-+#else
-+	.macro	ldst, load:req, w, b, reg, base
-+	.if	\w
-+	\load\b	\reg, [\base], #4
-+	.else
-+	\load\b	\reg, [\base]
-+	.endif
++	.macro setmode, mode, reg
++	msr cpsr_c, #\mode
 +	.endm
 +#endif
 +
 +#define BSYM(sym) sym + 1
++#define USERL(l, x...) USER(x)
 +
-+/*
-+ * Store user mode sp and lr
-+ */
+ /*
+  * Instruction barrier
+  */
+@@ -53,6 +145,19 @@
+ #endif
+ 	.endm
+ 
++#ifdef CONFIG_THUMB2_KERNEL
++	.macro usraccoff, instr, reg, ptr, inc, off, cond, abort, t=TUSER()
++9999:
++	.if \inc == 1
++	\instr\cond\()b\()\t\().w \reg, [\ptr, #\off]
++	.elseif \inc == 4
++	\instr\cond\()\t\().w \reg, [\ptr, #\off]
++	.else
++	.error "Unsupported inc"
++	.endif
++	.pushsection __ex_table,"a"
++	.align 3
++	.long 9999b, \abort
++	.popsection
++	.endm
++	.macro usracc, instr, reg, ptr, inc, cond, rept, abort
++	usraccoff \instr, \reg, \ptr, \inc, 0, \cond, \abort
++	add\cond \ptr, #\rept * \inc
++	.endm
++#else
+ 	.macro	usracc, instr, reg, ptr, inc, cond, rept, abort, t=TUSER()
+ 	.rept	\rept
+ 9999:
+@@ -68,6 +173,7 @@
+ 	.popsection
+ 	.endr
+ 	.endm
++#endif
+ 
+ 	.macro	strusr, reg, ptr, inc, cond=al, rept=1, abort=9001f
+ 	usracc	str, \reg, \ptr, \inc, \cond, \rept, \abort
+@@ -77,4 +183,51 @@
+ 	usracc	ldr, \reg, \ptr, \inc, \cond, \rept, \abort
+ 	.endm
+ 
 +#ifndef CONFIG_THUMB2_KERNEL
-+	.macro	store_user_sp_lr, base, off
-+	stmdb	\base, {sp, lr}^
++	.macro store_user_sp_lr, base, off
++	stmdb \base, {sp, lr}^
 +	.endm
 +#else
-+	.macro	store_user_sp_lr, base, tmp, off
-+	str	sp, [\base, #\off]
-+	str	lr, [\base, #\off + 4]
++	.macro store_user_sp_lr, base, tmp, off
++	str sp, [\base, #\off]
++	str lr, [\base, #\off + 4]
 +	.endm
 +#endif
 +
-+/*
-+ * These two macros should be used in pairs
-+ */
-+	.macro	preserve_irqs, tmp
-+	mrs	\tmp, cpsr
-+	.endm
-+
-+	.macro	restore_irqs_from, tmp
-+	tst	\tmp, #PSR_I_BIT
-+	bleq	trace_hardirqs_on
-+	tst	\tmp, #PSR_I_BIT
-+	blne	trace_hardirqs_off
-+	.endm
-+
-+#if __LINUX_ARM_ARCH__ >= 6
-+#define USERL(l, x...)				\
-+9999:	x;					\
-+	.pushsection __ex_table,"a";		\
-+	.align	3;				\
-+	.long	9999b,l;			\
-+	.popsection
-+#else
-+#define USERL(l, x...)				\
-+9999:	x;					\
-+	.pushsection __ex_table,"a";		\
-+	.align	3;				\
-+	.long	9999b,l;			\
-+	.popsection
-+#endif
-+
-+/*
-+ * ARM/Thumb conditional instruction wrappers
-+ */
-+	.macro	arm, instr:vararg
++	.macro arm, instr:vararg
 +#ifndef CONFIG_THUMB2_KERNEL
 +	\instr
 +#endif
 +	.endm
 +
-+	.macro	thumb, instr:vararg
++	.macro thumb, instr:vararg
 +#ifdef CONFIG_THUMB2_KERNEL
 +	\instr
 +#endif
 +	.endm
 +
-+/*
-+ * Wrapper for W() macro
-+ */
-+	.macro	w, instr
++	.macro w, instr
 +	\instr
 +	.endm
 +
-+#if __LINUX_ARM_ARCH__ >= 7 || \
-+    (__LINUX_ARM_ARCH__ == 6 && defined(CONFIG_CPU_32v6K))
-+	.macro	bitop, name, instr
-+ENTRY(	\name		)
-+UNWIND(	.fnstart	)
-+	ands	ip, r1, #3
-+	strneb	r1, [ip]
-+	mov	r2, #1
-+	and	r3, r0, #31
-+	mov	r0, r0, lsr #5
-+	add	r1, r1, r0, lsl #2
-+	mov	r3, r2, lsl r3
-+1:	ldrex	r2, [r1]
-+	\instr	r2, r2, r3
-+	strex	r0, r2, [r1]
-+	cmp	r0, #0
-+	bne	1b
-+	bx	lr
-+UNWIND(	.fnend		)
-+ENDPROC(\name		)
-+	.endm
-+
-+	.macro	testop, name, instr, store
-+ENTRY(	\name		)
-+UNWIND(	.fnstart	)
-+	ands	ip, r1, #3
-+	strneb	r1, [ip]
-+	mov	r2, #1
-+	and	r3, r0, #31
-+	mov	r0, r0, lsr #5
-+	add	r1, r1, r0, lsl #2
-+	mov	r3, r2, lsl r3
-+	smp_dmb
-+1:	ldrex	r2, [r1]
-+	ands	r0, r2, r3
-+	\instr	r2, r2, r3
-+	strex	ip, r2, [r1]
-+	cmp	ip, #0
-+	bne	1b
-+	smp_dmb
-+	cmp	r0, #0
-+	movne	r0, #1
-+2:	bx	lr
-+UNWIND(	.fnend		)
-+ENDPROC(\name		)
++#if __LINUX_ARM_ARCH__ >= 7
++	.macro bitop, name, instr
++ENTRY(\name)
++	ands ip, r1, #3
++	mov r2, #1
++	and r3, r0, #31
++	add r1, r1, r0, lsr #3
++	mov r3, r2, lsl r3
++1:	ldrex r2, [r1]
++	\instr r2, r2, r3
++	strex r0, r2, [r1]
++	cmp r0, #0
++	bne 1b
++	bx lr
++ENDPROC(\name)
 +	.endm
 +#else
-+	.macro	bitop, name, instr
-+	.endm
-+
-+	.macro	testop, name, instr, store
++	.macro bitop, name, instr
 +	.endm
 +#endif
 +
