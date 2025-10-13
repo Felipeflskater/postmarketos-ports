@@ -1,6 +1,6 @@
 --- a/arch/arm/include/asm/assembler.h
 +++ b/arch/arm/include/asm/assembler.h
-@@ -28,6 +28,98 @@
+@@ -28,6 +28,95 @@
  
  #define IOMEM(x)	(x)
  
@@ -63,7 +63,7 @@
 +	.long 9998b; \
 +9997: instr; \
 +	.if . - 9997b != 4; \
-+		.error "ALT_UP() must be 4 bytes"; \
++		.error "must be 4"; \
 +	.endif; \
 +	.popsection
 +#define alt_smp(instr...) ALT_SMP(instr)
@@ -94,13 +94,14 @@
 +	.endm
 +#endif
 +
-+#define BSYM(sym) sym + 1
++#define BSYM(x) (x)
++
 +#define USERL(l, x...) USER(x)
 +
  /*
   * Instruction barrier
   */
-@@ -53,6 +145,19 @@
+@@ -53,6 +142,16 @@
  #endif
  	.endm
  
@@ -112,7 +113,7 @@
 +	.elseif \inc == 4
 +	\instr\cond\()\t\().w \reg, [\ptr, #\off]
 +	.else
-+	.error "Unsupported inc"
++	.error "bad inc"
 +	.endif
 +	.pushsection __ex_table,"a"
 +	.align 3
@@ -127,7 +128,7 @@
  	.macro	usracc, instr, reg, ptr, inc, cond, rept, abort, t=TUSER()
  	.rept	\rept
  9999:
-@@ -68,6 +173,7 @@
+@@ -68,6 +167,7 @@
  	.popsection
  	.endr
  	.endm
@@ -135,7 +136,7 @@
  
  	.macro	strusr, reg, ptr, inc, cond=al, rept=1, abort=9001f
  	usracc	str, \reg, \ptr, \inc, \cond, \rept, \abort
-@@ -77,4 +183,51 @@
+@@ -77,4 +177,31 @@
  	usracc	ldr, \reg, \ptr, \inc, \cond, \rept, \abort
  	.endm
  
@@ -165,26 +166,5 @@
 +	.macro w, instr
 +	\instr
 +	.endm
-+
-+#if __LINUX_ARM_ARCH__ >= 7
-+	.macro bitop, name, instr
-+ENTRY(\name)
-+	ands ip, r1, #3
-+	mov r2, #1
-+	and r3, r0, #31
-+	add r1, r1, r0, lsr #3
-+	mov r3, r2, lsl r3
-+1:	ldrex r2, [r1]
-+	\instr r2, r2, r3
-+	strex r0, r2, [r1]
-+	cmp r0, #0
-+	bne 1b
-+	bx lr
-+ENDPROC(\name)
-+	.endm
-+#else
-+	.macro bitop, name, instr
-+	.endm
-+#endif
 +
  #endif /* __ASM_ASSEMBLER_H__ */
