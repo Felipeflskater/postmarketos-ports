@@ -1,0 +1,134 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -196,4 +196,104 @@
+ #define USERL(l, x...)
+ #endif
+ 
++/*
++ * Additional macros for ARM assembly compatibility
++ */
++
++/* Pull/Push direction macros */
++#ifndef __ARMEB__
++#define pull lsr
++#define push lsl
++#else
++#define pull lsl
++#define push lsr
++#endif
++
++/* PLD macro for prefetch */
++#if __LINUX_ARM_ARCH__ >= 5
++#define PLD(code...) code
++#else
++#define PLD(code...)
++#endif
++
++/* Cache alignment macro */
++#ifdef CONFIG_CPU_CACHE_VIPT
++#define CALGN(code...) code
++#else
++#define CALGN(code...)
++#endif
++
++/* IRQ disable/enable macros */
++#if __LINUX_ARM_ARCH__ >= 6
++	.macro disable_irq_notrace
++	cpsid i
++	.endm
++	.macro enable_irq_notrace
++	cpsie i
++	.endm
++#else
++	.macro disable_irq_notrace
++	msr cpsr_c, #PSR_I_BIT | SVC_MODE
++	.endm
++	.macro enable_irq_notrace
++	msr cpsr_c, #SVC_MODE
++	.endm
++#endif
++
++	.macro disable_irq
++	disable_irq_notrace
++	.endm
++
++	.macro enable_irq
++	enable_irq_notrace
++	.endm
++
++/* User access macro */
++#define USER(x...) \
++	9999: x; \
++	.pushsection __ex_table,"a"; \
++	.align 3; \
++	.long 9999b,9001f; \
++	.popsection
++
++/* SMP/UP alternative macros */
++#ifdef CONFIG_SMP
++#define ALT_SMP(instr...) \
++	9998: instr
++#define ALT_UP(instr...) \
++	.pushsection ".alt.smp.init", "a"; \
++	.long 9998b; \
++	9997: instr; \
++	.if . - 9997b != 4; \
++	.error "must be 4"; \
++	.endif; \
++	.popsection
++#define alt_smp(instr...) ALT_SMP(instr)
++#define alt_up(instr...) ALT_UP(instr)
++#else
++#define ALT_SMP(instr...)
++#define ALT_UP(instr...) instr
++#define alt_smp(instr...)
++#define alt_up(instr...) instr
++#endif
++
++	.macro smp_dmb mode
++#ifdef CONFIG_SMP
++	dmb \mode
++#else
++	nop
++#endif
++	.endm
++
++/* Setmode macro */
++#ifdef CONFIG_THUMB2_KERNEL
++	.macro setmode, mode, reg
++	mov \reg, #\mode
++	msr cpsr_c, \reg
++	.endm
++#else
++	.macro setmode, mode, reg
++	msr cpsr_c, #\mode
++	.endm
++#endif
++
++/* BSYM and USERL macros */
++#ifndef BSYM
++#define BSYM(x) (x)
++#endif
++
++#ifndef USERL
++#define USERL(l,x...) USER(x)
++#endif
++
++/* ARM/Thumb/W instruction macros */
++	.macro arm, instr:vararg
++#ifndef CONFIG_THUMB2_KERNEL
++	\instr
++#endif
++	.endm
++
++	.macro thumb, instr:vararg
++#ifdef CONFIG_THUMB2_KERNEL
++	\instr
++#endif
++	.endm
++
++	.macro w, instr
++	\instr
++	.endm
++
+ #endif /* __ASM_ASSEMBLER_H__ */
