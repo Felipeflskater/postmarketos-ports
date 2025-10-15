@@ -184,8 +184,10 @@ EOF
         { print }
         ' arch/arm/include/asm/assembler.h.bak > arch/arm/include/asm/assembler.h
 
-        # Adicionar macros arm/thumb/w no final antes do #endif
-        sed -i '/#endif \/\* __ASM_ASSEMBLER_H__ \*\//i\
+        # Adicionar macros arm/thumb/w e garantir que o #endif final existe
+        # Primeiro, vamos adicionar as macros antes do último #endif
+        if grep -q '#endif.*__ASM_ASSEMBLER_H__' arch/arm/include/asm/assembler.h; then
+            sed -i '/#endif.*__ASM_ASSEMBLER_H__/i\
 \
 \t.macro arm, instr:vararg\
 #ifndef CONFIG_THUMB2_KERNEL\
@@ -203,6 +205,29 @@ EOF
 \t\\instr\
 \t.endm\
 ' arch/arm/include/asm/assembler.h
+        else
+            # Se não encontrou o endif, adiciona as macros e o endif
+            cat >> arch/arm/include/asm/assembler.h << 'ASMEOF'
+
+	.macro arm, instr:vararg
+#ifndef CONFIG_THUMB2_KERNEL
+	\instr
+#endif
+	.endm
+
+	.macro thumb, instr:vararg
+#ifdef CONFIG_THUMB2_KERNEL
+	\instr
+#endif
+	.endm
+
+	.macro w, instr
+	\instr
+	.endm
+
+#endif /* __ASM_ASSEMBLER_H__ */
+ASMEOF
+        fi
 
         echo "  ✓ assembler.h atualizado"
     fi
@@ -272,8 +297,133 @@ EOF
         -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*_Bool[[:space:]]*,/module_param(\1, int,/g' \
         {} \; 2>/dev/null
 
-    # 11-15. (restante das correções continuam igual)
-    # ... [código anterior do APKBUILD continua aqui]
+    # 11. lpm_levels
+    if [ -f arch/arm/mach-msm/include/mach/cpuidle.h ]; then
+        cat > arch/arm/mach-msm/include/mach/cpuidle.h.new << 'CPUIDLE_EOF'
+#ifndef __MACH_CPUIDLE_H
+#define __MACH_CPUIDLE_H
+#ifdef CONFIG_CPU_IDLE
+struct msm_cpuidle_state {
+	unsigned int cpu;
+	int state_nr;
+	char *name;
+	char *desc;
+};
+int msm_cpuidle_init(void);
+#endif
+#ifdef CONFIG_MSM_PM
+int msm_cpuidle_init(void);
+s32 msm_cpuidle_get_deep_idle_latency(void);
+#else
+static inline int msm_cpuidle_init(void) { return -ENOSYS; }
+static inline s32 msm_cpuidle_get_deep_idle_latency(void) { return 0; }
+#endif
+#endif
+CPUIDLE_EOF
+        mv arch/arm/mach-msm/include/mach/cpuidle.h.new \
+           arch/arm/mach-msm/include/mach/cpuidle.h
+    fi
+
+    if [ -f arch/arm/mach-msm/lpm_levels.c ]; then
+        sed -i '/^s32 msm_cpuidle_get_deep_idle_latency(void)$/i\
+#ifdef CONFIG_MSM_PM' arch/arm/mach-msm/lpm_levels.c
+        awk '
+            /^s32 msm_cpuidle_get_deep_idle_latency\(void\)/ { in_func=1 }
+            in_func && /^}$/ && !done {
+                print
+                print "#endif"
+                done=1
+                in_func=0
+                next
+            }
+            { print }
+        ' arch/arm/mach-msm/lpm_levels.c > lpm_levels.c.tmp
+        mv lpm_levels.c.tmp arch/arm/mach-msm/lpm_levels.c
+    fi
+
+    # 12. msm_cpu_pm_check_mode
+    if [ -f arch/arm/mach-msm/pm.h ]; then
+        sed -i 's/^inline bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' arch/arm/mach-msm/pm.h
+        sed -i 's/^bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' arch/arm/mach-msm/pm.h
+    fi
+
+    if [ -f arch/arm/mach-msm/include/mach/pm.h ]; then
+        sed -i 's/^inline bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' arch/arm/mach-msm/include/mach/pm.h
+        sed -i 's/^bool msm_cpu_pm_check_mode/static inline bool msm_cpu_pm_check_mode/g' arch/arm/mach-msm/include/mach/pm.h
+    fi
+
+    for f in arch/arm/mach-msm/*.c; do
+        [ -f "$f" ] && sed -i '/^bool msm_cpu_pm_check_mode/,/^}/d; /^inline bool msm_cpu_pm_check_mode/,/^}/d; /^static inline bool msm_cpu_pm_check_mode/,/^}/d' "$f" 2>/dev/null
+    done
+
+    # 13. platsmp.c - REMOVER MEMBROS INVÁLIDOS
+    if [ -f arch/arm/mach-msm/platsmp.c ]; then
+        echo "Corrigindo platsmp.c..."
+        sed -i '/\.cpu_kill[[:space:]]*=/d; /\.cpu_die[[:space:]]*=/d; /\.cpu_disable[[:space:]]*=/d' arch/arm/mach-msm/platsmp.c
+    fi
+
+    # 14. lib1funcs_stub.c
+    cat > arch/arm/lib/lib1funcs_stub.c << 'STUBEOF'
+#include <linux/module.h>
+#include <linux/kernel.h>
+long long __aeabi_ldivmod(long long n, long long d) { return n / d; }
+EXPORT_SYMBOL(__aeabi_ldivmod);
+unsigned long long __aeabi_uldivmod(unsigned long long n, unsigned long long d) { return n / d; }
+EXPORT_SYMBOL(__aeabi_uldivmod);
+void __bad_cmpxchg(volatile void *ptr, int size) { printk(KERN_ERR "Bad cmpxchg\n"); BUG(); }
+EXPORT_SYMBOL(__bad_cmpxchg);
+STUBEOF
+
+    if ! grep -q "lib1funcs_stub.o" arch/arm/lib/Makefile; then
+        sed -i '/ucmpdi2.o lib1funcs.o div64.o sha1.o/s/$/ \\\n\t\t   lib1funcs_stub.o/' arch/arm/lib/Makefile
+    fi
+
+    # 15. stubs.c
+    cat > arch/arm/mach-msm/stubs.c << 'MSMSTUBEOF'
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/of.h>
+#include <linux/of_fdt.h>
+int __init of_scan_flat_dt(int (*it)(unsigned long node, const char *uname, int depth, void *data), void *data) { return 0; }
+EXPORT_SYMBOL(of_scan_flat_dt);
+int __init msm_scan_dt_map_imem(unsigned long node, const char *uname, int depth, void *data) { return 0; }
+EXPORT_SYMBOL(msm_scan_dt_map_imem);
+void __init board_dt_populate(struct of_dev_auxdata *adata) {}
+EXPORT_SYMBOL(board_dt_populate);
+void __init setup_sched_clock(u32 (*read)(void), int bits, unsigned long rate) {}
+EXPORT_SYMBOL(setup_sched_clock);
+void __init msm_dt_init_irq(void) {}
+EXPORT_SYMBOL(msm_dt_init_irq);
+int __init msm_smd_driver_register(void) { return 0; }
+EXPORT_SYMBOL(msm_smd_driver_register);
+int of_property_match_string(struct device_node *np, const char *propname, const char *string) { return -ENODEV; }
+EXPORT_SYMBOL(of_property_match_string);
+void regulator_showall_enabled(void) {}
+EXPORT_SYMBOL(regulator_showall_enabled);
+int poweroff_charging = 0;
+EXPORT_SYMBOL(poweroff_charging);
+int spmi_dfs_create_file(void *data, const char *name, void *parent) { return 0; }
+EXPORT_SYMBOL(spmi_dfs_create_file);
+void *rt6_lookup(void *net, void *daddr, void *saddr, int oif, int flags) { return NULL; }
+EXPORT_SYMBOL(rt6_lookup);
+struct in6_addr { union { __u8 u6_addr8[16]; } in6_u; };
+struct in6_addr in6addr_any = { { { 0 } } };
+EXPORT_SYMBOL(in6addr_any);
+void sec_gaf_supply_rqinfo(void) {}
+EXPORT_SYMBOL(sec_gaf_supply_rqinfo);
+int MSM_GPIO_TO_INT(int gpio) { return gpio + 32; }
+EXPORT_SYMBOL(MSM_GPIO_TO_INT);
+MSMSTUBEOF
+
+    if ! grep -q "stubs.o" arch/arm/mach-msm/Makefile; then
+        sed -i '2i obj-y += stubs.o' arch/arm/mach-msm/Makefile
+    fi
+
+    # 16. GPU sysfs
+    if [ -f drivers/gpu/gpu_sysfs/Kbuild ]; then
+        sed -i 's/^\$(error \*\*\*\* Make sure target file is defined/#\$(error/' drivers/gpu/gpu_sysfs/Kbuild
+    fi
 
     # Config
     cp "$srcdir/config-samsung-matisse3g.armv7" .config
