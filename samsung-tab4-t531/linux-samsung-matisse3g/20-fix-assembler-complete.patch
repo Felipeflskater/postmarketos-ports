@@ -1,13 +1,9 @@
 --- a/arch/arm/include/asm/assembler.h
 +++ b/arch/arm/include/asm/assembler.h
-@@ -196,4 +196,104 @@
+@@ -196,4 +196,94 @@
  #define USERL(l, x...)
  #endif
  
-+/*
-+ * Additional macros for ARM assembly compatibility
-+ */
-+
 +/* Pull/Push direction macros */
 +#ifndef __ARMEB__
 +#define pull lsr
@@ -56,26 +52,10 @@
 +	enable_irq_notrace
 +	.endm
 +
-+/* User access macro */
-+#define USER(x...) \
-+	9999: x; \
-+	.pushsection __ex_table,"a"; \
-+	.align 3; \
-+	.long 9999b,9001f; \
-+	.popsection
-+
 +/* SMP/UP alternative macros */
 +#ifdef CONFIG_SMP
-+#define ALT_SMP(instr...) \
-+	9998: instr
-+#define ALT_UP(instr...) \
-+	.pushsection ".alt.smp.init", "a"; \
-+	.long 9998b; \
-+	9997: instr; \
-+	.if . - 9997b != 4; \
-+	.error "must be 4"; \
-+	.endif; \
-+	.popsection
++#define ALT_SMP(instr...) 9998: instr
++#define ALT_UP(instr...) .pushsection ".alt.smp.init", "a"; .long 9998b; 9997: instr; .if . - 9997b != 4; .error "must be 4"; .endif; .popsection
 +#define alt_smp(instr...) ALT_SMP(instr)
 +#define alt_up(instr...) ALT_UP(instr)
 +#else
@@ -105,26 +85,9 @@
 +	.endm
 +#endif
 +
-+/* BSYM and USERL macros */
-+#ifndef BSYM
-+#define BSYM(x) (x)
-+#endif
-+
-+#ifndef USERL
-+#define USERL(l,x...) USER(x)
-+#endif
-+
 +/* ARM/Thumb/W instruction macros */
 +	.macro arm, instr:vararg
-+#ifndef CONFIG_THUMB2_KERNEL
 +	\instr
-+#endif
-+	.endm
-+
-+	.macro thumb, instr:vararg
-+#ifdef CONFIG_THUMB2_KERNEL
-+	\instr
-+#endif
 +	.endm
 +
 +	.macro w, instr
