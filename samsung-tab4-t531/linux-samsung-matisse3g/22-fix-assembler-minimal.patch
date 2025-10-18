@@ -1,0 +1,17 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -1,6 +1,14 @@
+ /*
+  *  arch/arm/include/asm/assembler.h
+  *
++ *  Força ARMv7 para evitar conflitos
++ */
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
++/*
++ *  arch/arm/include/asm/assembler.h (continued)
+  *  Copyright (C) 1996-2000 Russell King
+  *
+  * This program is free software; you can redistribute it and/or modify
