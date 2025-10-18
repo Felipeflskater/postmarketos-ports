@@ -1,0 +1,19 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -1,3 +1,8 @@
++/*
++ * Final fix for assembler.h - ensures proper structure
++ */
++
++#ifndef __ASM_ASSEMBLER_H__
++#define __ASM_ASSEMBLER_H__
++
+ /*
+  *  arch/arm/include/asm/assembler.h
+  *
+@@ -196,3 +201,5 @@
+ 	.size \name , . - \name
+ 	.endm
+ 
++#endif /* __ASM_ASSEMBLER_H__ */
++
