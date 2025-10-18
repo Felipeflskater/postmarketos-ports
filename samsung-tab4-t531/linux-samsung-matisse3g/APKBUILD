@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=121
+pkgrel=124
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -22,9 +22,6 @@ source="
 	11-fix-irq-timer-definitions-v2.patch
 	12-fix-section-mismatch.patch
 	13-disable-stack-protector.patch
-	15-fix-assembler-double-include.patch
-	17-define-asm-macros.patch
-	20-fix-assembler-complete.patch
 	40-create-compiler-gcc14-header.patch
 	55-fix-proc-pid-init-ino.patch
 "
@@ -54,7 +51,7 @@ prepare() {
 EOF
     touch include/generated/asm-offsets.h include/generated/bounds.h
 
-    # Aplicar patches na ordem correta
+    # Aplicar patches básicos primeiro
     echo "Aplicando patches..."
     for p in 01-fix-timex-header.patch \
              03-fix-defconfig.patch \
@@ -63,10 +60,6 @@ EOF
              11-fix-irq-timer-definitions-v2.patch \
              12-fix-section-mismatch.patch \
              13-disable-stack-protector.patch \
-             15-fix-assembler-double-include.patch \
-             17-define-asm-macros.patch \
-             18-add-ptrace-constants.patch \
-             20-fix-assembler-complete.patch \
              40-create-compiler-gcc14-header.patch \
              55-fix-proc-pid-init-ino.patch; do
         if [ -f "$srcdir/$p" ]; then
@@ -78,9 +71,359 @@ EOF
         fi
     done
 
+    # Corrigir assembler.h com TODAS as macros necessárias
+    echo "Reconstruindo assembler.h completo..."
+    cat > arch/arm/include/asm/assembler.h << 'ASSEMBLER_COMPLETE_EOF'
+#ifndef __ASM_ASSEMBLER_H__
+#define __ASM_ASSEMBLER_H__
+
+#ifndef __ASSEMBLY__
+#error "Only include this from assembly code"
+#endif
+
+#include <asm/ptrace.h>
+#include <asm/domain.h>
+
+#ifndef __LINUX_ARM_ARCH__
+#define __LINUX_ARM_ARCH__ 7
+#endif
+
+/*
+ * Endian independent macros for shifting bytes within registers.
+ */
+#ifndef __ARMEB__
+#define lspull          lsr
+#define lspush          lsl
+#define get_byte_0      lsl #0
+#define get_byte_1      lsr #8
+#define get_byte_2      lsr #16
+#define get_byte_3      lsr #24
+#define put_byte_0      lsl #0
+#define put_byte_1      lsl #8
+#define put_byte_2      lsl #16
+#define put_byte_3      lsl #24
+#else
+#define lspull          lsl
+#define lspush          lsr
+#define get_byte_0      lsr #24
+#define get_byte_1      lsr #16
+#define get_byte_2      lsr #8
+#define get_byte_3      lsl #0
+#define put_byte_0      lsl #24
+#define put_byte_1      lsl #16
+#define put_byte_2      lsl #8
+#define put_byte_3      lsl #0
+#endif
+
+/* Select code for any configuration running in ARM mode */
+#ifdef CONFIG_THUMB2_KERNEL
+	.macro arm, args:vararg
+	.endm
+	.macro thumb, args:vararg
+	\args
+	.endm
+#else
+	.macro arm, args:vararg
+	\args
+	.endm
+	.macro thumb, args:vararg
+	.endm
+#endif
+
+/*
+ * SMP data memory barrier
+ */
+	.macro	smp_dmb mode
+#ifdef CONFIG_SMP
+	dmb	\mode
+#endif
+	.endm
+
+#ifdef CONFIG_SMP
+#define ALT_SMP(instr...)					\
+9998:	instr
+#define ALT_UP(instr...)					\
+	.pushsection ".alt.smp.init", "a"			;\
+	.long	9998b						;\
+9997:	instr							;\
+	.if . - 9997b != 4					;\
+		.error "ALT_UP() content must assemble to exactly 4 bytes";\
+	.endif							;\
+	.popsection
+#define ALT_UP_B(label)					\
+	.equ	up_b_offset, label - 9998b			;\
+	.pushsection ".alt.smp.init", "a"			;\
+	.long	9998b						;\
+	W(b)	. + up_b_offset					;\
+	.popsection
+#else
+#define ALT_SMP(instr...)
+#define ALT_UP(instr...) instr
+#define ALT_UP_B(label) b label
+#endif
+
+	.macro	alt_smp, instr:vararg
+	ALT_SMP(\instr)
+	.endm
+
+	.macro	alt_up, instr:vararg
+	ALT_UP(\instr)
+	.endm
+
+	.macro	alt_up_b, label:req
+	ALT_UP_B(\label)
+	.endm
+
+/*
+ * Instruction barrier
+ */
+	.macro	instr_sync
+#if __LINUX_ARM_ARCH__ >= 7
+	isb
+#elif __LINUX_ARM_ARCH__ == 6
+	mcr	p15, 0, r0, c7, c5, 4
+#endif
+	.endm
+
+/*
+ * Save the current IRQ state and disable IRQs.  Note that this macro
+ * assumes FIQs are enabled, and that the processor is in SVC mode.
+ */
+	.macro	save_and_disable_irqs, oldcpsr
+	mrs	\oldcpsr, cpsr
+	cpsid	i
+	.endm
+
+	.macro	save_and_disable_irqs_notrace, oldcpsr
+	mrs	\oldcpsr, cpsr
+	cpsid	i
+	.endm
+
+/*
+ * Restore interrupt state previously stored in a register.  We don't
+ * guarantee that this will preserve the flags.
+ */
+	.macro	restore_irqs_notrace, oldcpsr
+	msr	cpsr_c, \oldcpsr
+	.endm
+
+	.macro restore_irqs, oldcpsr
+	msr	cpsr_c, \oldcpsr
+	.endm
+
+	.macro disable_irq_notrace
+	cpsid	i
+	.endm
+
+	.macro enable_irq_notrace
+	cpsie	i
+	.endm
+
+	.macro disable_irq
+	cpsid	i
+	.endm
+
+	.macro enable_irq
+	cpsie	i
+	.endm
+
+	.macro save_and_disable_irqs_notrace, oldcpsr
+	mrs	\oldcpsr, cpsr
+	cpsid	i
+	.endm
+
+/*
+ * BSYM - convert a symbol name to a byte address in the correct
+ * instruction set (ARM or Thumb)
+ */
+#ifdef CONFIG_THUMB2_KERNEL
+	.macro	BSYM, sym
+	\sym + 1
+	.endm
+#else
+	.macro	BSYM, sym
+	\sym
+	.endm
+#endif
+
+/*
+ * Size of kernel page table entries
+ */
+#define PTE_HWTABLE_OFF		(PTE_HWTABLE_PTRS * sizeof(pte_t))
+#define PTE_HWTABLE_SIZE	(PTRS_PER_PTE * sizeof(u32))
+
+/*
+ * These macros are used to allow symbolic substitution
+ * for ARM instructions.
+ */
+	.irp	c,,eq,ne,cs,cc,mi,pl,vs,vc,hi,ls,ge,lt,gt,le,hs,lo
+	.macro	ret\c, reg
+#if __LINUX_ARM_ARCH__ < 6
+	mov\c	pc, \reg
+#else
+	.ifeqs	"\reg", "lr"
+	bx\c	\reg
+	.else
+	mov\c	pc, \reg
+	.endif
+#endif
+	.endm
+	.endr
+
+	.macro	ret.w, reg
+	ret	\reg
+	.endm
+
+/*
+ * dsb - Data Synchronization Barrier
+ */
+	.macro	dsb, args:vararg
+#if __LINUX_ARM_ARCH__ >= 7
+	dsb	\args
+#elif __LINUX_ARM_ARCH__ == 6
+	mcr	p15, 0, r0, c7, c10, 4
+#endif
+	.endm
+
+/*
+ * User space access macros
+ */
+	.macro	usraccoff, instr, reg, ptr, inc, off, cond, abort, t=TUSER()
+9999:
+	.if	\inc == 1
+	\instr\cond\()b\t \reg, [\ptr, #\off]
+	.elseif	\inc == 4
+	\instr\cond\t \reg, [\ptr, #\off]
+	.else
+	.error	"Unsupported inc macro argument"
+	.endif
+
+	.pushsection __ex_table,"a"
+	.align	3
+	.long	9999b, \abort
+	.popsection
+	.endm
+
+	.macro	usracc, instr, reg, ptr, inc, cond, rept, abort
+	.rept	\rept
+	usraccoff \instr, \reg, \ptr, \inc, 0, \cond, \abort
+	.if	\rept > 1
+	add\cond \ptr, #\inc
+	add\cond \reg, #\inc
+	.endif
+	.endr
+	.endm
+
+	.macro	user, args:vararg
+	usracc	\args
+	.endm
+
+	.macro strusr, reg, ptr, inc, cond=al, rept=1, abort=9001f
+	usracc	str, \reg, \ptr, \inc, \cond, \rept, \abort
+	.endm
+
+	.macro ldrusr, reg, ptr, inc, cond=al, rept=1, abort=9001f
+	usracc	ldr, \reg, \ptr, \inc, \cond, \rept, \abort
+	.endm
+
+/* Utility macro for declaring string literals */
+	.macro	string name:req, string
+	.type	\name , #object
+\name:
+	.asciz	"\string"
+	.size	\name, . - \name
+	.endm
+
+	.macro check_uaccess, addr:req, size:req, limit:req, tmp:req, bad:req
+	adds	\tmp, \addr, #\size - 1
+	sbcccs	\tmp, \tmp, \limit
+	bcs	\bad
+	.endm
+
+	.irp	c,,eq,ne,cs,cc,mi,pl,vs,vc,hi,ls,ge,lt,gt,le,hs,lo
+	.macro	loadsp, rb, tmp=ip
+	ldr\c	\tmp, [\rb], #4
+	.endm
+	.endr
+
+	.macro	writeb, ch, rb
+	strb	\ch, [\rb], #1
+	.endm
+
+	.macro	store_user_sp_lr, base, tmp, offset = 0
+	add	\tmp, \base, #\offset + 52
+	stmia	\tmp, {sp, lr}^
+	.endm
+
+/*
+ * Wide branch instruction macros
+ */
+	.irp	c,,eq,ne,cs,cc,mi,pl,vs,vc,hi,ls,ge,lt,gt,le,hs,lo
+	.macro	b\c, target
+#if __LINUX_ARM_ARCH__ >= 7
+	b\c	\target
+#else
+	b\c	\target
+#endif
+	.endm
+	.endr
+
+	.macro	W, instr:vararg
+	\instr
+	.endm
+
+	.macro	badr, reg, sym
+	adr	\reg, \sym
+	.endm
+
+	.macro	enable_irq
+	cpsie	i
+	.endm
+
+	.macro	disable_irq
+	cpsid	i
+	.endm
+
+	.macro	enable_fiq
+	cpsie	f
+	.endm
+
+	.macro	disable_fiq
+	cpsid	f
+	.endm
+
+#define USER(x...)				\
+9999:	x;					\
+	.pushsection __ex_table,"a";		\
+	.align	3;				\
+	.long	9999b,9001f;			\
+	.popsection
+
+#define TUSER(x...)
+
+#ifndef CONFIG_SMP
+#define ALT_SMP(instr...)
+#define ALT_UP(instr...) instr
+#define ALT_UP_B(label) b label
+#endif
+
+	.macro	setmode, mode, reg
+	mov	\reg, #\mode
+	msr	cpsr_c, \reg
+	.endm
+
+	.macro	usr_ret, reg
+	bx	\reg
+	.endm
+
+#endif /* __ASM_ASSEMBLER_H__ */
+ASSEMBLER_COMPLETE_EOF
+
+    echo "  ✓ assembler.h completo reconstruído"
+
     echo "Aplicando correções manuais..."
 
-    # 0. Definir __LINUX_ARM_ARCH__ em todos os headers ARM necessários
+    # Definir __LINUX_ARM_ARCH__ em outros headers ARM necessários
     echo "Definindo __LINUX_ARM_ARCH__ em headers ARM..."
     for f in arch/arm/include/asm/spinlock.h \
              arch/arm/include/asm/div64.h \
@@ -92,13 +435,13 @@ EOF
         fi
     done
 
-    # 1. BUILD_BUG_ON
+    # BUILD_BUG_ON
     sed -i 's/BUILD_BUG_ON(!__builtin_constant_p(offset));/\/\*BUILD_BUG_ON\*\//' include/linux/rcupdate.h 2>/dev/null
 
-    # 2. irqs.h
+    # irqs.h
     sed -i '136{/^#endif$/d;}' arch/arm/mach-msm/include/mach/irqs.h 2>/dev/null
 
-    # 3. Adicionar includes para constantes faltantes em fiq_glue.S
+    # fiq_glue.S
     if [ -f arch/arm/mach-msm/fiq_glue.S ]; then
         if ! grep -q "#include <asm/ptrace.h>" arch/arm/mach-msm/fiq_glue.S; then
             sed -i '1i#include <linux/linkage.h>\n#include <asm/ptrace.h>\n#include <asm/assembler.h>' arch/arm/mach-msm/fiq_glue.S
@@ -106,7 +449,7 @@ EOF
         fi
     fi
 
-    # 4. board-8226.c
+    # board-8226.c
     if [ -f arch/arm/mach-msm/board-8226.c ]; then
         echo "Corrigindo board-8226.c (stub)..."
         sed -i '/^static struct of_dev_auxdata msm_hsic_host_adata/,/^};/c\
@@ -116,7 +459,7 @@ static void *msm_hsic_host_adata = NULL;' arch/arm/mach-msm/board-8226.c
 static void *msm8226_auxdata_lookup = NULL;' arch/arm/mach-msm/board-8226.c
     fi
 
-    # 5. smd_init_plat.c
+    # smd_init_plat.c
     cat > arch/arm/mach-msm/smd_init_plat.c << 'EOF'
 #include <linux/module.h>
 #include <linux/init.h>
@@ -126,12 +469,12 @@ module_init(msm_smd_driver_init);
 MODULE_LICENSE("GPL v2");
 EOF
 
-    # 6. head.S
+    # head.S
     for f in arch/arm/kernel/head.S arch/arm/kernel/head-common.S; do
         [ -f "$f" ] && sed -i '1i\.arm\n.syntax unified' "$f"
     done
 
-    # 7. Makefiles
+    # Makefiles
     cat >> arch/arm/vfp/Makefile << 'EOF'
 
 CFLAGS_vfpmodule.o += -marm
@@ -151,7 +494,7 @@ CFLAGS_fault.o += -marm
 CFLAGS_init.o += -marm
 EOF
 
-    # 8. module_param bool
+    # module_param bool
     find . -name "*.c" -type f -exec sed -i \
         -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param(\1, int,/g' \
         -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*_Bool[[:space:]]*,/module_param(\1, int,/g' \
@@ -212,9 +555,6 @@ c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad50
 7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
 3df086eb955c08fa770b43a16008a4eee7753ff9f1a47780a5528f3fda96f1cfb8f705c6931c83cb2ac2b9b6d20737998f99d13ae4c8e88f958d762237c2dc47  12-fix-section-mismatch.patch
 b738038c3aa96ddd210277626ccba22a1047d74b5a958f222f0983ba9771dab2210b2c39dc348398dce213d079e63c554379ddeacf071ad84d88a283c383c834  13-disable-stack-protector.patch
-ea6fe4df1252cba0117cdaf75f37917b21de1fd878c4e6c14f7962852d4e68db42102ee34c55b16f5d9c22ecb44e0abd8203f2beb2d6fd41b7e8b00559407b8f  15-fix-assembler-double-include.patch
-943dbb42130ca7bda3bf418292f9d8ee560b10fd39b263b711c284e218ba78f356195719e357a11fdc6ecdbf5d5932f6c8d54970a8ca5dd724ecf770f2207614  17-define-asm-macros.patch
-ebf1d6a3fff63e0c8702c0a4ebd0cf53f05092908645605995f980e1e8f56d11fe73b092f66cd9ac8d6d214f66f2b1a25a47b6efddb099527cd941be8ca0de1c  20-fix-assembler-complete.patch
 9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
 1e4a630a8d83663304568c1fe676a952212131e2d9b0b7f09c5008c25beea8b24b0d2d9e451707cfa66f1055d96b669f4f6d854fafada08d9e14ca08d4199f40  55-fix-proc-pid-init-ino.patch
 "
