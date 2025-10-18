@@ -1,0 +1,30 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -1,3 +1,27 @@
++/*
++ * CRITICAL FIX: Define macros that don't work in this kernel
++ * as no-ops since we're compiling in ARM mode only (no Thumb-2)
++ */
++
++/* Since we're ARM-only, arm() expands its content, thumb() is ignored */
++#ifdef __ASSEMBLY__
++#ifndef arm
++	.macro arm, args:vararg
++	\args
++	.endm
++#endif
++#ifndef thumb
++	.macro thumb, args:vararg
++	.endm
++#endif
++#ifndef W
++	.macro W, instr:vararg
++	\instr
++	.endm
++#endif
++#endif /* __ASSEMBLY__ */
++
++/* Original file continues below */
+ /*
+  *  arch/arm/include/asm/assembler.h
+  *
