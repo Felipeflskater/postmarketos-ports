@@ -1,0 +1,20 @@
+--- a/arch/arm/mach-msm/platsmp.c
++++ b/arch/arm/mach-msm/platsmp.c
+@@ -373,13 +373,7 @@ static void __init msm8610_smp_init_ops(void)
+ }
+ CPU_METHOD_OF_DECLARE(msm8610_smp, "qcom,gcc-msm8610", &msm8610_smp_init_ops);
+ 
+-struct smp_operations msm8625_smp_ops __initdata = {
+-	.smp_prepare_cpus = platform_smp_prepare_cpus,
+-	.smp_boot_secondary = msm8625_boot_secondary,
+-	.smp_secondary_init = msm_secondary_init,
+-#ifdef CONFIG_HOTPLUG_CPU
+-	.cpu_kill	= platform_cpu_kill,
+-	.cpu_die	= platform_cpu_die,
+-	.cpu_disable	= platform_cpu_disable
+-#endif
+-};
++/* struct smp_operations msm8625_smp_ops - removido devido a incompatibilidade */
++
++/* As estruturas smp_operations com cpu_kill/cpu_die/cpu_disable foram removidas
++   pois essas funcionalidades não são suportadas neste kernel 3.4 */
