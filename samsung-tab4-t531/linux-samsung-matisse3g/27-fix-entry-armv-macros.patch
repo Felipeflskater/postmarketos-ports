@@ -1,0 +1,81 @@
+--- a/arch/arm/kernel/entry-armv.S
++++ b/arch/arm/kernel/entry-armv.S
+@@ -1,3 +1,30 @@
++/*
++ * Force ARM mode and define macros
++ */
++	.arm
++	.syntax unified
++
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
++/* Define arm/thumb macros before any use */
++	.macro	arm args:vararg
++	\args
++	.endm
++
++	.macro	thumb args:vararg
++	.endm
++
++	.macro	W instr:vararg
++	\instr
++	.endm
++
++	.macro	w instr:vararg
++	\instr
++	.endm
++
++#define BSYM(x) x
++
+ /*
+  *  linux/arch/arm/kernel/entry-armv.S
+  *
+@@ -18,6 +45,14 @@
+ #include <asm/unistd.h>
+ #include <asm/tls.h>
+ 
++/* Additional macro for user space access */
++	.macro	store_user_sp_lr base:req, tmp:req, offset:req
++	stmdb	\base, {sp, lr}^
++	.endm
++
++/* Ensure usraccoff is available */
++#include <asm/assembler.h>
++
+ #include "entry-header.S"
+ #include <asm/entry-macro-multi.S>
+ 
+--- a/arch/arm/mm/cache-v7.S
++++ b/arch/arm/mm/cache-v7.S
+@@ -1,3 +1,27 @@
++/*
++ * Force ARM mode and define macros
++ */
++	.arm
++	.syntax unified
++
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
++/* Define arm/thumb macros */
++	.macro	arm args:vararg
++	\args
++	.endm
++
++	.macro	thumb args:vararg
++	.endm
++
++	.macro	W instr:vararg
++	\instr
++	.endm
++
++	.macro	w instr:vararg
++	\instr
++	.endm
++
+ /*
+  *  linux/arch/arm/mm/cache-v7.S
+  *
