@@ -1,0 +1,60 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -1,9 +1,57 @@
++/*
++ * ARM assembly macros - Force ARM mode (no Thumb-2)
++ */
++
+ #ifndef __ASSEMBLY__
+ #error "Only include this from assembly code"
+ #endif
+ 
+ #include <asm/ptrace.h>
+ #include <asm/domain.h>
++
++/*
++ * Critical: Define __LINUX_ARM_ARCH__ before any other includes
++ */
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
++/*
++ * Force ARM mode - disable Thumb-2
++ */
++#undef CONFIG_THUMB2_KERNEL
++
++/*
++ * Define arm() and thumb() macros for ARM-only build
++ * arm(x) -> expands to x (execute instruction)
++ * thumb(x) -> expands to nothing (skip instruction)
++ */
++	.macro	arm, args:vararg
++	\args
++	.endm
++
++	.macro	thumb, args:vararg
++	.endm
++
++/*
++ * W(instr) macro - for wide instructions
++ * In ARM mode, just output the instruction as-is
++ */
++	.macro	W instr:vararg
++	\instr
++	.endm
++
++	.macro	w instr:vararg
++	\instr
++	.endm
++
++/*
++ * BSYM - no Thumb bit manipulation needed in ARM mode
++ */
++	.macro	BSYM sym:vararg
++	\sym
++	.endm
++
++#define BSYM(x) x
+ 
+ #include <linux/linkage.h>
