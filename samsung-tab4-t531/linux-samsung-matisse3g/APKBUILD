@@ -22,8 +22,6 @@ source="
 	11-fix-irq-timer-definitions-v2.patch
 	12-fix-section-mismatch.patch
 	13-disable-stack-protector.patch
-	26-fix-arm-thumb-macros.patch
-	27-fix-entry-armv-macros.patch
 	40-create-compiler-gcc14-header.patch
 	55-fix-proc-pid-init-ino.patch
 "
@@ -40,9 +38,9 @@ prepare() {
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS
     export ARCH=arm HOSTCC=gcc
     export HOSTCFLAGS="-O1 -w -std=gnu89"
-    export KBUILD_CFLAGS="-w -std=gnu89 -marm -mno-thumb-interwork -Wno-error -fno-stack-protector -D__ARM_ARCH_7A__"
-    export KBUILD_AFLAGS="-D__ASSEMBLY__ -marm -mno-thumb-interwork -fno-stack-protector -D__ARM_ARCH_7A__ -Wa,-mno-warn-deprecated"
-    export EXTRA_CFLAGS="-w -marm -mno-thumb-interwork -fno-stack-protector -D__ARM_ARCH_7A__"
+    export KBUILD_CFLAGS="-w -std=gnu89 -marm -mno-thumb-interwork -Wno-error -fno-stack-protector -D__ARM_ARCH_7A__ -D__LINUX_ARM_ARCH__=7 -march=armv7-a"
+    export KBUILD_AFLAGS="-D__ASSEMBLY__ -marm -mno-thumb-interwork -fno-stack-protector -D__ARM_ARCH_7A__ -D__LINUX_ARM_ARCH__=7 -march=armv7-a -Wa,-mno-warn-deprecated"
+    export EXTRA_CFLAGS="-w -marm -mno-thumb-interwork -fno-stack-protector -D__ARM_ARCH_7A__ -D__LINUX_ARM_ARCH__=7"
 
     mkdir -p include/generated include/config arch/arm/include/generated/asm
     echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
@@ -50,8 +48,47 @@ prepare() {
 #define CONFIG_ARM 1
 #define CONFIG_CPU_V7 1
 #define CONFIG_MSM_PM 1
+#define __LINUX_ARM_ARCH__ 7
+#define CONFIG_CPU_32v7 1
+#define CONFIG_CPU_32v6K 1
+#define CONFIG_CPU_32v6 1
+#define CONFIG_ARCH_MULTI_V7 1
 EOF
     touch include/generated/asm-offsets.h include/generated/bounds.h
+
+    # CRÍTICO: Criar header global com definições ARM
+    echo "Criando header global de arquitetura..."
+    cat > include/asm-arm-arch.h << 'EOF'
+#ifndef __ASM_ARM_ARCH_H
+#define __ASM_ARM_ARCH_H
+
+/* Force ARMv7 architecture */
+#ifndef __LINUX_ARM_ARCH__
+#define __LINUX_ARM_ARCH__ 7
+#endif
+
+/* ARM v7 specific features */
+#define CONFIG_CPU_V7 1
+#define CONFIG_CPU_32v7 1
+#define CONFIG_CPU_32v6K 1
+#define CONFIG_CPU_32v6 1
+#define CONFIG_ARCH_MULTI_V7 1
+
+/* Disable Thumb-2 */
+#undef CONFIG_THUMB2_KERNEL
+
+#endif /* __ASM_ARM_ARCH_H */
+EOF
+
+    # Incluir em arquivos problemáticos
+    for f in arch/arm/kernel/asm-offsets.c \
+             arch/arm/include/asm/spinlock.h \
+             arch/arm/include/asm/atomic.h; do
+        if [ -f "$f" ]; then
+            sed -i '1i#include <asm-arm-arch.h>' "$f"
+            echo "  ✓ Incluído em $f"
+        fi
+    done
 
     # Aplicar patches na ordem correta
     echo "Aplicando patches..."
@@ -62,7 +99,6 @@ EOF
              11-fix-irq-timer-definitions-v2.patch \
              12-fix-section-mismatch.patch \
              13-disable-stack-protector.patch \
-             26-fix-arm-thumb-macros.patch \
              40-create-compiler-gcc14-header.patch \
              55-fix-proc-pid-init-ino.patch; do
         if [ -f "$srcdir/$p" ]; then
@@ -75,6 +111,51 @@ EOF
     done
 
     echo "Aplicando correções manuais..."
+
+    # CRÍTICO: Adicionar macros ARM/Thumb nos arquivos assembly
+    echo "Adicionando macros ARM nos arquivos assembly..."
+
+    for asm_file in arch/arm/kernel/entry-armv.S \
+                    arch/arm/mm/cache-v7.S \
+                    arch/arm/kernel/entry-common.S \
+                    arch/arm/mm/proc-v7.S; do
+        if [ -f "$asm_file" ]; then
+            echo "  Processando $asm_file..."
+
+            # Criar arquivo temporário com as macros
+            cat > /tmp/asm_macros.tmp << 'EOFMACROS'
+	.arm
+	.syntax unified
+
+#ifndef __LINUX_ARM_ARCH__
+#define __LINUX_ARM_ARCH__ 7
+#endif
+
+#undef CONFIG_THUMB2_KERNEL
+
+	.macro	arm args:vararg
+	\args
+	.endm
+
+	.macro	thumb args:vararg
+	.endm
+
+	.macro	W instr:vararg
+	\instr
+	.endm
+
+#define BSYM(x) x
+
+EOFMACROS
+
+            # Inserir as macros no início do arquivo
+            cat /tmp/asm_macros.tmp "$asm_file" > /tmp/asm_temp.S
+            mv /tmp/asm_temp.S "$asm_file"
+            rm -f /tmp/asm_macros.tmp
+
+            echo "    ✓ $asm_file"
+        fi
+    done
 
     # Corrigir platsmp.c
     if [ -f arch/arm/mach-msm/platsmp.c ]; then
@@ -229,8 +310,6 @@ c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad50
 7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
 3df086eb955c08fa770b43a16008a4eee7753ff9f1a47780a5528f3fda96f1cfb8f705c6931c83cb2ac2b9b6d20737998f99d13ae4c8e88f958d762237c2dc47  12-fix-section-mismatch.patch
 b738038c3aa96ddd210277626ccba22a1047d74b5a958f222f0983ba9771dab2210b2c39dc348398dce213d079e63c554379ddeacf071ad84d88a283c383c834  13-disable-stack-protector.patch
-25fa054ae181084186366a4907858daa862735d4175451bb5a54b335f9fda66c68e146c153c6754fa72354a5626d5632c75b76a0ec93ede772cbd6501250cc35  26-fix-arm-thumb-macros.patch
-61e4b73d957ff955eedded297fb1c02035aac8313fa5d0847d4f63f6909a8cfb277d19ceb7f55511a740c69e57aac9378d31aa17cd320507b56393da916f47e9  27-fix-entry-armv-macros.patch
 9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
 1e4a630a8d83663304568c1fe676a952212131e2d9b0b7f09c5008c25beea8b24b0d2d9e451707cfa66f1055d96b669f4f6d854fafada08d9e14ca08d4199f40  55-fix-proc-pid-init-ino.patch
 "
