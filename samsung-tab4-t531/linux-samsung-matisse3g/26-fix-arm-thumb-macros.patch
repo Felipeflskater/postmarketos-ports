@@ -1,45 +1,22 @@
---- a/arch/arm/include/asm/assembler.h
-+++ b/arch/arm/include/asm/assembler.h
-@@ -1,9 +1,57 @@
-+/*
-+ * ARM assembly macros - Force ARM mode (no Thumb-2)
-+ */
+--- a/arch/arm/kernel/entry-armv.S
++++ b/arch/arm/kernel/entry-armv.S
+@@ -1,3 +1,35 @@
++	.arm
++	.syntax unified
 +
- #ifndef __ASSEMBLY__
- #error "Only include this from assembly code"
- #endif
- 
- #include <asm/ptrace.h>
- #include <asm/domain.h>
-+
-+/*
-+ * Critical: Define __LINUX_ARM_ARCH__ before any other includes
-+ */
 +#ifndef __LINUX_ARM_ARCH__
 +#define __LINUX_ARM_ARCH__ 7
 +#endif
 +
-+/*
-+ * Force ARM mode - disable Thumb-2
-+ */
 +#undef CONFIG_THUMB2_KERNEL
 +
-+/*
-+ * Define arm() and thumb() macros for ARM-only build
-+ * arm(x) -> expands to x (execute instruction)
-+ * thumb(x) -> expands to nothing (skip instruction)
-+ */
-+	.macro	arm, args:vararg
++	.macro	arm args:vararg
 +	\args
 +	.endm
 +
-+	.macro	thumb, args:vararg
++	.macro	thumb args:vararg
 +	.endm
 +
-+/*
-+ * W(instr) macro - for wide instructions
-+ * In ARM mode, just output the instruction as-is
-+ */
 +	.macro	W instr:vararg
 +	\instr
 +	.endm
@@ -48,13 +25,108 @@
 +	\instr
 +	.endm
 +
-+/*
-+ * BSYM - no Thumb bit manipulation needed in ARM mode
-+ */
-+	.macro	BSYM sym:vararg
-+	\sym
++#define BSYM(x) x
++
++	.macro	store_user_sp_lr base:req, tmp:req, offset:req
++	stmdb	\base, {sp, lr}^
++	.endm
++
+ /*
+  *  linux/arch/arm/kernel/entry-armv.S
+  *
+--- a/arch/arm/mm/cache-v7.S
++++ b/arch/arm/mm/cache-v7.S
+@@ -1,3 +1,28 @@
++	.arm
++	.syntax unified
++
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
++#undef CONFIG_THUMB2_KERNEL
++
++	.macro	arm args:vararg
++	\args
++	.endm
++
++	.macro	thumb args:vararg
++	.endm
++
++	.macro	W instr:vararg
++	\instr
++	.endm
++
++	.macro	w instr:vararg
++	\instr
 +	.endm
 +
 +#define BSYM(x) x
- 
- #include <linux/linkage.h>
++
+ /*
+  *  linux/arch/arm/mm/cache-v7.S
+  *
+--- a/arch/arm/kernel/entry-common.S
++++ b/arch/arm/kernel/entry-common.S
+@@ -1,3 +1,28 @@
++	.arm
++	.syntax unified
++
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
++#undef CONFIG_THUMB2_KERNEL
++
++	.macro	arm args:vararg
++	\args
++	.endm
++
++	.macro	thumb args:vararg
++	.endm
++
++	.macro	W instr:vararg
++	\instr
++	.endm
++
++	.macro	w instr:vararg
++	\instr
++	.endm
++
++#define BSYM(x) x
++
+ /*
+  *  linux/arch/arm/kernel/entry-common.S
+  *
+--- a/arch/arm/mm/proc-v7.S
++++ b/arch/arm/mm/proc-v7.S
+@@ -1,3 +1,28 @@
++	.arm
++	.syntax unified
++
++#ifndef __LINUX_ARM_ARCH__
++#define __LINUX_ARM_ARCH__ 7
++#endif
++
++#undef CONFIG_THUMB2_KERNEL
++
++	.macro	arm args:vararg
++	\args
++	.endm
++
++	.macro	thumb args:vararg
++	.endm
++
++	.macro	W instr:vararg
++	\instr
++	.endm
++
++	.macro	w instr:vararg
++	\instr
++	.endm
++
++#define BSYM(x) x
++
+ /*
+  *  linux/arch/arm/mm/proc-v7.S
+  *
