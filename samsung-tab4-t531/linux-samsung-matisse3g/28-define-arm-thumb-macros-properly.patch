@@ -1,0 +1,72 @@
+--- a/arch/arm/kernel/entry-armv.S
++++ b/arch/arm/kernel/entry-armv.S
+@@ -16,6 +16,15 @@
+  */
+ 
+ #include <asm/assembler.h>
++
++/* Force ARM-only mode - override any thumb macros */
++#undef arm
++#undef thumb
++#undef W
++#define arm(x...) x
++#define thumb(x...)
++#define W(instr) instr
++	.syntax unified
+ #include <asm/memory.h>
+ #include <asm/glue-df.h>
+ #include <asm/glue-pf.h>
+--- a/arch/arm/mm/cache-v7.S
++++ b/arch/arm/mm/cache-v7.S
+@@ -10,6 +10,15 @@
+  */
+ #include <linux/linkage.h>
+ #include <asm/assembler.h>
++
++/* Force ARM-only mode - override any thumb macros */
++#undef arm
++#undef thumb
++#undef W
++#define arm(x...) x
++#define thumb(x...)
++#define W(instr) instr
++	.syntax unified
+ #include <asm/unwind.h>
+ 
+ #include "proc-macros.S"
+--- a/arch/arm/kernel/entry-common.S
++++ b/arch/arm/kernel/entry-common.S
+@@ -9,6 +9,15 @@
+  */
+ 
+ #include <asm/assembler.h>
++
++/* Force ARM-only mode - override any thumb macros */
++#undef arm
++#undef thumb
++#undef W
++#define arm(x...) x
++#define thumb(x...)
++#define W(instr) instr
++	.syntax unified
+ #include <asm/unistd.h>
+ #include <asm/ftrace.h>
+ #include <mach/entry-macro.S>
+--- a/arch/arm/mm/proc-v7.S
++++ b/arch/arm/mm/proc-v7.S
+@@ -9,6 +9,15 @@
+  *
+  */
+ #include <asm/assembler.h>
++
++/* Force ARM-only mode - override any thumb macros */
++#undef arm
++#undef thumb
++#undef W
++#define arm(x...) x
++#define thumb(x...)
++#define W(instr) instr
++	.syntax unified
+ #include <asm/hwcap.h>
+ #include <asm/pgtable-hwdef.h>
+ #include <asm/pgtable.h>
