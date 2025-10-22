@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=129
+pkgrel=130
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -22,7 +22,6 @@ source="
 	11-fix-irq-timer-definitions-v2.patch
 	12-fix-section-mismatch.patch
 	13-disable-stack-protector.patch
-	28-define-arm-thumb-macros-properly.patch
 	29-fix-lpm-levels-redefinition.patch
 	40-create-compiler-gcc14-header.patch
 	55-fix-proc-pid-init-ino.patch
@@ -71,7 +70,7 @@ EOF
         fi
     done
 
-    # Aplicar patches NA ORDEM CORRETA
+    # Aplicar patches NA ORDEM CORRETA (exceto o 28 que será aplicado manualmente)
     echo "Aplicando patches..."
     for p in 01-fix-timex-header.patch \
              03-fix-defconfig.patch \
@@ -80,7 +79,6 @@ EOF
              11-fix-irq-timer-definitions-v2.patch \
              12-fix-section-mismatch.patch \
              13-disable-stack-protector.patch \
-             28-define-arm-thumb-macros-properly.patch \
              29-fix-lpm-levels-redefinition.patch \
              40-create-compiler-gcc14-header.patch \
              55-fix-proc-pid-init-ino.patch; do
@@ -95,8 +93,30 @@ EOF
 
     echo "Aplicando correções manuais..."
 
+    # PATCH 28: Aplicar ARM/Thumb macros manualmente via sed (mais confiável que patch)
+    echo "Aplicando correções ARM/Thumb manualmente..."
+    for asm_file in arch/arm/kernel/entry-armv.S \
+                    arch/arm/mm/cache-v7.S \
+                    arch/arm/kernel/entry-common.S \
+                    arch/arm/mm/proc-v7.S; do
+        if [ -f "$asm_file" ]; then
+            echo "  Corrigindo $asm_file..."
+            # Inserir correções logo após #include <asm/assembler.h>
+            sed -i '/^#include <asm\/assembler.h>/a\
+\
+/* Force ARM-only mode - override any thumb macros */\
+#undef arm\
+#undef thumb\
+#undef W\
+#define arm(x...) x\
+#define thumb(x...)\
+#define W(instr) instr\
+\t.syntax unified' "$asm_file"
+            echo "    ✓ $asm_file"
+        fi
+    done
+
     # CRÍTICO: Remover TODAS as macros arm()/thumb() dos arquivos assembly
-    # que ainda possam ter escapado do patch
     echo "Removendo macros arm()/thumb() dos arquivos assembly..."
     for asm_file in arch/arm/kernel/entry-armv.S \
                     arch/arm/mm/cache-v7.S \
@@ -247,7 +267,6 @@ c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad50
 7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
 3df086eb955c08fa770b43a16008a4eee7753ff9f1a47780a5528f3fda96f1cfb8f705c6931c83cb2ac2b9b6d20737998f99d13ae4c8e88f958d762237c2dc47  12-fix-section-mismatch.patch
 b738038c3aa96ddd210277626ccba22a1047d74b5a958f222f0983ba9771dab2210b2c39dc348398dce213d079e63c554379ddeacf071ad84d88a283c383c834  13-disable-stack-protector.patch
-f89896034ee70ac372472106eac1637d7c2610191412e08c1bcee556b453cd7b6d3c01ba0e5e77a724b686a85778beaf25ab76364b0f456ac1cf076fdaa9534f  28-define-arm-thumb-macros-properly.patch
 2f4a03f9eccc18ee7c4021baa9b36ef40b804337e2e169d222d3019e197b5eb899e0ce0d6e7782d7955cd902f55dbac12ee916e19e1e47448e4ec30b35ce316e  29-fix-lpm-levels-redefinition.patch
 9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
 1e4a630a8d83663304568c1fe676a952212131e2d9b0b7f09c5008c25beea8b24b0d2d9e451707cfa66f1055d96b669f4f6d854fafada08d9e14ca08d4199f40  55-fix-proc-pid-init-ino.patch
