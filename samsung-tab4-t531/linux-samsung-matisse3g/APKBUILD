@@ -22,6 +22,8 @@ source="
 	11-fix-irq-timer-definitions-v2.patch
 	12-fix-section-mismatch.patch
 	13-disable-stack-protector.patch
+	28-define-arm-thumb-macros-properly.patch
+	29-fix-lpm-levels-redefinition.patch
 	40-create-compiler-gcc14-header.patch
 	55-fix-proc-pid-init-ino.patch
 "
@@ -38,59 +40,38 @@ prepare() {
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS
     export ARCH=arm HOSTCC=gcc
     export HOSTCFLAGS="-O1 -w -std=gnu89"
-    export KBUILD_CFLAGS="-w -std=gnu89 -marm -mno-thumb-interwork -Wno-error -fno-stack-protector -D__ARM_ARCH_7A__ -D__LINUX_ARM_ARCH__=7 -march=armv7-a"
-    export KBUILD_AFLAGS="-D__ASSEMBLY__ -marm -mno-thumb-interwork -fno-stack-protector -D__ARM_ARCH_7A__ -D__LINUX_ARM_ARCH__=7 -march=armv7-a -Wa,-mno-warn-deprecated"
-    export EXTRA_CFLAGS="-w -marm -mno-thumb-interwork -fno-stack-protector -D__ARM_ARCH_7A__ -D__LINUX_ARM_ARCH__=7"
+    export KBUILD_CFLAGS="-w -std=gnu89 -marm -mno-thumb-interwork -Wno-error -fno-stack-protector -D__ARM_ARCH_7A__"
+    export KBUILD_AFLAGS="-D__ASSEMBLY__ -marm -mno-thumb-interwork -fno-stack-protector -D__ARM_ARCH_7A__ -Wa,-mno-warn-deprecated"
+    export EXTRA_CFLAGS="-w -marm -mno-thumb-interwork -fno-stack-protector -D__ARM_ARCH_7A__"
 
+    # Criar headers necessários
+    echo "Criando header global de arquitetura..."
     mkdir -p include/generated include/config arch/arm/include/generated/asm
     echo '#define UTS_RELEASE "3.4.113"' > include/generated/utsrelease.h
     cat > include/generated/autoconf.h << 'EOF'
 #define CONFIG_ARM 1
 #define CONFIG_CPU_V7 1
 #define CONFIG_MSM_PM 1
-#define __LINUX_ARM_ARCH__ 7
-#define CONFIG_CPU_32v7 1
-#define CONFIG_CPU_32v6K 1
-#define CONFIG_CPU_32v6 1
-#define CONFIG_ARCH_MULTI_V7 1
 EOF
     touch include/generated/asm-offsets.h include/generated/bounds.h
 
-    # CRÍTICO: Criar header global com definições ARM
-    echo "Criando header global de arquitetura..."
-    cat > include/asm-arm-arch.h << 'EOF'
-#ifndef __ASM_ARM_ARCH_H
-#define __ASM_ARM_ARCH_H
+    # Definir __LINUX_ARM_ARCH__ globalmente em asm-offsets.c
+    if [ -f arch/arm/kernel/asm-offsets.c ]; then
+        if ! grep -q "^#define __LINUX_ARM_ARCH__" arch/arm/kernel/asm-offsets.c; then
+            sed -i '1i#ifndef __LINUX_ARM_ARCH__\n#define __LINUX_ARM_ARCH__ 7\n#endif' arch/arm/kernel/asm-offsets.c
+            echo "  ✓ Incluído em arch/arm/kernel/asm-offsets.c"
+        fi
+    fi
 
-/* Force ARMv7 architecture */
-#ifndef __LINUX_ARM_ARCH__
-#define __LINUX_ARM_ARCH__ 7
-#endif
-
-/* ARM v7 specific features */
-#define CONFIG_CPU_V7 1
-#define CONFIG_CPU_32v7 1
-#define CONFIG_CPU_32v6K 1
-#define CONFIG_CPU_32v6 1
-#define CONFIG_ARCH_MULTI_V7 1
-
-/* Disable Thumb-2 */
-#undef CONFIG_THUMB2_KERNEL
-
-#endif /* __ASM_ARM_ARCH_H */
-EOF
-
-    # Incluir em arquivos problemáticos
-    for f in arch/arm/kernel/asm-offsets.c \
-             arch/arm/include/asm/spinlock.h \
-             arch/arm/include/asm/atomic.h; do
-        if [ -f "$f" ]; then
-            sed -i '1i#include <asm-arm-arch.h>' "$f"
+    # Definir em outros headers críticos
+    for f in arch/arm/include/asm/spinlock.h arch/arm/include/asm/atomic.h; do
+        if [ -f "$f" ] && ! grep -q "^#define __LINUX_ARM_ARCH__" "$f"; then
+            sed -i '1i#ifndef __LINUX_ARM_ARCH__\n#define __LINUX_ARM_ARCH__ 7\n#endif' "$f"
             echo "  ✓ Incluído em $f"
         fi
     done
 
-    # Aplicar patches na ordem correta
+    # Aplicar patches NA ORDEM CORRETA
     echo "Aplicando patches..."
     for p in 01-fix-timex-header.patch \
              03-fix-defconfig.patch \
@@ -99,6 +80,8 @@ EOF
              11-fix-irq-timer-definitions-v2.patch \
              12-fix-section-mismatch.patch \
              13-disable-stack-protector.patch \
+             28-define-arm-thumb-macros-properly.patch \
+             29-fix-lpm-levels-redefinition.patch \
              40-create-compiler-gcc14-header.patch \
              55-fix-proc-pid-init-ino.patch; do
         if [ -f "$srcdir/$p" ]; then
@@ -112,52 +95,26 @@ EOF
 
     echo "Aplicando correções manuais..."
 
-    # CRÍTICO: Adicionar macros ARM/Thumb nos arquivos assembly
-    echo "Adicionando macros ARM nos arquivos assembly..."
-
+    # CRÍTICO: Remover TODAS as macros arm()/thumb() dos arquivos assembly
+    # que ainda possam ter escapado do patch
+    echo "Removendo macros arm()/thumb() dos arquivos assembly..."
     for asm_file in arch/arm/kernel/entry-armv.S \
                     arch/arm/mm/cache-v7.S \
                     arch/arm/kernel/entry-common.S \
                     arch/arm/mm/proc-v7.S; do
         if [ -f "$asm_file" ]; then
             echo "  Processando $asm_file..."
-
-            # Criar arquivo temporário com as macros
-            cat > /tmp/asm_macros.tmp << 'EOFMACROS'
-	.arm
-	.syntax unified
-
-#ifndef __LINUX_ARM_ARCH__
-#define __LINUX_ARM_ARCH__ 7
-#endif
-
-#undef CONFIG_THUMB2_KERNEL
-
-	.macro	arm args:vararg
-	\args
-	.endm
-
-	.macro	thumb args:vararg
-	.endm
-
-	.macro	W instr:vararg
-	\instr
-	.endm
-
-#define BSYM(x) x
-
-EOFMACROS
-
-            # Inserir as macros no início do arquivo
-            cat /tmp/asm_macros.tmp "$asm_file" > /tmp/asm_temp.S
-            mv /tmp/asm_temp.S "$asm_file"
-            rm -f /tmp/asm_macros.tmp
-
+            # Remover linhas arm(...) mantendo apenas o conteúdo
+            sed -i 's/^\([[:space:]]*\)arm(\([^)]*\))/\1\2/' "$asm_file"
+            # Remover linhas thumb(...) completamente
+            sed -i 's/^\([[:space:]]*\)thumb([^)]*)$//' "$asm_file"
+            # Remover thumb(...) inline
+            sed -i 's/thumb(\([^)]*\))//' "$asm_file"
             echo "    ✓ $asm_file"
         fi
     done
 
-    # Corrigir platsmp.c
+    # Corrigir platsmp.c - comentar campos incompatíveis com kernel 3.4
     if [ -f arch/arm/mach-msm/platsmp.c ]; then
         echo "Corrigindo platsmp.c..."
         sed -i 's/\.cpu_kill[[:space:]]*=.*$/\/\* .cpu_kill - not supported in 3.4 *\//g' arch/arm/mach-msm/platsmp.c
@@ -166,42 +123,30 @@ EOFMACROS
         echo "  ✓ platsmp.c"
     fi
 
-    # CRÍTICO: Desabilitar CONFIG_THUMB2_KERNEL
+    # CRÍTICO: Desabilitar CONFIG_THUMB2_KERNEL para evitar problemas
     echo "Desabilitando Thumb-2..."
     sed -i 's/CONFIG_THUMB2_KERNEL=y/# CONFIG_THUMB2_KERNEL is not set/' .config 2>/dev/null || true
     echo "CONFIG_THUMB2_KERNEL=n" >> .config
     echo "# CONFIG_THUMB2_KERNEL is not set" >> .config
 
-    # Forçar ARM mode em todos os arquivos assembly críticos
+    # Forçar .arm em TODOS os arquivos assembly problemáticos
     echo "Forçando ARM mode em arquivos assembly..."
-    for f in arch/arm/kernel/entry-armv.S \
-             arch/arm/kernel/entry-common.S \
-             arch/arm/kernel/head.S \
-             arch/arm/kernel/head-common.S \
-             arch/arm/mm/cache-v7.S \
-             arch/arm/mm/proc-v7.S; do
-        if [ -f "$f" ]; then
-            # Remover qualquer .thumb anterior e adicionar .arm no início
-            sed -i '1s/^/.arm\n.syntax unified\n/' "$f"
-            echo "  ✓ $f"
+    for asm_file in arch/arm/kernel/entry-armv.S \
+                    arch/arm/kernel/entry-common.S \
+                    arch/arm/kernel/head.S \
+                    arch/arm/kernel/head-common.S \
+                    arch/arm/mm/cache-v7.S \
+                    arch/arm/mm/proc-v7.S \
+                    arch/arm/mach-msm/fiq_glue.S; do
+        if [ -f "$asm_file" ]; then
+            if ! grep -q "^[[:space:]]*\.arm" "$asm_file"; then
+                sed -i '1i\.arm\n.syntax unified' "$asm_file"
+            fi
+            echo "  ✓ $asm_file"
         fi
     done
 
-    # BUILD_BUG_ON
-    sed -i 's/BUILD_BUG_ON(!__builtin_constant_p(offset));/\/\*BUILD_BUG_ON\*\//' include/linux/rcupdate.h 2>/dev/null || true
-
-    # irqs.h
-    sed -i '136{/^#endif$/d;}' arch/arm/mach-msm/include/mach/irqs.h 2>/dev/null || true
-
-    # fiq_glue.S
-    if [ -f arch/arm/mach-msm/fiq_glue.S ]; then
-        if ! grep -q "#include <asm/ptrace.h>" arch/arm/mach-msm/fiq_glue.S; then
-            sed -i '1i.arm\n.syntax unified\n#include <linux/linkage.h>\n#include <asm/ptrace.h>\n#include <asm/assembler.h>' arch/arm/mach-msm/fiq_glue.S
-            echo "  ✓ fiq_glue.S"
-        fi
-    fi
-
-    # board-8226.c
+    # board-8226.c - stub de arrays problemáticos
     if [ -f arch/arm/mach-msm/board-8226.c ]; then
         echo "Corrigindo board-8226.c (stub)..."
         sed -i '/^static struct of_dev_auxdata msm_hsic_host_adata/,/^};/c\
@@ -211,7 +156,7 @@ static void *msm_hsic_host_adata = NULL;' arch/arm/mach-msm/board-8226.c
 static void *msm8226_auxdata_lookup = NULL;' arch/arm/mach-msm/board-8226.c
     fi
 
-    # smd_init_plat.c
+    # smd_init_plat.c - stub simples
     cat > arch/arm/mach-msm/smd_init_plat.c << 'EOF'
 #include <linux/module.h>
 #include <linux/init.h>
@@ -221,38 +166,33 @@ module_init(msm_smd_driver_init);
 MODULE_LICENSE("GPL v2");
 EOF
 
-    # Makefiles
+    # Makefiles - forçar -marm em arquivos problemáticos
     cat >> arch/arm/vfp/Makefile << 'EOF'
 
 CFLAGS_vfpmodule.o += -marm
 CFLAGS_vfpsingle.o += -marm
 CFLAGS_vfpdouble.o += -marm
-AFLAGS_vfphw.o += -marm
 EOF
 
     cat >> arch/arm/kernel/Makefile << 'EOF'
 
 CFLAGS_ptrace.o += -marm
 CFLAGS_process.o += -marm
-AFLAGS_entry-armv.o += -marm -Wa,-mno-warn-deprecated
-AFLAGS_entry-common.o += -marm
 EOF
 
     cat >> arch/arm/mm/Makefile << 'EOF'
 
 CFLAGS_fault.o += -marm
 CFLAGS_init.o += -marm
-AFLAGS_cache-v7.o += -marm
-AFLAGS_proc-v7.o += -marm
 EOF
 
-    # module_param bool
+    # module_param bool -> int (compatibilidade)
     find . -name "*.c" -type f -exec sed -i \
         -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param(\1, int,/g' \
         -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*_Bool[[:space:]]*,/module_param(\1, int,/g' \
         {} \; 2>/dev/null
 
-    # Config
+    # Aplicar config otimizado
     cp "$srcdir/config-samsung-matisse3g.armv7" .config
     sed -i 's/# CONFIG_SMP is not set/CONFIG_SMP=y/' .config
     sed -i 's/CONFIG_NR_CPUS=1/CONFIG_NR_CPUS=4/' .config
@@ -268,9 +208,6 @@ CONFIG_HAVE_SMP=y
 CONFIG_SMP_ON_UP=y
 CONFIG_ARM_CPU_TOPOLOGY=y
 CONFIG_SCHED_MC=y
-# CONFIG_THUMB2_KERNEL is not set
-CONFIG_ARM_THUMB=n
-CONFIG_ARM_ASM_UNIFIED=y
 EOF
 
     make scripts_basic >/dev/null 2>&1 || true
@@ -310,6 +247,8 @@ c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad50
 7380d8e468c4183230871ebc38cc5ef853adb59683774e7a7ced7430ee12bf5091b003197aa5af4028ddfc731e1b921f27e5e2e357023bb0ac82918d73fc612a  11-fix-irq-timer-definitions-v2.patch
 3df086eb955c08fa770b43a16008a4eee7753ff9f1a47780a5528f3fda96f1cfb8f705c6931c83cb2ac2b9b6d20737998f99d13ae4c8e88f958d762237c2dc47  12-fix-section-mismatch.patch
 b738038c3aa96ddd210277626ccba22a1047d74b5a958f222f0983ba9771dab2210b2c39dc348398dce213d079e63c554379ddeacf071ad84d88a283c383c834  13-disable-stack-protector.patch
+f89896034ee70ac372472106eac1637d7c2610191412e08c1bcee556b453cd7b6d3c01ba0e5e77a724b686a85778beaf25ab76364b0f456ac1cf076fdaa9534f  28-define-arm-thumb-macros-properly.patch
+2f4a03f9eccc18ee7c4021baa9b36ef40b804337e2e169d222d3019e197b5eb899e0ce0d6e7782d7955cd902f55dbac12ee916e19e1e47448e4ec30b35ce316e  29-fix-lpm-levels-redefinition.patch
 9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
 1e4a630a8d83663304568c1fe676a952212131e2d9b0b7f09c5008c25beea8b24b0d2d9e451707cfa66f1055d96b669f4f6d854fafada08d9e14ca08d4199f40  55-fix-proc-pid-init-ino.patch
 "
