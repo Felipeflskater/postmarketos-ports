@@ -1,26 +1,12 @@
 --- a/arch/arm/mach-msm/lpm_levels.c
 +++ b/arch/arm/mach-msm/lpm_levels.c
-@@ -454,11 +454,6 @@ static int __devinit lpm_probe(struct platform_device *pdev)
- 	return rc;
+@@ -1188,6 +1188,9 @@ static int lpm_cpu_callback(struct notifier_block *cpu_nb,
+ 	return NOTIFY_OK;
  }
  
--s32 msm_cpuidle_get_deep_idle_latency(void)
--{
--	return 10;
--}
--
- static struct of_device_id lpm_match_table[] = {
- 	{.compatible = "qcom,lpm-levels"},
- 	{},
---- a/arch/arm/mach-msm/include/mach/cpuidle.h
-+++ b/arch/arm/mach-msm/include/mach/cpuidle.h
-@@ -25,10 +25,7 @@ struct msm_cpuidle_state {
- 
- #ifdef CONFIG_MSM_PM
- void lpm_cpu_hotplug_enter(unsigned int cpu);
--s32 msm_cpuidle_get_deep_idle_latency(void);
- #else
--static inline s32 msm_cpuidle_get_deep_idle_latency(void) { return 0; }
- static inline void lpm_cpu_hotplug_enter(unsigned int cpu) {}
- #endif
- 
++/* Forward declaration to avoid redefinition */
++static int __init lpm_levels_module_init(void);
++
+ static int __init lpm_levels_module_init(void)
+ {
+ 	int rc;
