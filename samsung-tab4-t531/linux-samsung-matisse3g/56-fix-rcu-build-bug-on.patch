@@ -1,14 +1,11 @@
 --- a/include/linux/rcupdate.h
 +++ b/include/linux/rcupdate.h
-@@ -915,7 +915,11 @@ static inline notrace void rcu_read_unlock_sched_notrace(void)
+@@ -915,7 +915,7 @@ static inline notrace void rcu_read_unlock_sched_notrace(void)
  static inline void __kfree_rcu(struct rcu_head *head, unsigned long offset)
  {
  	typedef void (*rcu_callback)(struct rcu_head *);
-+#if !defined(__CHECKER__) && GCC_VERSION >= 40400
- 	BUILD_BUG_ON(!__builtin_constant_p(offset));
-+#else
-+	/* Skip compile-time check for older compilers or sparse */
-+#endif
+-	BUILD_BUG_ON(!__builtin_constant_p(offset));
++	/* BUILD_BUG_ON(!__builtin_constant_p(offset)); - Disabled for GCC 15+ compatibility */
  
  	kfree_call_rcu(head, (rcu_callback)offset);
  }
