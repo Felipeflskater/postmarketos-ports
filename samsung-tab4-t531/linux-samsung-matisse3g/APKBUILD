@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=136
+pkgrel=137
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -63,8 +63,11 @@ EOF
         fi
     fi
 
-    # Definir em outros headers críticos
-    for f in arch/arm/include/asm/spinlock.h arch/arm/include/asm/atomic.h; do
+    # Definir em outros headers críticos - EXPANDIDO
+    for f in arch/arm/include/asm/spinlock.h \
+             arch/arm/include/asm/atomic.h \
+             arch/arm/include/asm/div64.h \
+             arch/arm/include/asm/assembler.h; do
         if [ -f "$f" ] && ! grep -q "^#define __LINUX_ARM_ARCH__" "$f"; then
             sed -i '1i#ifndef __LINUX_ARM_ARCH__\n#define __LINUX_ARM_ARCH__ 7\n#endif' "$f"
             echo "  ✓ Incluído em $f"
@@ -162,16 +165,15 @@ CPUIDLE_EOF
         if [ -f "$asm_file" ]; then
             echo "  Corrigindo $asm_file..."
             # Inserir correções logo após #include <asm/assembler.h>
+            # IMPORTANTE: Não usar sed com \t.syntax unified que causa problemas
             sed -i '/^#include <asm\/assembler.h>/a\
 \
-/* Force ARM-only mode - override any thumb macros */\
+/* Force ARM-only mode */\
 #undef arm\
 #undef thumb\
 #undef W\
 #define arm(x...) x\
-#define thumb(x...)\
-#define W(instr) instr\
-\t.syntax unified' "$asm_file"
+#define W(instr) instr' "$asm_file"
             echo "    ✓ $asm_file"
         fi
     done
@@ -288,6 +290,9 @@ CONFIG_HAVE_SMP=y
 CONFIG_SMP_ON_UP=y
 CONFIG_ARM_CPU_TOPOLOGY=y
 CONFIG_SCHED_MC=y
+CONFIG_USE_GENERIC_SMP_HELPERS=y
+CONFIG_HAVE_ARM_SCU=y
+CONFIG_ARM_GIC=y
 EOF
 
     make scripts_basic >/dev/null 2>&1 || true
