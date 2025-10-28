@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=135
+pkgrel=136
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -99,6 +99,13 @@ EOF
     done
 
     echo "Aplicando correções manuais..."
+
+    # Correção manual para rcupdate.h - desabilitar BUILD_BUG_ON problemático
+    if [ -f include/linux/rcupdate.h ]; then
+        echo "Corrigindo rcupdate.h (BUILD_BUG_ON)..."
+        sed -i 's/^\([[:space:]]*\)BUILD_BUG_ON(!__builtin_constant_p(offset));/\1\/\* BUILD_BUG_ON(!__builtin_constant_p(offset)); - Disabled for GCC 15+ compatibility *\//' include/linux/rcupdate.h
+        echo "  ✓ rcupdate.h corrigido"
+    fi
 
     # Correção manual para lpm_levels.c se o patch falhou
     if [ -f arch/arm/mach-msm/lpm_levels.c ]; then
