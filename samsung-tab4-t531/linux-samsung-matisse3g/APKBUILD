@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=137
+pkgrel=138
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -156,6 +156,25 @@ CPUIDLE_EOF
         fi
     fi
 
+    # CRÍTICO: Remover TODAS as macros arm()/thumb() dos arquivos assembly ANTES de adicionar as novas definições
+    echo "Removendo macros arm()/thumb() dos arquivos assembly (primeira passagem)..."
+    for asm_file in arch/arm/kernel/entry-armv.S \
+                    arch/arm/mm/cache-v7.S \
+                    arch/arm/kernel/entry-common.S \
+                    arch/arm/mm/proc-v7.S \
+                    arch/arm/mm/proc-v7-2level.S; do
+        if [ -f "$asm_file" ]; then
+            echo "  Processando $asm_file..."
+            # Remover/expandir arm(...) mantendo apenas o conteúdo
+            sed -i 's/arm(\([^)]*\))/\1/g' "$asm_file"
+            # Remover thumb(...) completamente - todas as ocorrências
+            sed -i 's/thumb([^)]*)//g' "$asm_file"
+            # Remover linhas vazias criadas
+            sed -i '/^[[:space:]]*$/d' "$asm_file"
+            echo "    ✓ $asm_file (primeira passagem)"
+        fi
+    done
+
     # PATCH 28: Aplicar ARM/Thumb macros manualmente via sed
     echo "Aplicando correções ARM/Thumb manualmente..."
     for asm_file in arch/arm/kernel/entry-armv.S \
@@ -165,33 +184,12 @@ CPUIDLE_EOF
         if [ -f "$asm_file" ]; then
             echo "  Corrigindo $asm_file..."
             # Inserir correções logo após #include <asm/assembler.h>
-            # IMPORTANTE: Não usar sed com \t.syntax unified que causa problemas
             sed -i '/^#include <asm\/assembler.h>/a\
 \
 /* Force ARM-only mode */\
 #undef arm\
 #undef thumb\
-#undef W\
-#define arm(x...) x\
-#define W(instr) instr' "$asm_file"
-            echo "    ✓ $asm_file"
-        fi
-    done
-
-    # CRÍTICO: Remover TODAS as macros arm()/thumb() dos arquivos assembly
-    echo "Removendo macros arm()/thumb() dos arquivos assembly..."
-    for asm_file in arch/arm/kernel/entry-armv.S \
-                    arch/arm/mm/cache-v7.S \
-                    arch/arm/kernel/entry-common.S \
-                    arch/arm/mm/proc-v7.S; do
-        if [ -f "$asm_file" ]; then
-            echo "  Processando $asm_file..."
-            # Remover linhas arm(...) mantendo apenas o conteúdo
-            sed -i 's/^\([[:space:]]*\)arm(\([^)]*\))/\1\2/' "$asm_file"
-            # Remover linhas thumb(...) completamente
-            sed -i 's/^\([[:space:]]*\)thumb([^)]*)$//' "$asm_file"
-            # Remover thumb(...) inline
-            sed -i 's/thumb(\([^)]*\))//' "$asm_file"
+#undef W' "$asm_file"
             echo "    ✓ $asm_file"
         fi
     done
