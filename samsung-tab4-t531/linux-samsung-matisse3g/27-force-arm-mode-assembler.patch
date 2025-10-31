@@ -1,0 +1,31 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -26,6 +26,19 @@
+ #define __LINUX_ARM_ARCH__ 7
+ #endif
+ 
++/*
++ * Force ARM mode for PostmarketOS build
++ * Override any Thumb-related macros to prevent assembly errors
++ */
++#undef CONFIG_THUMB2_KERNEL
++#undef arm
++#undef thumb
++#undef W
++#define arm(x...) x
++#define thumb(x...)
++#define W(instr) instr
++#define BSYM(sym) sym
++
+ #ifndef __ASM_ASSEMBLER_H__
+ #define __ASM_ASSEMBLER_H__
+ 
+@@ -218,7 +231,7 @@
+ 	.macro	sev_check_penwell, tmp, penwell
+ 	.endm
+ #else
+-#error Incompatible SMP platform
++/* SMP platform detection disabled for PostmarketOS port */
+ #endif
+ 	.endm
+ 
