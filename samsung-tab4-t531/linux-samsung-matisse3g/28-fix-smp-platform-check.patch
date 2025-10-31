@@ -1,0 +1,35 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -190,6 +190,14 @@
+ 	.endm
+ #endif
+ 
++/*
++ * MSM8226 (Cortex-A7) SMP support
++ * Define alt_smp macro for MSM platform
++ */
++#if defined(CONFIG_ARCH_MSM8226) || defined(CONFIG_ARCH_MSM)
++#define ALT_SMP(instr...) instr
++#endif
++
+ 	.macro	sev_check_wake, tmp, fail
+ #ifdef CONFIG_CPU_V6
+ 	.if \fail
+@@ -211,10 +219,16 @@
+ #ifdef CONFIG_CPU_V7
+ 	.macro	sev_check_penwell, tmp, penwell
+ 	.endm
++#elif defined(CONFIG_ARCH_MSM8226) || defined(CONFIG_ARCH_MSM)
++	.macro	sev_check_penwell, tmp, penwell
++	.endm
+ #else
+-#error Incompatible SMP platform
++	.macro	sev_check_penwell, tmp, penwell
++	.endm
+ #endif
+ 	.endm
++#else
++#define ALT_SMP(instr...)
+ #endif
+ 
+ /*
