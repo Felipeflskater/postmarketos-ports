@@ -1,0 +1,9 @@
+--- a/arch/arm/mach-msm/include/mach/irqs.h
++++ b/arch/arm/mach-msm/include/mach/irqs.h
+@@ -133,6 +133,4 @@
+ #define MSM_GPIO_TO_INT(n) (n + NR_MSM_IRQS)
+ #define MSM_INT_TO_REG(base, irq) (base + irq / 32)
+ 
+-#endif
+-
+ #endif
