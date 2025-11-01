@@ -1,31 +1,58 @@
 --- a/arch/arm/include/asm/assembler.h
 +++ b/arch/arm/include/asm/assembler.h
-@@ -26,6 +26,19 @@
- #define __LINUX_ARM_ARCH__ 7
+@@ -23,6 +23,18 @@
+ #endif
  #endif
  
-+/*
-+ * Force ARM mode for PostmarketOS build
-+ * Override any Thumb-related macros to prevent assembly errors
-+ */
++/* PostmarketOS: Force ARM mode - disable Thumb macros */
 +#undef CONFIG_THUMB2_KERNEL
 +#undef arm
 +#undef thumb
 +#undef W
++#undef BSYM
 +#define arm(x...) x
 +#define thumb(x...)
 +#define W(instr) instr
 +#define BSYM(sym) sym
-+
- #ifndef __ASM_ASSEMBLER_H__
- #define __ASM_ASSEMBLER_H__
++#define ARM(x...) x
++#define THUMB(x...)
  
-@@ -218,7 +231,7 @@
- 	.macro	sev_check_penwell, tmp, penwell
+ /*
+  * Endian independent macros for shifting bytes within registers.
+@@ -187,7 +199,7 @@
  	.endm
  #else
--#error Incompatible SMP platform
-+/* SMP platform detection disabled for PostmarketOS port */
+ #ifndef CONFIG_SMP
+-#error SMP not supported on pre-ARMv6 CPUs
++/* SMP platform detection disabled - PostmarketOS */
  #endif
+ 	.macro	sev
+ 	ALT_SMP(mcr	p15, 0, ip, c7, c1, 4	@ CP15 VA write with zero)
+@@ -208,16 +220,10 @@
  	.endm
+ #endif
  
+-/*
+- * Helper macro to enter SVC mode cleanly and mask interrupts. reg is
+- * a scratch register for the macro to overwrite.
+- *
+- * This macro is intended for forcing the CPU into SVC mode at boot time.
+- * you cannot return to the original mode.
+- */
+ .macro safe_svcmode_maskall reg:req
+-#if __LINUX_ARM_ARCH__ >= 6
+-	mrs	\reg , cpsr
++	/* Force ARM mode */
++	mrs	\reg, cpsr
++	bic	\reg, \reg, #0x20
+ 	eor	\reg, \reg, #HYP_MODE
+ 	tst	\reg, #MODE_MASK
+ 	bic	\reg , \reg , #MODE_MASK
+@@ -227,7 +233,6 @@
+ 	adr	lr, BSYM(2f)
+ 	msr	spsr_cxsf, \reg
+ 	__MSR_ELR_HYP(14)
+-	__ERET
+ 2:
+ 	mov	\reg, #(PSR_I_BIT | PSR_F_BIT | SVC_MODE)
+ 	msr	cpsr_c, \reg
