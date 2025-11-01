@@ -1,0 +1,13 @@
+--- a/arch/arm/lib/ashldi3.S
++++ b/arch/arm/lib/ashldi3.S
+@@ -43,9 +43,7 @@ ENTRY(__aeabi_llsl)
+ 
+ 	subs	ip, r2, #32
+ 	rsb	r3, r2, #32
+-	ARM(	orrmi	r1, r1, r0, lsr r3	)
+-	THUMB(	lsrmi	r3, r0, r3		)
+-	THUMB(	orrmi	r1, r1, r3		)
++	orrmi	r1, r1, r0, lsr r3
+ 	mov	r1, r0, lsl ip
+ 	movpl	r0, #0
+ 	mov	pc, lr
