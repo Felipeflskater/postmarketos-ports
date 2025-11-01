@@ -1,0 +1,73 @@
+--- a/arch/arm/kernel/head.S
++++ b/arch/arm/kernel/head.S
+@@ -88,10 +88,6 @@ ENTRY(stext)
+ 	bl	__lookup_processor_type		@ r5=procinfo r9=cpuid
+ 	movs	r10, r5				@ invalid processor (r5=0)?
+- THUMB( it	eq )		@ force fixup-able long branch encoding
+-	THUMB(	adr	r9, BSYM(1f)	)	@ Kernel is always entered in ARM.
+-	THUMB(	bx	r9		)	@ If this is a Thumb-2 kernel,
+-	THUMB(	.thumb			)	@ switch to Thumb now.
+-	THUMB(1:			)
+ 	beq	__error_p			@ yes, error 'p'
+ 
+ #ifdef CONFIG_ARM_LPAE
+@@ -98,7 +94,6 @@ ENTRY(stext)
+ 	mrc	p15, 0, r3, c0, c1, 4		@ read ID_MMFR0
+ 	and	r3, r3, #0xf			@ extract VMSA support
+ 	cmp	r3, #5				@ long-descriptor translation table format?
+- THUMB( it	eq )		@ force fixup-able long branch encoding
+ 	beq	__enable_mmu
+ 	ldr	r3, =0xc0000000			@ address of address descriptors
+ 	orr	r3, r3, #4			@ access descriptors
+@@ -142,9 +137,7 @@ ENTRY(secondary_startup)
+ 	movs	r10, r5				@ invalid processor?
+ 	moveq	r0, #'p'			@ yes, error 'p'
+ 	beq	__error_p
+-	ARM(	add	pc, r10, #PROCINFO_INITFUNC	)
+-	THUMB(	add	r12, r10, #PROCINFO_INITFUNC	)
+-	THUMB(	mov	pc, r12				)
++	add	pc, r10, #PROCINFO_INITFUNC
+ ENDPROC(secondary_startup)
+ 
+ 	/*
+@@ -356,7 +349,6 @@ __create_page_tables:
+ 	tst	r1, #PROCINFO_INITFUNC
+ 	beq	__turn_mmu_on_end
+ 	mov	r0, r4
+- THUMB( it	eq )		@ force fixup-able long branch encoding
+ 	bne	1f
+ 	mov	lr, r3
+ 	mov	r13, #0x00000000		@ mask all exceptions, SVC mode
+@@ -370,9 +362,7 @@ __create_page_tables:
+ 	@ on to the secondary too.
+ 	@
+ 1:	ldr	r7, [r10, #PROCINFO_INITFUNC]
+-	ARM(	add	pc, r10, #PROCINFO_INITFUNC	)
+-	THUMB(	add	r12, r10, #PROCINFO_INITFUNC	)
+-	THUMB(	mov	pc, r12				)
++	add	pc, r10, #PROCINFO_INITFUNC
+ ENDPROC(stext)
+ 
+ #if defined(CONFIG_SMP)
+@@ -543,12 +533,7 @@ __fixup_pv_table:
+ 	add	r6, r6, r3
+ 	add	r7, r7, r3
+ 1:	ldr	ip, [r7, r3]
+-	ARM(	str	r6, [r0, r3]	)
+-	THUMB(	add	r0, r0, r3	)
+-	THUMB(	str	r6, [r0]	)
+-	THUMB(	strh	r6, [r0], #2	)
+-	THUMB(	mov	r6, r6, lsr #16	)
+-	THUMB(	strh	r6, [r0]	)
++	str	r6, [r0, r3]
+ 	cmp	r0, r7
+ 	ldrcc	r7, [r0, #4]!
+ 	bcc	1b
+@@ -581,7 +567,6 @@ __fixup_a_pv_table:
+ 	b	__fixup_a_pv_table
+ 1:
+ #endif
+- THUMB( it	ne )
+ 	subne	r3, r0, r3	@ PHYS_OFFSET - PAGE_OFFSET
+ 	mov	pc, lr
+ ENDPROC(__fixup_pv_table)
