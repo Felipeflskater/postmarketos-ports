@@ -1,0 +1,24 @@
+--- a/arch/arm/kernel/entry-armv.S
++++ b/arch/arm/kernel/entry-armv.S
+@@ -1,3 +1,4 @@
++.arm
+ /*
+  *  linux/arch/arm/kernel/entry-armv.S
+  *
+@@ -17,6 +18,16 @@
+ 
+ #include <asm/assembler.h>
+ 
++/* Override ARM/THUMB macros for forced ARM mode */
++#undef ARM
++#undef THUMB
++#undef W
++#undef BSYM
++#define ARM(x...) x
++#define THUMB(x...)
++#define W(instr) instr
++#define BSYM(sym) sym
++
+ #include <asm/memory.h>
+ #include <asm/glue-df.h>
+ #include <asm/glue-pf.h>
