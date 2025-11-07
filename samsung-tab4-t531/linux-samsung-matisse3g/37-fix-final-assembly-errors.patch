@@ -1,0 +1,46 @@
+--- a/arch/arm/kernel/entry-armv.S
++++ b/arch/arm/kernel/entry-armv.S
+@@ -1016,7 +1016,7 @@
+ 	.align	5
+ __dabt_svc:
+ 	svc_entry
+-	mov	r2, sp
++	mov	r2, sp
+ 	dabt_helper
+ 
+  THUMB(	ldr	r5, [sp, #S_PSR]	)	@ potentially updated CPSR
+@@ -1037,7 +1037,7 @@
+ 	.align	5
+ __irq_svc:
+ 	svc_entry
+-	irq_handler
++	irq_handler
+ 
+ #ifdef CONFIG_PREEMPT
+ 	get_thread_info tsk
+@@ -1058,7 +1058,7 @@
+ 	.align	5
+ __und_svc:
+ 	@ If a kprobe is about to simulate a "stmdb sp!, {..., pc}" instruction,
+ 	@ it obviously needs free stack space which then will belong to the
+ 	@ callee, not to the current function which is being traced. In this
+@@ -1079,7 +1079,7 @@
+ 	.align	5
+ __pabt_svc:
+ 	svc_entry
+-	mov	r2, sp				@ regs
++	mov	r2, sp
+ 	pabt_helper
+ 
+  THUMB(	ldr	r5, [sp, #S_PSR]	)	@ potentially updated CPSR
+--- a/arch/arm/mm/proc-v7.S
++++ b/arch/arm/mm/proc-v7.S
+@@ -318,7 +318,7 @@
+ 	mcr	p15, 0, r10, c7, c5, 0		@ I+BTB cache invalidate
+ 	dsb
+ #ifdef CONFIG_MMU
+-	mcr	p15, 0, r10, c8, c7, 0		@ invalidate I + D TLBs
++	mcr	p15, 0, r10, c8, c7, 0
+ 	v7_ttb_setup r10, r4, r8, r5		@ TTBCR, TTBRx setup
+ 	ldr	r5, =PRRR			@ PRRR
+ 	ldr	r6, =NMRR			@ NMRR
