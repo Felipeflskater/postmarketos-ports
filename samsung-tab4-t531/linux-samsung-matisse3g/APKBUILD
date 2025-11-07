@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=152
+pkgrel=154
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -119,20 +119,24 @@ EOF
             sed -i '1i\.arm' "$asm_file"
         fi
 
-        # 2. Remover arm(...) - extrair apenas o conteúdo
-        sed -i 's/\<arm(\([^)]*\))/\1/g' "$asm_file"
+        # 2. Remover arm( ... ) - extrair apenas o conteúdo (com ou sem espaço)
+        sed -i 's/\<arm[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "$asm_file"
 
-        # 3. Remover thumb(...) - apagar completamente
-        sed -i 's/\<thumb([^)]*)//g' "$asm_file"
+        # 3. Remover thumb( ... ) - apagar completamente (com ou sem espaço)
+        sed -i 's/\<thumb[[:space:]]*([^)]*)//g' "$asm_file"
 
-        # 4. Remover W(...) - extrair apenas o conteúdo
-        sed -i 's/\<W(\([^)]*\))/\1/g' "$asm_file"
-        sed -i 's/\<w(\([^)]*\))/\1/g' "$asm_file"
+        # 4. Remover W( ... ) - extrair apenas o conteúdo (maiúsculo e minúsculo, com espaço)
+        sed -i 's/\<W[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "$asm_file"
+        sed -i 's/\<w[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "$asm_file"
 
-        # 5. Remover BSYM(...) - extrair apenas o símbolo
-        sed -i 's/\<BSYM(\([^)]*\))/\1/g' "$asm_file"
+        # 5. Remover BSYM( ... ) - extrair apenas o símbolo (com espaço)
+        sed -i 's/\<BSYM[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "$asm_file"
 
-        # 6. Limpar linhas vazias criadas pela remoção de thumb()
+        # 6. Remover ARM( ... ) e THUMB( ... ) maiúsculos também
+        sed -i 's/\<ARM[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "$asm_file"
+        sed -i 's/\<THUMB[[:space:]]*([^)]*)//g' "$asm_file"
+
+        # 7. Limpar linhas vazias criadas pela remoção de thumb()
         sed -i '/^[[:space:]]*$/d' "$asm_file"
     done
 
