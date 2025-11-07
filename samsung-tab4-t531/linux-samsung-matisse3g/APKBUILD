@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=150
+pkgrel=152
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -24,8 +24,6 @@ source="
 	13-disable-stack-protector.patch
 	29-fix-lpm-levels-redefinition.patch
 	34-fix-assembler-arm-macros.patch
-	35-fix-entry-armv-macros.patch
-	36-fix-cache-v7-macros.patch
 	40-create-compiler-gcc14-header.patch
 	55-fix-proc-pid-init-ino.patch
 "
@@ -80,8 +78,6 @@ EOF
              13-disable-stack-protector.patch \
              29-fix-lpm-levels-redefinition.patch \
              34-fix-assembler-arm-macros.patch \
-             35-fix-entry-armv-macros.patch \
-             36-fix-cache-v7-macros.patch \
              40-create-compiler-gcc14-header.patch \
              55-fix-proc-pid-init-ino.patch; do
         if [ -f "$srcdir/$p" ]; then
@@ -101,40 +97,46 @@ EOF
         echo "  ✓ rcupdate.h OK"
     fi
 
+    # Corrigir irqs.h - CRÍTICO!
+    if [ -f arch/arm/mach-msm/include/mach/irqs.h ]; then
+        echo "Corrigindo irqs.h (removendo #endif órfão)..."
+        # Remover linha 136 que contém apenas #endif
+        sed -i '136{/^#endif$/d;}' arch/arm/mach-msm/include/mach/irqs.h
+        echo "  ✓ irqs.h OK"
+    fi
+
     # Desabilitar CONFIG_THUMB2_KERNEL em todos os lugares
     find . -name "*.h" -o -name "Kconfig*" | xargs sed -i 's/CONFIG_THUMB2_KERNEL/CONFIG_THUMB2_KERNEL_DISABLED/g' 2>/dev/null || true
 
-    # Aplicar fix de macros em TODOS os arquivos .S restantes
-    echo "Aplicando fix de macros ARM/THUMB em arquivos assembly..."
-    for asm_file in arch/arm/kernel/entry-common.S \
-                    arch/arm/kernel/head.S \
-                    arch/arm/kernel/head-common.S \
-                    arch/arm/mm/proc-v7.S \
-                    arch/arm/mm/proc-v7-2level.S \
-                    arch/arm/mm/abort-ev7.S \
-                    arch/arm/mm/pabort-v7.S \
-                    arch/arm/lib/*.S \
-                    arch/arm/vfp/*.S; do
-        if [ -f "$asm_file" ]; then
-            # Adicionar .arm no início se não existir
-            if ! head -3 "$asm_file" | grep -q "^[[:space:]]*\.arm"; then
-                sed -i '1i\.arm' "$asm_file"
-            fi
-            # Adicionar fix de macros após includes
-            if ! grep -q "Override ARM/THUMB macros" "$asm_file"; then
-                sed -i '/^#include <asm\/assembler.h>/a\
-\/* Override ARM\/THUMB macros for forced ARM mode *\/\
-#undef ARM\
-#undef THUMB\
-#undef W\
-#undef BSYM\
-#define ARM(x...) x\
-#define THUMB(x...)\
-#define W(instr) instr\
-#define BSYM(sym) sym' "$asm_file"
-            fi
+    # === CORREÇÃO CRÍTICA: Remover macros ARM/THUMB/W/BSYM dos arquivos .S ===
+    echo "Removendo macros ARM/THUMB/W/BSYM de TODOS os arquivos assembly..."
+
+    for asm_file in $(find arch/arm -name "*.S" -type f); do
+        echo "  Processando $asm_file..."
+
+        # 1. Adicionar .arm no início se não existir
+        if ! head -5 "$asm_file" | grep -q "^[[:space:]]*\.arm"; then
+            sed -i '1i\.arm' "$asm_file"
         fi
+
+        # 2. Remover arm(...) - extrair apenas o conteúdo
+        sed -i 's/\<arm(\([^)]*\))/\1/g' "$asm_file"
+
+        # 3. Remover thumb(...) - apagar completamente
+        sed -i 's/\<thumb([^)]*)//g' "$asm_file"
+
+        # 4. Remover W(...) - extrair apenas o conteúdo
+        sed -i 's/\<W(\([^)]*\))/\1/g' "$asm_file"
+        sed -i 's/\<w(\([^)]*\))/\1/g' "$asm_file"
+
+        # 5. Remover BSYM(...) - extrair apenas o símbolo
+        sed -i 's/\<BSYM(\([^)]*\))/\1/g' "$asm_file"
+
+        # 6. Limpar linhas vazias criadas pela remoção de thumb()
+        sed -i '/^[[:space:]]*$/d' "$asm_file"
     done
+
+    echo "  ✓ Macros ARM/THUMB/W/BSYM removidos de todos os arquivos .S"
 
     # board-8226.c - stub
     if [ -f arch/arm/mach-msm/board-8226.c ]; then
@@ -269,8 +271,6 @@ c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad50
 b738038c3aa96ddd210277626ccba22a1047d74b5a958f222f0983ba9771dab2210b2c39dc348398dce213d079e63c554379ddeacf071ad84d88a283c383c834  13-disable-stack-protector.patch
 4e99f91b1e181f5703eddbc8b1224389a5b972c71fa8993af8a95407938a1323d8e6a014e99d200ce912f31673113ca2eea8a03057ddf64c36aa603e9e72c752  29-fix-lpm-levels-redefinition.patch
 6a17afbed02b632b72bd41aa5cbf4452f11ce59423b611b17c2be4de4e996612fd630438fa91fd8bfaaf90ca13b421f7c308a622104a98dba2001c5ee9571456  34-fix-assembler-arm-macros.patch
-331a56f52277b1828ffc3b14bcbac4aedaeaf18ecd6463508793a63b56724eaf2f7a4fcb815c5daca0cde762e58f97d21c9b3a445639f2678eb1ec30edf4ae8b  35-fix-entry-armv-macros.patch
-b42fb6814fd991cd43812aeccd0be7a99656d9419206222d77533295f9d6bbb1ca5d5f386bc6fa4adc203af7124fb1e76bac2b9afc41840e33b4282ad1be65ea  36-fix-cache-v7-macros.patch
 9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
 1e4a630a8d83663304568c1fe676a952212131e2d9b0b7f09c5008c25beea8b24b0d2d9e451707cfa66f1055d96b669f4f6d854fafada08d9e14ca08d4199f40  55-fix-proc-pid-init-ino.patch
 "
