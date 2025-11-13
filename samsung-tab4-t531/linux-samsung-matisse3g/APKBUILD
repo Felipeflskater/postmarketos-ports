@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=156
+pkgrel=155
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -13,7 +13,7 @@ makedepends="bash bc bison devicepkg-dev dtbtool elfutils-dev findutils flex gmp
 _commit="pmos-matisse3g-fixes"
 
 source="
-	\$pkgname-\$_commit.tar.gz::https://github.com/Felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/\$_commit.tar.gz
+	$pkgname-$_commit.tar.gz::https://github.com/Felipeflskater/android_kernel_samsung_msm8226/archive/refs/heads/$_commit.tar.gz
 	config-samsung-matisse3g.armv7
 	01-fix-timex-header.patch
 	03-fix-defconfig.patch
@@ -26,15 +26,17 @@ source="
 	34-fix-assembler-arm-macros.patch
 	40-create-compiler-gcc14-header.patch
 	55-fix-proc-pid-init-ino.patch
+	57-fix-entry-armv-operator.patch
+	58-fix-proc-v7-line321.patch
 "
-builddir="\$srcdir/android_kernel_samsung_msm8226-\$_commit"
+builddir="$srcdir/android_kernel_samsung_msm8226-$_commit"
 
 prepare() {
-    cd "\$builddir"
+    cd "$builddir"
 
     # Setup básico
     for comp in armv7-alpine-linux-musleabihf-gcc arm-linux-gnueabihf-gcc; do
-        command -v "\$comp" >/dev/null 2>&1 && export CROSS_COMPILE="\${comp%-gcc}-" && break
+        command -v "$comp" >/dev/null 2>&1 && export CROSS_COMPILE="${comp%-gcc}-" && break
     done
 
     unset LDFLAGS CPPFLAGS CFLAGS CXXFLAGS KCFLAGS AFLAGS
@@ -56,18 +58,18 @@ prepare() {
 EOF
     touch include/generated/asm-offsets.h include/generated/bounds.h
 
-    # Definir __LINUX_ARM_ARCH__ globalmente
+    # Definir __LINUX_ARM_ARCH__ globalmente em arquivos chave
     for f in arch/arm/kernel/asm-offsets.c \
              arch/arm/include/asm/spinlock.h \
              arch/arm/include/asm/atomic.h \
              arch/arm/include/asm/div64.h \
              arch/arm/include/asm/processor.h; do
-        if [ -f "\$f" ] && ! grep -q "^#define __LINUX_ARM_ARCH__" "\$f"; then
-            sed -i '1i#ifndef __LINUX_ARM_ARCH__\n#define __LINUX_ARM_ARCH__ 7\n#endif' "\$f"
+        if [ -f "$f" ] && ! grep -q "^#define __LINUX_ARM_ARCH__" "$f"; then
+            sed -i '1i#ifndef __LINUX_ARM_ARCH__\n#define __LINUX_ARM_ARCH__ 7\n#endif' "$f"
         fi
     done
 
-    # Aplicar patches
+    # Aplicar patches - ORDEM CRÍTICA!
     echo "Aplicando patches..."
     for p in 01-fix-timex-header.patch \
              03-fix-defconfig.patch \
@@ -79,12 +81,14 @@ EOF
              29-fix-lpm-levels-redefinition.patch \
              34-fix-assembler-arm-macros.patch \
              40-create-compiler-gcc14-header.patch \
-             55-fix-proc-pid-init-ino.patch; do
-        if [ -f "\$srcdir/\$p" ]; then
-            echo "  Aplicando \$p..."
-            patch -p1 -i "\$srcdir/\$p" 2>/dev/null || \
-            patch -p1 --forward -i "\$srcdir/\$p" 2>/dev/null || \
-            echo "  AVISO: \$p pode ter falhado"
+             55-fix-proc-pid-init-ino.patch \
+             57-fix-entry-armv-operator.patch \
+             58-fix-proc-v7-line321.patch; do
+        if [ -f "$srcdir/$p" ]; then
+            echo "  Aplicando $p..."
+            patch -p1 -i "$srcdir/$p" 2>/dev/null || \
+            patch -p1 --forward -i "$srcdir/$p" 2>/dev/null || \
+            echo "  AVISO: $p pode ter falhado (pode ser normal se já aplicado)"
         fi
     done
 
@@ -92,86 +96,95 @@ EOF
 
     # Correção rcupdate.h
     if [ -f include/linux/rcupdate.h ]; then
+        echo "Corrigindo rcupdate.h..."
         sed -i 's/^\([[:space:]]*\)BUILD_BUG_ON(!__builtin_constant_p(offset));/\1\/\* BUILD_BUG_ON - Disabled *\//g' include/linux/rcupdate.h
+        echo "  ✓ rcupdate.h OK"
     fi
 
-    # Corrigir irqs.h
+    # Corrigir irqs.h - CRÍTICO!
     if [ -f arch/arm/mach-msm/include/mach/irqs.h ]; then
-        sed -i '136{/^#endif\$/d;}' arch/arm/mach-msm/include/mach/irqs.h
+        echo "Corrigindo irqs.h (removendo #endif órfão)..."
+        sed -i '136{/^#endif$/d;}' arch/arm/mach-msm/include/mach/irqs.h
+        echo "  ✓ irqs.h OK"
     fi
 
-    # Desabilitar THUMB2
+    # Desabilitar CONFIG_THUMB2_KERNEL em todos os lugares
     find . -name "*.h" -o -name "Kconfig*" | xargs sed -i 's/CONFIG_THUMB2_KERNEL/CONFIG_THUMB2_KERNEL_DISABLED/g' 2>/dev/null || true
 
-    # Remover macros ARM/THUMB/W/BSYM
-    echo "Removendo macros assembly problemáticos..."
-    for asm_file in \$(find arch/arm -name "*.S" -type f); do
-        if ! head -5 "\$asm_file" | grep -q "^[[:space:]]*\.arm"; then
-            sed -i '1i\.arm' "\$asm_file"
+    # === CORREÇÃO CRÍTICA: Remover macros ARM/THUMB/W/BSYM dos arquivos .S ===
+    echo "Removendo macros ARM/THUMB/W/BSYM de TODOS os arquivos assembly..."
+
+    for asm_file in $(find arch/arm -name "*.S" -type f); do
+        # 1. Adicionar .arm no início se não existir
+        if ! head -5 "$asm_file" | grep -q "^[[:space:]]*\.arm"; then
+            sed -i '1i\.arm' "$asm_file"
         fi
-        sed -i 's/\<arm[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "\$asm_file"
-        sed -i 's/\<thumb[[:space:]]*([^)]*)//g' "\$asm_file"
-        sed -i 's/\<W[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "\$asm_file"
-        sed -i 's/\<w[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "\$asm_file"
-        sed -i 's/\<BSYM[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "\$asm_file"
-        sed -i 's/\<ARM[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "\$asm_file"
-        sed -i 's/\<THUMB[[:space:]]*([^)]*)//g' "\$asm_file"
-        sed -i '/^[[:space:]]*\$/d' "\$asm_file"
+
+        # 2. Remover arm( ... ) - extrair apenas o conteúdo
+        sed -i 's/\<arm[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "$asm_file"
+
+        # 3. Remover thumb( ... ) - apagar completamente
+        sed -i 's/\<thumb[[:space:]]*([^)]*)//g' "$asm_file"
+
+        # 4. Remover W( ... ) - extrair apenas o conteúdo
+        sed -i 's/\<W[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "$asm_file"
+        sed -i 's/\<w[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "$asm_file"
+
+        # 5. Remover BSYM( ... ) - extrair apenas o símbolo
+        sed -i 's/\<BSYM[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "$asm_file"
+
+        # 6. Remover ARM( ... ) e THUMB( ... ) maiúsculos também
+        sed -i 's/\<ARM[[:space:]]*([[:space:]]*\([^)]*\)[[:space:]]*)/\1/g' "$asm_file"
+        sed -i 's/\<THUMB[[:space:]]*([^)]*)//g' "$asm_file"
+
+        # 7. Limpar linhas vazias criadas pela remoção de thumb()
+        sed -i '/^[[:space:]]*$/d' "$asm_file"
     done
 
-    # === CORREÇÃO CRÍTICA: entry-armv.S - Fix ret instruction ===
-    echo "Corrigindo entry-armv.S (ret -> mov pc)..."
-    if [ -f arch/arm/kernel/entry-armv.S ]; then
-        # Substituir 'ret r9' por 'mov pc, r9' nas linhas .fixup
-        sed -i '/\.fixup/,/\.popsection/{s/\<ret[[:space:]]\+r9/mov\tpc, r9/g}' arch/arm/kernel/entry-armv.S
-        echo "  ✓ entry-armv.S corrigido"
-    fi
+    echo "  ✓ Macros ARM/THUMB/W/BSYM removidos de todos os arquivos .S"
 
-    # === CORREÇÃO CRÍTICA: proc-v7.S - Remove inline comment ===
-    echo "Corrigindo proc-v7.S (comentário inline)..."
-    if [ -f arch/arm/mm/proc-v7.S ]; then
-        # Remover comentário inline da linha ~321
-        sed -i 's/mcr[[:space:]]\+p15,[[:space:]]*0,[[:space:]]*r10,[[:space:]]*c8,[[:space:]]*c7,[[:space:]]*0[[:space:]]*@.*/mcr\tp15, 0, r10, c8, c7, 0/g' arch/arm/mm/proc-v7.S
-        echo "  ✓ proc-v7.S corrigido"
-    fi
-
-    # board-8226.c stub
+    # board-8226.c - stub
     if [ -f arch/arm/mach-msm/board-8226.c ]; then
+        echo "Corrigindo board-8226.c..."
         sed -i '/^static struct of_dev_auxdata msm_hsic_host_adata/,/^};/c\
 static void *msm_hsic_host_adata = NULL;' arch/arm/mach-msm/board-8226.c
+
         sed -i '/^static struct of_dev_auxdata msm8226_auxdata_lookup/,/^};/c\
 static void *msm8226_auxdata_lookup = NULL;' arch/arm/mach-msm/board-8226.c
+        echo "  ✓ board-8226.c OK"
     fi
 
-    # smd_init_plat.c stub
-    cat > arch/arm/mach-msm/smd_init_plat.c << 'EOFS'
+    # smd_init_plat.c - stub
+    echo "Criando smd_init_plat.c stub..."
+    cat > arch/arm/mach-msm/smd_init_plat.c << 'EOF'
 #include <linux/module.h>
 #include <linux/init.h>
 int __init smd_core_init(void) { return 0; }
 static int __init msm_smd_driver_init(void) { return smd_core_init(); }
 module_init(msm_smd_driver_init);
 MODULE_LICENSE("GPL v2");
-EOFS
+EOF
 
-    # Makefiles
-    cat >> arch/arm/vfp/Makefile << 'EOFM'
+    # Makefiles - forçar -marm
+    echo "Adicionando flags -marm aos Makefiles..."
+    cat >> arch/arm/vfp/Makefile << 'EOF'
 
 CFLAGS_vfpmodule.o += -marm -D__LINUX_ARM_ARCH__=7
 CFLAGS_vfpsingle.o += -marm -D__LINUX_ARM_ARCH__=7
 CFLAGS_vfpdouble.o += -marm -D__LINUX_ARM_ARCH__=7
 AFLAGS_vfphw.o += -D__LINUX_ARM_ARCH__=7
 AFLAGS_entry.o += -D__LINUX_ARM_ARCH__=7
-EOFM
+EOF
 
-    cat >> arch/arm/kernel/Makefile << 'EOFM'
+    cat >> arch/arm/kernel/Makefile << 'EOF'
 
 CFLAGS_ptrace.o += -marm -D__LINUX_ARM_ARCH__=7
 CFLAGS_process.o += -marm -D__LINUX_ARM_ARCH__=7
 AFLAGS_entry-armv.o += -D__LINUX_ARM_ARCH__=7
 AFLAGS_entry-common.o += -D__LINUX_ARM_ARCH__=7
-EOFM
+EOF
 
-    cat >> arch/arm/mm/Makefile << 'EOFM'
+    cat >> arch/arm/mm/Makefile << 'EOF'
 
 CFLAGS_fault.o += -marm -D__LINUX_ARM_ARCH__=7
 CFLAGS_init.o += -marm -D__LINUX_ARM_ARCH__=7
@@ -179,24 +192,28 @@ AFLAGS_abort-ev7.o += -D__LINUX_ARM_ARCH__=7
 AFLAGS_pabort-v7.o += -D__LINUX_ARM_ARCH__=7
 AFLAGS_proc-v7.o += -D__LINUX_ARM_ARCH__=7
 AFLAGS_cache-v7.o += -D__LINUX_ARM_ARCH__=7
-EOFM
+EOF
 
     # module_param bool -> int
+    echo "Convertendo module_param bool para int..."
     find . -name "*.c" -type f -exec sed -i \
         -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*bool[[:space:]]*,/module_param(\1, int,/g' \
         -e 's/module_param[[:space:]]*([[:space:]]*\([^,]*\)[[:space:]]*,[[:space:]]*_Bool[[:space:]]*,/module_param(\1, int,/g' \
         {} \; 2>/dev/null
 
-    # platsmp.c
+    # Corrigir platsmp.c
     if [ -f arch/arm/mach-msm/platsmp.c ]; then
-        sed -i 's/\.cpu_kill[[:space:]]*=.*\$/\/\* .cpu_kill - not supported *\//g' arch/arm/mach-msm/platsmp.c
-        sed -i 's/\.cpu_die[[:space:]]*=.*\$/\/\* .cpu_die - not supported *\//g' arch/arm/mach-msm/platsmp.c
-        sed -i 's/\.cpu_disable[[:space:]]*=.*\$/\/\* .cpu_disable - not supported *\//g' arch/arm/mach-msm/platsmp.c
+        echo "Corrigindo platsmp.c..."
+        sed -i 's/\.cpu_kill[[:space:]]*=.*$/\/\* .cpu_kill - not supported *\//g' arch/arm/mach-msm/platsmp.c
+        sed -i 's/\.cpu_die[[:space:]]*=.*$/\/\* .cpu_die - not supported *\//g' arch/arm/mach-msm/platsmp.c
+        sed -i 's/\.cpu_disable[[:space:]]*=.*$/\/\* .cpu_disable - not supported *\//g' arch/arm/mach-msm/platsmp.c
+        echo "  ✓ platsmp.c OK"
     fi
 
-    # Config
-    cp "\$srcdir/config-samsung-matisse3g.armv7" .config
-    cat >> .config << 'EOFC'
+    # Aplicar config
+    cp "$srcdir/config-samsung-matisse3g.armv7" .config
+
+    cat >> .config << 'EOF'
 CONFIG_SMP=y
 CONFIG_NR_CPUS=4
 CONFIG_ARM_UNWIND=y
@@ -218,7 +235,7 @@ CONFIG_CPU_CORTEX_A7=y
 CONFIG_ARCH_MSM8226=y
 CONFIG_ARCH_MSM=y
 CONFIG_ARM_ERRATA_798181=n
-EOFC
+EOF
 
     make scripts_basic >/dev/null 2>&1 || true
     yes "" | make oldconfig >/dev/null 2>&1 || true
@@ -227,23 +244,23 @@ EOFC
 }
 
 build() {
-    cd "\$builddir"
-    timeout 2400 make ARCH=arm CROSS_COMPILE="\$CROSS_COMPILE" \
-        HOSTCFLAGS="\$HOSTCFLAGS" KBUILD_CFLAGS="\$KBUILD_CFLAGS" \
-        KBUILD_AFLAGS="\$KBUILD_AFLAGS" EXTRA_CFLAGS="\$EXTRA_CFLAGS" \
+    cd "$builddir"
+    timeout 2400 make ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" \
+        HOSTCFLAGS="$HOSTCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS" \
+        KBUILD_AFLAGS="$KBUILD_AFLAGS" EXTRA_CFLAGS="$EXTRA_CFLAGS" \
         CONFIG_NO_ERROR_ON_MISMATCH=y KCFLAGS="-fno-stack-protector" \
-        -j\$(nproc) zImage || exit 1
+        -j$(nproc) zImage || exit 1
     [ -f arch/arm/boot/zImage ] || exit 1
     make modules 2>/dev/null || true
 }
 
 package() {
-    cd "\$builddir"
-    install -Dm644 arch/arm/boot/zImage "\$pkgdir/boot/vmlinuz-\$_flavor"
-    make DESTDIR="\$pkgdir" modules_install 2>/dev/null || true
+    cd "$builddir"
+    install -Dm644 arch/arm/boot/zImage "$pkgdir/boot/vmlinuz-$_flavor"
+    make DESTDIR="$pkgdir" modules_install 2>/dev/null || true
     [ -d arch/arm/boot/dts ] && {
-        mkdir -p "\$pkgdir/boot/dtbs-\$_flavor"
-        find arch/arm/boot/dts -name "*.dtb" -exec cp {} "\$pkgdir/boot/dtbs-\$_flavor/" \;
+        mkdir -p "$pkgdir/boot/dtbs-$_flavor"
+        find arch/arm/boot/dts -name "*.dtb" -exec cp {} "$pkgdir/boot/dtbs-$_flavor/" \;
     }
 }
 
@@ -261,4 +278,6 @@ b738038c3aa96ddd210277626ccba22a1047d74b5a958f222f0983ba9771dab2210b2c39dc348398
 6a17afbed02b632b72bd41aa5cbf4452f11ce59423b611b17c2be4de4e996612fd630438fa91fd8bfaaf90ca13b421f7c308a622104a98dba2001c5ee9571456  34-fix-assembler-arm-macros.patch
 9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
 1e4a630a8d83663304568c1fe676a952212131e2d9b0b7f09c5008c25beea8b24b0d2d9e451707cfa66f1055d96b669f4f6d854fafada08d9e14ca08d4199f40  55-fix-proc-pid-init-ino.patch
+9116d2a25aa7724d31d6e14ff2d4cc8366ede6d3e92ca78373156248eca1b5963a57973108e5e905e04fd0558c61fab8625743d362852e0c0b26b51e96a116b6  57-fix-entry-armv-operator.patch
+6729f0eac22f5b99ea9c008c29e8f783df121f611c01649bfe9b2b6da01f5d1bef9bac86c65ea6f40607316b57e3fab9f9dd69407f7e5bf0ae169c3f2d44a368  58-fix-proc-v7-line321.patch
 "
