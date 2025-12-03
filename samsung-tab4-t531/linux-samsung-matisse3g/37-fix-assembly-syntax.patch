@@ -1,0 +1,79 @@
+--- a/arch/arm/include/asm/assembler.h
++++ b/arch/arm/include/asm/assembler.h
+@@ -19,31 +19,23 @@
+ #include <asm/ptrace.h>
+ #include <asm/domain.h>
+ 
+-/*
+- * Endian independent macros for shifting bytes within registers.
+- */
+-#ifndef __ARMEB__
+-#define pull            lsr
+-#define push            lsl
+-#define get_byte_0      lsl #0
+-#define get_byte_1      lsr #8
+-#define get_byte_2      lsr #16
+-#define get_byte_3      lsr #24
+-#define put_byte_0      lsl #0
+-#define put_byte_1      lsl #8
+-#define put_byte_2      lsl #16
+-#define put_byte_3      lsl #24
+-#else
+-#define pull            lsl
+-#define push            lsr
+-#define get_byte_0      lsr #24
+-#define get_byte_1      lsr #16
+-#define get_byte_2      lsr #8
+-#define get_byte_3      lsl #0
+-#define put_byte_0      lsl #24
+-#define put_byte_1      lsl #16
+-#define put_byte_2      lsl #8
+-#define put_byte_3      lsl #0
+-#endif
++/* Force ARM mode - no THUMB support */
++#define CONFIG_ARM_ASM_UNIFIED 1
++
++/* ARM/THUMB mode selection macros - ARM mode only */
++	.macro arm_mode
++	.arm
++	.endm
++
++/* Conditional assembly macros - always use ARM instruction */
++	.macro arm, instr:vararg
++	\instr
++	.endm
++
++	.macro thumb, instr:vararg
++	/* THUMB instructions ignored in ARM-only build */
++	.endm
++
++/* W() macro - pass through instruction unchanged */
++	.macro W, instr:vararg
++	\instr
++	.endm
++
++/* BSYM() - pass through symbol unchanged (no Thumb bit) */
++#define BSYM(sym) sym
++
++/* Get thread info register */
++	.macro	get_thread_info, rd
++	mov	\rd, sp, lsr #13
++	mov	\rd, \rd, lsl #13
++	.endm
++
++/* movw_pc macro for ARM mode */
++	.macro	movw_pc, reg
++	mov	pc, \reg
++	.endm
+ 
+--- a/arch/arm/mm/proc-v7.S
++++ b/arch/arm/mm/proc-v7.S
+@@ -318,7 +318,7 @@ __v7_ca9mp_setup:
+ __v7_ca7mp_setup:
+ __v7_pj4b_setup:
+ 	mov	r10, #(1 << 0)
+-	b	1f			@ skip cache invalidation
++	b	1f
+ __v7_ca8_setup:
+ __v7_ca15mp_setup:
+ __v7_ca12mp_setup:
