@@ -1,0 +1,12 @@
+--- a/arch/arm/mm/proc-v7.S
++++ b/arch/arm/mm/proc-v7.S
+@@ -318,7 +318,8 @@ __v7_ca9mp_setup:
+ __v7_ca7mp_setup:
+ __v7_pj4b_setup:
+ 	mov	r10, #(1 << 0)
+-	b	1f			# skip cache invalidation
++	b	1f
++	@ skip cache invalidation
+ __v7_ca8_setup:
+ __v7_ca15mp_setup:
+ __v7_ca12mp_setup:
