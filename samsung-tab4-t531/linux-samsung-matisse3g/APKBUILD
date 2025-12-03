@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=159
+pkgrel=160
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -23,7 +23,6 @@ source="
 	12-fix-section-mismatch.patch
 	13-disable-stack-protector.patch
 	29-fix-lpm-levels-redefinition.patch
-	37-fix-assembly-syntax.patch
 	40-create-compiler-gcc14-header.patch
 	55-fix-proc-pid-init-ino.patch
 "
@@ -77,7 +76,6 @@ EOF
              12-fix-section-mismatch.patch \
              13-disable-stack-protector.patch \
              29-fix-lpm-levels-redefinition.patch \
-             37-fix-assembly-syntax.patch \
              40-create-compiler-gcc14-header.patch \
              55-fix-proc-pid-init-ino.patch; do
         if [ -f "$srcdir/$p" ]; then
@@ -89,6 +87,47 @@ EOF
     done
 
     echo "Aplicando correções manuais..."
+
+    # === CORREÇÃO CRÍTICA: Adicionar macros ARM/THUMB/W/BSYM ao assembler.h ===
+    echo "Adicionando macros assembly ao assembler.h..."
+    if [ -f arch/arm/include/asm/assembler.h ]; then
+        # Adicionar as macros após os includes, antes de qualquer código
+        sed -i '/#include <asm\/domain.h>/a\
+\
+/* Macros for ARM-only mode (no Thumb support) */\
+\
+/* arm() macro - execute ARM instruction */\
+	.macro arm, instr:vararg\
+	\\instr\
+	.endm\
+\
+/* thumb() macro - ignore Thumb instructions in ARM mode */\
+	.macro thumb, instr:vararg\
+	.endm\
+\
+/* W() macro - wide instruction, just pass through in ARM */\
+	.macro W, instr:vararg\
+	\\instr\
+	.endm\
+\
+/* w() lowercase version */\
+	.macro w, instr:vararg\
+	\\instr\
+	.endm\
+\
+/* BSYM() - pass symbol through without Thumb bit */\
+#define BSYM(sym) sym\
+' arch/arm/include/asm/assembler.h
+
+        echo "  ✓ Macros assembly adicionadas ao assembler.h"
+    fi
+
+    # Corrigir proc-v7.S linha 321
+    if [ -f arch/arm/mm/proc-v7.S ]; then
+        echo "Corrigindo proc-v7.S..."
+        sed -i '321s/\s*@.*$//' arch/arm/mm/proc-v7.S
+        echo "  ✓ proc-v7.S OK"
+    fi
 
     # Correção rcupdate.h
     if [ -f include/linux/rcupdate.h ]; then
@@ -232,7 +271,6 @@ c100588d2c68d4ca7564cfc5dfabe55d0ffef60d6d4bf3561b551db851ce472951ef3521ea2cad50
 3df086eb955c08fa770b43a16008a4eee7753ff9f1a47780a5528f3fda96f1cfb8f705c6931c83cb2ac2b9b6d20737998f99d13ae4c8e88f958d762237c2dc47  12-fix-section-mismatch.patch
 b738038c3aa96ddd210277626ccba22a1047d74b5a958f222f0983ba9771dab2210b2c39dc348398dce213d079e63c554379ddeacf071ad84d88a283c383c834  13-disable-stack-protector.patch
 4e99f91b1e181f5703eddbc8b1224389a5b972c71fa8993af8a95407938a1323d8e6a014e99d200ce912f31673113ca2eea8a03057ddf64c36aa603e9e72c752  29-fix-lpm-levels-redefinition.patch
-6f91511101ec8db3908f8803dce742e012857365e310ef41f78d2a3c3627027bc6dc05f3c76e88b550a64a1bfe5b27ff8ee74823595fb69e2c4c81aee960772e  37-fix-assembly-syntax.patch
 9609c8c3fb4829b595d00738a4f8ee1daa58cbf5ae3cc59eb7ecc89f04705e13bfbb2116ae4c8ca3e4ecff733c9a8bd982bca06a8e1dbad336be8e71108df65c  40-create-compiler-gcc14-header.patch
 1e4a630a8d83663304568c1fe676a952212131e2d9b0b7f09c5008c25beea8b24b0d2d9e451707cfa66f1055d96b669f4f6d854fafada08d9e14ca08d4199f40  55-fix-proc-pid-init-ino.patch
 "
