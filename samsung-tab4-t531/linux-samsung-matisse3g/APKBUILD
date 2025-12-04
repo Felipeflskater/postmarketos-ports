@@ -1,7 +1,7 @@
 # Maintainer: Felipe Prestes Aranalde <felipe.aranalde@gmail.com>
 pkgname=linux-samsung-matisse3g
 pkgver=3.4.113
-pkgrel=160
+pkgrel=161
 pkgdesc="Kernel Linux para Samsung Galaxy Tab 4 10.1 (SM-T531)"
 arch="armv7"
 _flavor="samsung-matisse3g"
@@ -88,38 +88,36 @@ EOF
 
     echo "Aplicando correções manuais..."
 
-    # === CORREÇÃO CRÍTICA: Adicionar macros ARM/THUMB/W/BSYM ao assembler.h ===
-    echo "Adicionando macros assembly ao assembler.h..."
+    # === CORREÇÃO CRÍTICA: Substituir definições ARM/THUMB no assembler.h ===
+    echo "Corrigindo macros ARM/THUMB no assembler.h..."
     if [ -f arch/arm/include/asm/assembler.h ]; then
-        # Adicionar as macros após os includes, antes de qualquer código
-        sed -i '/#include <asm\/domain.h>/a\
-\
-/* Macros for ARM-only mode (no Thumb support) */\
-\
-/* arm() macro - execute ARM instruction */\
-	.macro arm, instr:vararg\
-	\\instr\
-	.endm\
-\
-/* thumb() macro - ignore Thumb instructions in ARM mode */\
-	.macro thumb, instr:vararg\
-	.endm\
-\
-/* W() macro - wide instruction, just pass through in ARM */\
-	.macro W, instr:vararg\
-	\\instr\
-	.endm\
-\
-/* w() lowercase version */\
-	.macro w, instr:vararg\
-	\\instr\
-	.endm\
-\
-/* BSYM() - pass symbol through without Thumb bit */\
-#define BSYM(sym) sym\
-' arch/arm/include/asm/assembler.h
+        # Substituir a macro ARM() existente para não usar .if
+        sed -i 's/^[[:space:]]*\.macro[[:space:]]*ARM[[:space:]]*instr:vararg.*$/	.macro ARM, instr:vararg\n	\\instr\n	.endm/' arch/arm/include/asm/assembler.h
 
-        echo "  ✓ Macros assembly adicionadas ao assembler.h"
+        # Substituir a macro THUMB() existente para ser vazia
+        sed -i 's/^[[:space:]]*\.macro[[:space:]]*THUMB[[:space:]]*instr:vararg.*$/	.macro THUMB, instr:vararg\n	.endm/' arch/arm/include/asm/assembler.h
+
+        # Substituir a macro W() existente
+        sed -i 's/^[[:space:]]*\.macro[[:space:]]*W[[:space:]]*instr:vararg.*$/	.macro W, instr:vararg\n	\\instr\n	.endm/' arch/arm/include/asm/assembler.h
+
+        # Adicionar versões minúsculas se não existirem
+        if ! grep -q "^[[:space:]]*\.macro[[:space:]]*arm[[:space:]]" arch/arm/include/asm/assembler.h; then
+            sed -i '/^[[:space:]]*\.macro[[:space:]]*ARM[[:space:]]/a\
+	.macro arm, instr:vararg\n	\\instr\n	.endm' arch/arm/include/asm/assembler.h
+        fi
+
+        if ! grep -q "^[[:space:]]*\.macro[[:space:]]*thumb[[:space:]]" arch/arm/include/asm/assembler.h; then
+            sed -i '/^[[:space:]]*\.macro[[:space:]]*THUMB[[:space:]]/a\
+	.macro thumb, instr:vararg\n	.endm' arch/arm/include/asm/assembler.h
+        fi
+
+        # Adicionar BSYM() como define se não existir
+        if ! grep -q "^#define BSYM" arch/arm/include/asm/assembler.h; then
+            sed -i '/#include <asm\/domain.h>/a\
+\n/* BSYM() - pass symbol through without Thumb bit */\n#define BSYM(sym) sym' arch/arm/include/asm/assembler.h
+        fi
+
+        echo "  ✓ Macros ARM/THUMB corrigidas no assembler.h"
     fi
 
     # Corrigir proc-v7.S linha 321
@@ -127,6 +125,17 @@ EOF
         echo "Corrigindo proc-v7.S..."
         sed -i '321s/\s*@.*$//' arch/arm/mm/proc-v7.S
         echo "  ✓ proc-v7.S OK"
+    fi
+
+    # === CORREÇÃO timer.c - Adicionar NR_MSM_IRQS ===
+    echo "Corrigindo timer.c (NR_MSM_IRQS)..."
+    if [ -f arch/arm/mach-msm/timer.c ]; then
+        # Adicionar include para irqs.h se não existir
+        if ! grep -q "#include <mach/irqs.h>" arch/arm/mach-msm/timer.c; then
+            sed -i '/#include <linux\/interrupt.h>/a\
+#include <mach/irqs.h>' arch/arm/mach-msm/timer.c
+        fi
+        echo "  ✓ timer.c OK"
     fi
 
     # Correção rcupdate.h
