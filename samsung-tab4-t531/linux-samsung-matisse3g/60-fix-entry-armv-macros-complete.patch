@@ -1,0 +1,199 @@
+--- a/arch/arm/kernel/entry-armv.S
++++ b/arch/arm/kernel/entry-armv.S
+@@ -90,10 +90,10 @@
+ 	.endm
+ 
+ 	.macro	svc_entry, stack_hole=0
+- ARM(	stmib	sp, {r1 - r12}	)
+- THUMB(	stmia	sp, {r0 - r12}	)
+- THUMB(	str	sp, [sp, #52]	)
+- THUMB(	str	lr, [sp, #56]	)
++	stmib	sp, {r1 - r12}
++	nop
++	nop
++	nop
+ 	ldmia	r0, {r1 - r3}
+ 	add	r5, sp, #S_SP - 4	@ here for interlock avoidance
+ 	mov	r4, #-1			@  ""  ""      ""       ""
+@@ -360,24 +360,24 @@
+  * context.
+  */
+ 	.macro	usr_entry
+- ARM(	stmib	sp, {r1 - r12}	)
+- THUMB(	stmia	sp, {r0 - r12}	)
++	stmib	sp, {r1 - r12}
++	nop
+ 
+ 	ldmia	r0, {r3 - r5}
+ 	add	r0, sp, #S_PC		@ here for interlock avoidance
+ 	mov	r6, #-1			@  ""  ""     ""        ""
+ 
+ 	str	r3, [sp]		@ save the "real" r0 copied
+ 					@ from the exception stack
+ 
+ 	@
+ 	@ We are now ready to fill in the remaining blanks on the stack:
+ 	@
+ 	@  r4 - lr_<exception>, already fixed up for correct return/restart
+ 	@  r5 - spsr_<exception>
+ 	@  r6 - orig_r0 (see pt_regs definition in ptrace.h)
+ 	@
+- ARM(	stmdb	r0, {sp, lr}^			)
+- THUMB(	store_user_sp_lr r0, r1, S_SP - S_PC	)
++	stmdb	r0, {sp, lr}^
++	nop
+ 
+ 	@
+ 	@ Enable the alignment trap while in kernel mode
+@@ -591,11 +591,11 @@
+ 	@
+ 	@ get ready to re-enable interrupts if appropriate
+ 	@
+ 	mrs	r9, cpsr
+- THUMB(	lsr	r8, r8, #8		)
+- ARM(	strb	r7, [r6, r8, lsr #8]	)
+- THUMB(	strb	r7, [r6, r8]		)
++	nop
++	strb	r7, [r6, r8, lsr #8]
++	nop
+ 	cpsie	i
+-	ARM(	add	pc, pc, r8, lsr #6	)
+- THUMB(	lsl	r8, r8, #2		)
+- THUMB(	add	pc, r8			)
++	add	pc, pc, r8, lsr #6
++	nop
++	nop
+ 	nop
+ 
+@@ -609,10 +609,10 @@
+ 	movw_pc	lr				@ branch to vector_fpe
+ 
+ 	@
+ 	@ Emulation of ARMv7 and ARMv6 feature(s):
+ 	@ VFPv2
+ 	@
+  W(b)	do_fpe				@ CP#1  (VFP)
+- W(b)	do_fpe				@ CP#2  (VFP)
++	b	do_fpe				@ CP#2  (VFP)
+ 	mov	pc, lr				@ CP#3
+ #ifdef CONFIG_NEON
+ 	b	do_vfp				@ CP#10 (VFP)
+@@ -625,8 +625,8 @@
+ 	b	do_vfp				@ CP#10 (VFP)
+ 	b	do_vfp				@ CP#11 (VFP)
+ #else
+- W(b)	do_vfp				@ CP#10 (VFP)
+- W(b)	do_vfp				@ CP#11 (VFP)
++	b	do_vfp				@ CP#10 (VFP)
++	b	do_vfp				@ CP#11 (VFP)
+ #endif
+ 	mov	pc, lr				@ CP#12
+ 	mov	pc, lr				@ CP#13
+@@ -730,10 +730,10 @@
+ 	mrs	ip, cpsr
+ 	stmfd	sp!, {r4, r5, r6, r8, r9, ip, lr}
+ 	ldr	r4, [r2]			@ get new task_struct
+- ARM(	stmia	ip!, {r4 - sl, fp, sp, lr} )	@ Store most regs on stack
+- THUMB(	stmia	ip!, {r4 - sl, fp}	   )	@ Store most regs on stack
+- THUMB(	str	sp, [ip], #4		   )
+- THUMB(	str	lr, [ip], #4		   )
++	stmia	ip!, {r4 - sl, fp, sp, lr}
++	nop
++	nop
++	nop
+ 	ldr	r4, [r2, #TI_TP_VALUE]
+ 	ldr	r5, [r2, #TI_TP_VALUE + 4]
+ #ifdef CONFIG_CPU_USE_DOMAINS
+@@ -756,10 +756,10 @@
+ 	add	r4, r2, #TI_CPU_SAVE
+ 	ldr	r0, =thread_notify_head
+ 	mov	r1, #THREAD_NOTIFY_SWITCH
+- THUMB(	mov	ip, r4			   )
++	mov	ip, r4
+ 	bl	atomic_notifier_call_chain
+- ARM(	ldmia	r4, {r4 - sl, fp, sp, pc}  )	@ Load all regs saved previously
+- THUMB(	ldmia	ip!, {r4 - sl, fp}	   )	@ Load all regs saved previously
+- THUMB(	ldr	sp, [ip], #4		   )
+- THUMB(	ldr	pc, [ip]		   )
++	ldmia	r4, {r4 - sl, fp, sp, pc}
++	nop
++	nop
++	nop
+  ENDPROC(__switch_to)
+ 
+@@ -777,7 +777,7 @@
+ 	.align	5
+ __dabt_svc:
+ 	svc_entry
+- THUMB(	.arm	)
++	.arm
+ 	mov	r2, sp
+ 	dabt_helper
+ 
+@@ -1078,7 +1078,7 @@
+ 
+ 	.align	5
+ __dabt_usr:
+- THUMB(	.thumb	)
++	.thumb
+ 	usr_entry
+ 	mov	r2, sp
+ 	dabt_helper
+@@ -1120,8 +1120,8 @@
+  * of the compiler generated call table.
+  */
+ 		adr	r0, 1f
+- THUMB(		adr	r0, 1f			)
+- THUMB(		ldr	lr, [r0, lr, lsl #2]	)
++		adr	r0, 1f
++		ldr	lr, [r0, lr, lsl #2]
+ 		mov	why, #0
+ 		b	call_fpe
+ #else
+@@ -1135,7 +1135,7 @@
+ 		mov	pc, lr
+ #else
+ 		bic	r0, lr, #0xff000000	@ mask out "invalid" bits
+- ARM(		ldr	lr, [pc, lr, lsl #2]	)
++		ldr	lr, [pc, lr, lsl #2]
+ 		mov	why, #0
+ 		b	call_fpe
+ #endif
+@@ -1150,10 +1150,10 @@
+  * entry point.
+  */
+ 		.align	2
+- ARM(		swi	SYS_SYSCALL		)
+- THUMB(		svc	#0			)
+- THUMB(		nop				)
+-		b	sys_ni_syscall
++1:		swi	SYS_SYSCALL
++		nop
++		nop
++2:		b	sys_ni_syscall
+  ENDPROC(sys_syscall)
+ 
+ /*============================================================================
+@@ -1279,14 +1279,14 @@
+  */
+ 	.align	5
+ .L__vectors_start:
+- W(b)	vector_rst
+- W(b)	vector_und
+- W(ldr)	pc, __vectors_start+0x1000
+- W(b)	vector_pabt
+- W(b)	vector_dabt
+- W(b)	vector_addrexcptn
+- W(b)	vector_irq
+- W(b)	vector_fiq
++	b	vector_rst
++	b	vector_und
++	ldr	pc, __vectors_start+0x1000
++	b	vector_pabt
++	b	vector_dabt
++	b	vector_addrexcptn
++	b	vector_irq
++	b	vector_fiq
+ 
+ /*
+  * Vector stubs.
