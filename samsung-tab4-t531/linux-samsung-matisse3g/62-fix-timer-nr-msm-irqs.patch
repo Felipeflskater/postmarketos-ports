@@ -1,0 +1,18 @@
+--- a/arch/arm/mach-msm/timer.c
++++ b/arch/arm/mach-msm/timer.c
+@@ -40,10 +40,15 @@
+ #include <mach/msm_iomap.h>
+ #include <mach/cpu.h>
+ #include <mach/board.h>
+-#include <mach/irqs.h>
++
++/* Define NR_MSM_IRQS locally if not defined */
++#ifndef NR_MSM_IRQS
++#define NR_MSM_IRQS 256
++#endif
+ 
+ #define TIMER_MATCH_VAL			0x0000
+ #define TIMER_COUNT_VAL			0x0004
+ #define TIMER_ENABLE			0x0008
+ #define TIMER_ENABLE_CLR_ON_MATCH_EN	BIT(1)
+ #define TIMER_ENABLE_EN			BIT(0)
